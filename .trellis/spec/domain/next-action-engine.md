@@ -92,6 +92,27 @@ interface EngineOutput {
 codes (`context-match`, `window-open`, `time-fits`, `dependency-clear`,
 `calendar-preempt`). `FilterRuleId` = the rule ids in the table below.
 
+## Implementation (real files — task 09-21-monorepo-scaffold, 2026-09-21)
+
+| Spec concept | File (`packages/core/src/engine/`) | Export |
+|---|---|---|
+| The contract above (verbatim shape) | `types.ts` | `CandidateAction`, `EngineInput`, `EngineOutput`, `Reason`, … |
+| v1 weights `W` | `weights.ts` | `W` |
+| Re-clarify threshold | `weights.ts` | `RECLARIFY_THRESHOLD = 3` |
+| Hard filter (fixed order) + calendar preemption | `filters.ts` | `hardFilter()` → `{ ranked, preempted, filtered }` |
+| Signals, score, score reasons | `rank.ts` | `SCORE_CODES`, `scoreCandidate()` |
+| Orchestration (filter → preempt → rank → `needsReclarify`) + tie-breaks | `recommend.ts` | `recommend()` → `EngineOutput` |
+| Shared test fixtures (fixed `now` = 2026-09-21T09:00Z) | `fixtures.ts` | `NOW`, `iso()`, `makeNext`/`makeHabit`/`makeCalendar` |
+
+All public via `packages/core/src/index.ts` (explicit re-exports). Tests are
+co-located (`filters.test.ts`, `rank.test.ts`, `recommend.test.ts`) — Jest with
+the device-local pin done as `TZ=UTC` in the test script (`test-setup.ts`
+documents why the script-level pin is the effective one). The `consecutiveSkips`
+lifecycle (skip transaction; resets on complete/snooze/re-clarify) lives in the
+mutation transactions of `packages/db/src/queries/actions.ts`
+(`skipAction` / `completeAction` / `snoozeAction`) — the engine only reads the
+counter.
+
 ## Hard Filter (Proposal §6.1) — fixed order, every exclusion recorded
 
 (Candidates arrive per the pool contract — already open and non-deleted.)

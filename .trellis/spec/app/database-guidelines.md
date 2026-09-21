@@ -21,11 +21,19 @@ UI:
 - **All client-side SQL lives in `packages/db`.** Components and hooks never build
   SQL. (Server-side Postgres SQL is isolated to `server/app/src` — the upload
   endpoint's apply logic; never in `packages/db`.)
-- One file per aggregate in `packages/db/src/queries/` (`actions.ts`, `projects.ts`,
-  `habits.ts`, ...), exporting named query functions with fully typed parameters and
-  return types (Kysely infers row types from `schema.ts`).
+- One file per aggregate in `packages/db/src/queries/` (`actions.ts`, `calendar.ts`,
+  `contexts.ts`, `focus.ts`, `habits.ts`, `inbox.ts`, `pool.ts`, `projects.ts`,
+  `references.ts`, `reviews.ts`, `someday.ts`, `waiting.ts`, `watch-queries.ts`),
+  exporting named query functions with fully typed parameters and return types
+  (Kysely infers row types from `schema.ts`).
 - Query functions take a `db` handle (injected) so they are testable against a fixture
-  DB without app bootstrap.
+  DB without app bootstrap. The handle type `NextdoDb` is defined in
+  `packages/db/src/types.ts`; the app obtains it once via `wrapDb(powersync)`
+  (`packages/db/src/kysely.ts`) — Kysely never leaks out of `packages/db`.
+- Watched queries (live re-fetch when a table changes): the Kysely select builder is
+  adapted to a PowerSync `CompilableQuery` by `toCompilableQuery()` in
+  `packages/db/src/watch-query.ts`; the app passes the result to `useQuery`
+  (see the `@powersync/react` boundary below).
 
 ## Schema Conventions (`packages/db/src/schema.ts`)
 
@@ -61,7 +69,10 @@ UI:
     CRUD transaction at a time and POSTs its ops to the **app backend's upload
     endpoint** (`server/`); the endpoint applies them to Postgres synchronously.
 - **Connector** (`packages/db/src/powersync.ts`, the only PowerSync-client
-  touchpoint; exact API shape follows the current SDK docs at scaffold time):
+  touchpoint — `createPowerSyncConnector(config)` returns the
+  `PowerSyncBackendConnector` with the two callbacks below; the same file also
+  holds `createPowerSyncDatabase()`, `subscribeAppStream()`, and the stream-name
+  constant `SYNC_STREAM_NAME = 'all'`):
   - `fetchCredentials()` → app backend credential endpoint → returns
     `{ token: JWT, endpoint: service URL }`. The SDK caches credentials and
     pre-fetches when the JWT has < 30 s left; expiry/401 re-fetches automatically.
@@ -102,16 +113,34 @@ UI:
   A schema change = one change unit: `schema.ts` + `server/powersync/` stream
   + (when DDL) the Postgres change.
 - **App backend (`server/app`)**: a minimal **Hono (TypeScript) API on Node 24**
-  (its own pnpm workspace), containerized (Dockerfile in `server/`); v1 host:
-  Fly.io (exact deploy target pinned at scaffold time). Two endpoints, **both
-  requiring the owner token** — v1 single-user auth per Proposal §10; a real
-  account flow is post-MVP, the seam stays:
+  (its own pnpm workspace), containerized (`server/app/Dockerfile`, node:24-alpine,
+  multi-stage; the real deploy target is post-scaffold — v1 runs the local
+  `server/powersync/docker-compose.yml` stack). Two endpoints, **both requiring the
+  owner token** — v1 single-user auth per Proposal §10; a real account flow is
+  post-MVP, the seam stays:
   - `GET /credentials` → verifies the owner token, mints a 15-min PowerSync JWT
-    (signed with `jose`; the old `powersync-jwt` package was removed in the 2026-07
-    SDK v2 revamp);
+    (signed with `jose` HS256; the old `powersync-jwt` package was removed in the
+    2026-07 SDK v2 revamp);
   - `POST /upload` → verifies the owner token, applies the ps_crud batch to Postgres
     (upserts; 2xx for validation-level rejections).
   Without the owner token both endpoints return 401 — there is no anonymous access.
+
+  File layout (`server/app/src/`): `app.ts` (`createApp(config)` — the
+  side-effect-free Hono app with both routes, unit-testable via `app.request()`
+  with an injected pool + clock), `index.ts` (process entry: env validation,
+  pg pool, `serve()` on `:PORT` — the only self-starting module), `auth.ts`
+  (Bearer parsing + timing-safe compare; the 401 matrix), `credentials.ts`
+  (JWT: exactly 900 s TTL from an injected `now`, `kid: nextdo-dev`,
+  `aud: nextdo`, `sub: owner`), `upload.ts` (body parsing + apply: upsert
+  mutable / insert-only append-only / soft-delete), `db.ts` (pg pool + the
+  14-table column catalog — a re-declaration of `packages/db/src/schema.ts`;
+  a test asserts the two stay in lockstep), `logger.ts`. Tests live in
+  `server/app/test/` (mocked `pg`, asserting real SQL text + bound values).
+  **JWT secret sharing**: one base64url `JWT_SECRET`, one form, in two
+  `.env.example` files — `server/app/.env` (decoded by `credentials.ts` into
+  the HS256 signing key) and `server/powersync/.env` (interpolated into
+  `PS_JWT_SECRET` → `service.yaml` JWK `k` verbatim). `kid` + `audience` are
+  pinned on both sides.
   The owner token (`NEXTDO_OWNER_TOKEN`) is a shared secret generated once; the
   client stores it per platform — `expo-secure-store` exists only on native, so:
 
@@ -120,18 +149,34 @@ UI:
   | iOS / Android | `expo-secure-store` (Keychain / Keystore) |
   | Tauri desktop | `@tauri-apps/plugin-stronghold` (encrypted local store) |
   | Browser Web | in-memory only — re-entered after a browser restart (v1; browser is a secondary surface; a cookie/session flow ships with the post-MVP account work) |
-- **Web/Tauri assembly**: the JS web client runs SQLite (wasm) inside a **web worker**
-  — the Expo Web build must export the worker as a static asset and resolve its path
-  at build time (Tauri loads the exported bundle). This is the one known
-  web-specific setup point; the scaffold task pins the exact worker/base-path config.
+
+  Storage lives in one module: `packages/db/src/owner-token.ts` — the ONLY
+  place in the monorepo that touches client-side secret storage. The backend
+  is chosen lazily on first use (like the platform client in
+  `powersync.ts`), the connector reads it via `getOwnerToken()`, and
+  dev/test injects it via `__setStorageBackendForTests`. No env-var fallback
+  anywhere (client env values may end up in the build output).
+  **Known defect** (tracked in task 09-21-monorepo-scaffold,
+  implement.md "Known defects"): `createStrongholdStore()` calls APIs that do
+  not exist on `@tauri-apps/plugin-stronghold@2.3.2`; not caught by tests
+  (Jest runs on Node → in-memory store; the `require` is lazy) but will throw
+  in a real desktop runtime.
+- **Web/Tauri assembly**: the JS web client runs SQLite (wasm) inside a **web worker**.
+  In this repo the worker + its wasm bundle are checked in as static assets under
+  `apps/mobile/public/@powersync/` (`worker.js` + `assets/*.wasm`); the Expo Web
+  build serves `public/` as-is, and Tauri loads the exported bundle.
+  `apps/mobile/metro.config.js` stubs the *other* platform's PowerSync SDK to an
+  empty module (`resolveRequest`) so each bundle only ever contains its own SDK.
 - **Platform adaptation**: `packages/db` is written once; `powersync.ts` selects the
   client module at init — native: `@powersync/react-native` (2.x, with the
   `@op-engineering/op-sqlite` SQLite adapter installed as a direct dependency); web
   & Tauri desktop: `@powersync/web` (the official Tauri plugin is alpha — tracked,
   not used in v1; the RN-Web support path is beta: both SDKs installed,
-  platform-specific instantiation, worker assets in `public/`, Metro
-  `resolveRequest` stubbing the other platform's SDK — details pinned in the
-  scaffold task research). No separate desktop sync code. Kysely integration
+  platform-specific instantiation, worker assets in `public/@powersync/`, Metro
+  `resolveRequest` stubbing the other platform's SDK — runtime selection is
+  `isReactNativeRuntime()` / `loadPowerSyncClientModule()` in
+  `packages/db/src/powersync.ts`, stubbing in `apps/mobile/metro.config.js`).
+  No separate desktop sync code. Kysely integration
   goes through `@powersync/kysely-driver` (kysely pinned to 0.29.x).
 - **`@powersync/react` boundary** (React binding, 2.x): the **only** PowerSync
   package importable outside `packages/db` — limited to the app's root layout
@@ -170,8 +215,41 @@ UI:
 
 - In-memory (or temp-file) PowerSync/SQLite fixture per test file, seeded with the
   canonical "demo user" dataset from `packages/db/src/test/fixtures.ts`.
+- `packages/db` tests run on a **real local DB, not a mock**:
+  `packages/db/src/test/powersync-node.ts` boots the *web* PowerSync client (the
+  same code path as Tauri/desktop) on Node's `node:sqlite` + the PowerSync C
+  extension shipped by `@powersync/node` (loaded per connection via
+  `DatabaseSync.loadExtension`). Sync is never started in tests.
+- `server/app` tests use a mocked `pg` client and assert the exact SQL text +
+  bound values, the status-code matrix, and real JWT verification (tokens are
+  minted wall-anchored — `jose` verifies `exp` against the real clock).
 - Every query function: happy path + empty result + (for mutations) invariant-violation
   case.
+
+### Gotcha: jest drops function-valued config options — path-based plugins only
+
+Jest JSON-serializes the project config to its worker processes, which
+**silently drops function values**: an inline babel plugin loses its `visitor`,
+and the broken output is cached under the same key (the key also drops
+functions), so `--clearCache` cannot fix it and the failure only surfaces
+cold + parallel. If a jest config needs a babel plugin, write it as a `.cjs`
+file and reference it **by path** (strings survive serialization; babel
+`require()`s it inside each worker). See `packages/db/jest-import-meta-url.cjs`
+(fixes `import.meta.url` under the db suite's CJS transform).
+
+## Deviations from intent (recorded 2026-09-21 — task 09-21-monorepo-scaffold)
+
+- **`server/app` route/entry split**: the intent tree put the routes in
+  `index.ts`; the implementation splits them — `app.ts` holds `createApp`
+  (side-effect-free), `index.ts` is the pure process entry. Forced by
+  `import.meta` (a parse-time SyntaxError under babel-jest's CJS output): the
+  tests import the app module, so no file in the jest transform path may use
+  `import.meta`.
+- **Tauri stronghold backend defect** (`owner-token.ts`): `createStrongholdStore()`
+  targets an API that does not exist on the installed
+  `@tauri-apps/plugin-stronghold@2.3.2` (Ristretto vault API). Not caught by
+  tests; will throw in a real desktop runtime. Tracked in implement.md
+  "Known defects" — the fix needs a vault-password strategy decision first.
 
 ## Forbidden
 
