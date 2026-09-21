@@ -158,3 +158,20 @@ pnpm --filter @nextdo/mobile exec expo export --platform web
 - After Step 4: confirm the web worker export actually lands in the export
   bundle (inspect `dist/`), not just that the export command exits 0.
 - Step 7 is the task gate: nothing moves to Phase 3 until it is green.
+
+## Known defects / follow-ups (post-scaffold)
+
+- **`packages/db/src/owner-token.ts` — Tauri stronghold backend uses a
+  non-existent API (blocked: needs a Tauri build to verify).** The
+  `createStrongholdStore()` calls `Stronghold.init/createFile/readFile/
+  writeFile/deleteFile`, but the installed `@tauri-apps/plugin-stronghold@
+  2.3.2` is Ristretto's vault API: `Stronghold.load(path, password)` →
+  `client.getStore()` → `store.insert/get/remove` + `stronghold.save()`. It is
+  not caught by tests (Jest runs on Node → in-memory store; the stronghold
+  `require` is lazy) but WILL throw on a real desktop runtime, and it sits on
+  the `fetchCredentials` path (via `getOwnerToken`). Fix in the
+  runtime-owner-token task: (1) pick a vault password strategy (spec — not
+  defined yet), (2) rewrite the store against the 2.3.2 API, (3) keep the
+  Rust-side `tauri-plugin-stronghold` registration consistent, (4) verify with
+  a real `tauri dev` run (no Rust toolchain in the current env). Marked
+  in-code at `createStrongholdStore`.

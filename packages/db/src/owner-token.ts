@@ -72,7 +72,18 @@ function createSecureStoreStore(): KeyValueStore {
 }
 
 /** Encrypted local file (Tauri desktop) — the plugin is required lazily
- *  so plain Node / browser never loads the Tauri IPC bridge. */
+ *  so plain Node / browser never loads the Tauri IPC bridge.
+ *
+ *  KNOWN DEFECT (cannot be verified without a real Tauri build): the calls
+ *  below target a file-based API (`init` / `createFile` / `readFile` /
+ *  `writeFile` / `deleteFile`) that does NOT exist in the installed
+ *  `@tauri-apps/plugin-stronghold@2.3.2`, whose real API is Ristretto's
+ *  vault model (`Stronghold.load(path, password)` → `client.getStore()` →
+ *  `store.insert/get/remove` + `stronghold.save()`). Jest never reaches this
+ *  branch (plain Node → in-memory store), so the suite stays green; on a real
+ *  desktop runtime it throws (and it sits on the `fetchCredentials` path via
+ *  `getOwnerToken`). Rewrite against the 2.3.2 API as part of the
+ *  runtime-owner-token task. */
 function createStrongholdStore(): KeyValueStore {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Stronghold } = require('@tauri-apps/plugin-stronghold') as {
