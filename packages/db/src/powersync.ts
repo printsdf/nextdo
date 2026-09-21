@@ -31,13 +31,15 @@
  * No env-var fallback anywhere (spec: client env values may end up in the
  * build output) — every value comes from the injected `NextdoPowerSyncConfig`.
  */
+import { LogLevels } from '@powersync/common';
 import type {
   CommonPowerSyncDatabase,
   PowerSyncBackendConnector,
   PowerSyncCredentials,
+  PowerSyncLogger,
   Schema,
 } from '@powersync/common';
-import { SyncNextdoError } from '@nextdo/core';
+import { logger, SyncNextdoError, ValidationNextdoError } from '@nextdo/core';
 import { AppSchema } from './schema';
 import { getOwnerToken } from './owner-token';
 
@@ -60,12 +62,35 @@ export const DB_FILENAME = 'nextdo.db';
  */
 export const SYNC_STREAM_NAME = 'all';
 
-/** The platform PowerSync client module (lazy-loaded — see file header). */
+/** The native (React Native/Expo) client module (lazy-loaded — see header). */
 export interface PowerSyncClientModule {
   PowerSyncDatabase: new (options: {
     schema: Schema;
     database: { dbFilename: string };
   }) => CommonPowerSyncDatabase;
+}
+
+/** The web client module — same constructor plus the wasm-sqlite factory.
+ *  (The web SDK runs SQLite (wasm) inside a web worker; see the
+ *  react-native-web-support docs.) Shapes mirror `@powersync/web` 2.3.1. */
+export interface PowerSyncWebClientModule {
+  PowerSyncDatabase: new (options: {
+    schema: Schema;
+    logger?: PowerSyncLogger;
+    factory: unknown;
+    sync?: { worker: string };
+  }) => CommonPowerSyncDatabase;
+  WASQLiteOpenFactory: new (options: {
+    open: { dbFilename: string; worker: string };
+    logger: PowerSyncLogger;
+  }) => unknown;
+}
+
+/** Options for `createPowerSyncDatabase`. */
+export interface CreatePowerSyncDatabaseOptions {
+  /** Web / Tauri only: where the @powersync/web worker asset is served from
+   *  (e.g. `/@powersync/worker.js`). Required on the web platform. */
+  web?: { workerPath: string };
 }
 
 /** React Native runtime check without importing `react-native` (that
@@ -80,7 +105,7 @@ export function isReactNativeRuntime(): boolean {
  * the lazy platform switch: Metro bundles it for the app, jest resolves
  * it for the web path, and plain Node never takes the native branch.
  */
-export function loadPowerSyncClientModule(): PowerSyncClientModule {
+export function loadPowerSyncClientModule(): PowerSyncClientModule | PowerSyncWebClientModule {
   if (isReactNativeRuntime()) {
     // Lazy platform switch — Metro bundles the native module, jest/Node take
     // the web path. A static import would pull react-native into every build.
@@ -88,16 +113,63 @@ export function loadPowerSyncClientModule(): PowerSyncClientModule {
     return require('@powersync/react-native') as PowerSyncClientModule;
   }
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require('@powersync/web') as PowerSyncClientModule;
+  return require('@powersync/web') as PowerSyncWebClientModule;
+}
+
+/**
+ * PowerSync SDK logger → the repo's single logger (project/conventions.md
+ * §Logging — the SDK must not emit its own console traffic). Only warn and
+ * above surface: the SDK's info-level protocol chatter is noise.
+ */
+function createSdkLogger(): PowerSyncLogger {
+  return {
+    log(record) {
+      if (record.level >= LogLevels.error) {
+        logger.error(`powersync: ${record.message}`, record.error);
+      } else if (record.level >= LogLevels.warn) {
+        logger.warn(`powersync: ${record.message}`);
+      }
+    },
+  };
 }
 
 /**
  * Create the platform PowerSync client (NOT connected — the app calls
  * `connect(createPowerSyncConnector(config))` once, in the root layout).
+ *
+ * - native (Expo iOS/Android): the RN SDK + the `@op-engineering/op-sqlite`
+ *   adapter (autolinked as a direct dependency of the app).
+ * - web / Tauri desktop: the web SDK — SQLite (wasm) runs in a web worker,
+ *   so the caller must pass `web.workerPath` (the worker asset copied into
+ *   the app's `public/` directory; research/versions-powersync.md).
  */
-export function createPowerSyncDatabase(): CommonPowerSyncDatabase {
-  const { PowerSyncDatabase } = loadPowerSyncClientModule();
-  return new PowerSyncDatabase({ schema: AppSchema, database: { dbFilename: DB_FILENAME } });
+export function createPowerSyncDatabase(
+  options?: CreatePowerSyncDatabaseOptions,
+): CommonPowerSyncDatabase {
+  if (isReactNativeRuntime()) {
+    const { PowerSyncDatabase } = loadPowerSyncClientModule() as PowerSyncClientModule;
+    return new PowerSyncDatabase({ schema: AppSchema, database: { dbFilename: DB_FILENAME } });
+  }
+  const workerPath = options?.web?.workerPath;
+  if (workerPath === undefined || workerPath === '') {
+    throw new ValidationNextdoError(
+      'powersync.web-worker-missing',
+      'the PowerSync web client needs the worker asset path (options.web.workerPath)',
+    );
+  }
+  const { PowerSyncDatabase, WASQLiteOpenFactory } =
+    loadPowerSyncClientModule() as PowerSyncWebClientModule;
+  const sdkLogger = createSdkLogger();
+  const factory = new WASQLiteOpenFactory({
+    open: { dbFilename: DB_FILENAME, worker: workerPath },
+    logger: sdkLogger,
+  });
+  return new PowerSyncDatabase({
+    schema: AppSchema,
+    factory,
+    logger: sdkLogger,
+    sync: { worker: workerPath },
+  });
 }
 
 /**

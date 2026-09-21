@@ -1,0 +1,5 @@
+{
+  "caption": { "size": 12, "weight": "400", "lineHeight": 16 },
+  "body": { "size": 15, "weight": "400", "lineHeight": 21 },
+  "title": { "size": 20, "weight": "600", "lineHeight": 26 }
+}

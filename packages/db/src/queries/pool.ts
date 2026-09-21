@@ -210,3 +210,26 @@ export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePo
 
   return { actions, calendar: blocks, projects };
 }
+
+/**
+ * Watch-query builder for the engine pool (the app's `useActionPool` hook
+ * wraps this in its `@powersync/react` watch-query subscription —
+ * database-guidelines "@powersync/react boundary"; hook-guidelines "the
+ * hook owns the subscription").
+ *
+ * It is an INVALIDATION TRIGGER, not a data query: it selects one row from
+ * every table `queryEnginePool` reads, so any change to pool-relevant rows
+ * re-fires the subscription. The subscription's result rows are unused —
+ * the pool itself is always recomputed by `queryEnginePool`, which stays
+ * the single home of pool logic (hook-guidelines: "Add the query in
+ * packages/db/src/queries, then a thin hook around it").
+ */
+export function poolWatchQuery(db: NextdoDb) {
+  return db
+    .selectFrom('next_actions')
+    .select('id')
+    .union(db.selectFrom('habit_days').select('id'))
+    .union(db.selectFrom('habits').select('id'))
+    .union(db.selectFrom('calendar_actions').select('id'))
+    .union(db.selectFrom('projects').select('id'));
+}

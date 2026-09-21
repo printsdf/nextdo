@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Nextdo",
+    "slug": "nextdo",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "nextdo",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.nextdo.mobile",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "com.nextdo.mobile"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "canvas": "#F7F6F2",
+  "canvasDark": "#141518",
+  "surface": "#FFFFFF",
+  "surfaceDark": "#1E2024",
+  "ink": "#1C1D21",
+  "inkDark": "#EAE8E3",
+  "muted": "#6A6D74",
+  "mutedDark": "#9DA0A8",
+  "accent": "#2E6B4F",
+  "accentDark": "#5CA985",
+  "onAccent": "#FFFFFF",
+  "danger": "#AF4433",
+  "warning": "#96691C",
+  "border": "#E4E2DB",
+  "borderDark": "#31343A"
+}

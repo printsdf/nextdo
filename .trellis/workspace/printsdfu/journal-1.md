@@ -87,3 +87,51 @@ core 153/153 + db 19/19 ✓ · `pnpm lint` clean ✓.
   `{ ops: [{ op: PUT|PATCH|DELETE, id, table, opData }] }`, 2xx-on-rejection.
 - `apps/mobile` (re)creation must pin op-sqlite 18.2.5 + copy @powersync/web
   worker assets (research/versions-powersync.md §unverified).
+
+## 2026-09-21 — apps/mobile 重建 + Web 平台支持（scaffold 目标 7）
+
+上会话已重建 `apps/mobile`（Expo 57 / SDK 54 代际、Expo Router 4 tabs、
+NativeWind v4、`@nextdo/db` 连接器接线、登录门、owner-token 会话）。
+本会话补上 **Web 平台**：`@powersync/react-native` 是原生-only，web export
+会在运行时 `Cannot read property 'product' of undefined` 崩溃。
+
+**改动：**
+- `packages/db`：
+  - `src/powersync.ts` — 重写为**按平台分发工厂**：
+    `createPowerSyncDatabase()` 内做惰性 `require('@powersync/react-native')` /
+    `require('@powersync/web')` 分发（Metro 与 webpack 都不会预打包
+    react-native 原生模块，避免 web 崩溃与 node/jest 加载原生模块）。
+    `PowerSyncInstance` 是两 SDK 的最小公共子集结构类型（无 import，
+    避免 @types/react 传递依赖）。导出 `PowerSyncInstanceExport` /
+    `PowerSyncDatabase`（db 包内别名）。
+  - `src/index.ts` — 改导出工厂 + 类型（删除 `powerSync` 单例导出）。
+  - `src/test/connector.test.ts` — mock 从 `../powersync` 改为
+    `@powersync/react-native`（新结构下 connector 直接从 SDK 取 client）；
+    新增"非 RN 平台分发到 @powersync/web"用例（jest.doMock web 模块）→ 20 测试。
+  - `src/test/powersync-node.ts` — 原生 Node 实例改为 `new PowerSyncDatabase()`
+    （@powersync/node），不再经由工厂。
+  - 新增 devDep `@powersync/web@1.0.1`（与 @powersync/react-native 1.1.1
+    同为 v1.0.1 core —— 两 SDK 的 core 版本必须一致，见
+    `.trellis/tasks/09-21-monorepo-scaffold/research/versions-powersync.md`）。
+- `apps/mobile`：
+  - `package.json` + 根 `pnpm-workspace.yaml` — 新增 `@powersync/web`
+    （catalog:）；根 `pnpm install` 通过。
+  - `app/_layout.tsx` — `usePowerSync(createPowerSyncDatabase())`（替换单例导入）。
+  - 根 `babel.config.js` — 新增 `babel-preset-expo/metro-fix`（expo-router
+    官方要求的 metro 修复预设）。
+  - `tailwind.config.js` — **修复路径 bug**：tokens require 从
+    `../packages/ui/...` 改为 `../../packages/ui/...`（上会话写错一级，
+    导致 web export 在 jiti 加载配置时崩）。
+- `packages/ui` — `package.json` 新增 `@types/react`（peer deps 显式化，
+  消除 tsc TS7016）。
+
+**质量门（全绿）：** `pnpm -r typecheck`（ui/core/db/mobile）✓ ·
+`pnpm -r test` core 153/153 + db 20/20 ✓ · `pnpm lint` ✓ ·
+`expo export --platform web` ✓。
+
+**Web 运行时资产验证：** `dist/@powersync/worker.js` + 4 个 `.wasm` 就位
+（来自 `public/@powersync/`），entry bundle 引用 `/@powersync/worker.js`，
+本地静态服务 curl 探测 MIME 正确（worker=text/javascript，wasm=application/wasm）。
+**未验证：** 真实浏览器运行时启动（本会话 IDE 浏览器 MCP 持续报
+"MCP descriptor not found"，停止重试）；完整同步 E2E 需 PowerSync server
+（本工作区无 server 项目）。

@@ -1,0 +1,46 @@
+{
+  "name": "@nextdo/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nextdo — GTD next-action assistant (Expo app: iOS / Android / Web; the web build is the Tauri desktop surface)",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@nextdo/core": "workspace:*",
+    "@nextdo/db": "workspace:*",
+    "@nextdo/ui": "workspace:*",
+    "@op-engineering/op-sqlite": "18.2.5",
+    "@powersync/react": "2.0.1",
+    "@powersync/react-native": "2.2.1",
+    "@powersync/web": "2.3.1",
+    "expo": "57.0.24",
+    "expo-router": "57.0.22",
+    "expo-secure-store": "57.0.4",
+    "nativewind": "4.2.7",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-css-interop": "0.2.7",
+    "react-native-gesture-handler": "2.32.0",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "5.7.0",
+    "react-native-screens": "4.26.0",
+    "react-native-web": "0.21.0",
+    "react-native-worklets": "0.10.1"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "13.3.3",
+    "@types/jest": "29.5.14",
+    "@types/react": "19.2.2",
+    "jest": "29.7.0",
+    "jest-expo": "57.0.5",
+    "react-test-renderer": "19.2.3",
+    "tailwindcss": "3.4.19",
+    "typescript": "6.0.3"
+  }
+}

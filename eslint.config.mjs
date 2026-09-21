@@ -7,6 +7,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/public/**',
       '**/.expo/**',
       '**/.swc/**',
       '**/src-tauri/**',
@@ -52,6 +53,26 @@ export default tseslint.config(
     // logger.ts is the sanctioned console wrapper (spec: only logging path)
     files: ['packages/core/src/lib/logger.ts'],
     rules: { 'no-console': 'off' },
+  },
+  {
+    // Repo-owned CommonJS tooling/config files (metro/babel/jest/tailwind + jest mocks):
+    // declare node globals + allow require (they are CJS, not ESM).
+    files: ['**/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        require: 'readonly',
+        module: 'writable',
+        exports: 'writable',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        process: 'readonly',
+        Buffer: 'readonly',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
   },
   // must be last: turns off rules that conflict with Prettier
   prettier,

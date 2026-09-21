@@ -4,5 +4,8 @@ packages:
   - 'server/app'
 
 # pnpm 10+ blocks build scripts by default; op-sqlite needs its native build
+minimumReleaseAgeExclude:
+  - '@op-engineering/op-sqlite@18.2.5'
+
 onlyBuiltDependencies:
   - '@op-engineering/op-sqlite'
