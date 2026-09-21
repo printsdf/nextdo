@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the Nextdo desktop main window: core Tauri permissions plus the Stronghold plugin commands needed to store/read the owner token.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "stronghold:default",
+    "stronghold:allow-remove-store-record"
+  ]
+}

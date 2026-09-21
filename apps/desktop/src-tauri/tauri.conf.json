@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.nextdo.desktop",
+  "productName": "Nextdo",
+  "version": "0.1.0",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @nextdo/mobile run web",
+    "devUrl": "http://localhost:8081",
+    "beforeBuildCommand": "pnpm --filter @nextdo/mobile exec expo export --platform web",
+    "frontendDist": "../../mobile/dist"
+  },
+  "app": {
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "title": "Nextdo",
+        "width": 1200,
+        "height": 800
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

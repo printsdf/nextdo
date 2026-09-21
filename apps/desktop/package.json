@@ -1,0 +1,17 @@
+{
+  "name": "@nextdo/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nextdo — Tauri v2 desktop shell. A thin native window that loads the @nextdo/mobile web build (expo export --platform web); no React code lives in this workspace.",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-stronghold": "2.3.2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.5"
+  }
+}

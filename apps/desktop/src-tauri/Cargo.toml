@@ -1,0 +1,19 @@
+[package]
+name = "nextdo-desktop"
+version = "0.1.0"
+description = "Nextdo desktop shell (Tauri v2) — wraps the @nextdo/mobile web build"
+authors = ["Nextdo"]
+edition = "2021"
+
+[lib]
+name = "nextdo_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = "2"
+
+[dependencies]
+tauri = "2.11.6"
+tauri-plugin-stronghold = "2.3.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
