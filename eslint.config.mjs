@@ -34,8 +34,6 @@ export default tseslint.config(
       globals: {
         process: 'readonly',
         Buffer: 'readonly',
-        __dirname: 'readonly',
-        __filename: 'readonly',
         URL: 'readonly',
         fetch: 'readonly',
         TextEncoder: 'readonly',
@@ -50,14 +48,16 @@ export default tseslint.config(
     },
   },
   {
-    // logger.ts is the sanctioned console wrapper (spec: only logging path)
-    files: ['packages/core/src/lib/logger.ts'],
+    // logger modules are the sanctioned console wrappers (spec: only logging
+    // path). The server has its own (Rule 1: it cannot import core's).
+    files: ['packages/core/src/lib/logger.ts', 'server/app/src/logger.ts'],
     rules: { 'no-console': 'off' },
   },
   {
-    // Repo-owned CommonJS tooling/config files (metro/babel/jest/tailwind + jest mocks):
-    // declare node globals + allow require (they are CJS, not ESM).
-    files: ['**/*.js'],
+    // Repo-owned CommonJS tooling/config files (metro/babel/jest/tailwind +
+    // jest mocks/plugins): declare node globals + allow require (they are
+    // CJS, not ESM).
+    files: ['**/*.js', '**/*.cjs'],
     languageOptions: {
       sourceType: 'commonjs',
       globals: {
@@ -72,6 +72,17 @@ export default tseslint.config(
     },
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  {
+    // ESM tooling/config files (jest/eslint/prettier .mjs): node globals.
+    files: ['**/*.mjs'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        URL: 'readonly',
+        Buffer: 'readonly',
+      },
     },
   },
   // must be last: turns off rules that conflict with Prettier
