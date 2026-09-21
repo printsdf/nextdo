@@ -121,5 +121,6 @@ Source of truth for all conventions: `.trellis/spec/` (advisor-APPROVED on
   connector shape, service config format). Evidence: `research/versions-node.md`,
   `research/versions-powersync.md` (all versions cross-checked against the npm
   registry).
-- Versions: pin exact versions in `package.json` (no `^` surprises at the
-  workspace root); versions come from `research/versions-*.md`.
+- Versions: **exact specifiers in every workspace's `package.json`** (no
+  `^`/`~` ranges anywhere; the committed lockfile is the source of truth for
+  what gets installed); versions come from `research/versions-*.md`.

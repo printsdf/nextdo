@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
+import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   {
@@ -9,6 +10,10 @@ export default tseslint.config(
       '**/.expo/**',
       '**/.swc/**',
       '**/src-tauri/**',
+      '.omp/**',
+      '.trellis/**',
+      '.agents/**',
+      '.codex/**',
     ],
   },
   js.configs.recommended,
@@ -44,8 +49,10 @@ export default tseslint.config(
     },
   },
   {
-    // logger.ts is the sanctioned console wrapper
+    // logger.ts is the sanctioned console wrapper (spec: only logging path)
     files: ['packages/core/src/lib/logger.ts'],
     rules: { 'no-console': 'off' },
   },
+  // must be last: turns off rules that conflict with Prettier
+  prettier,
 );

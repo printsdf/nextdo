@@ -11,19 +11,22 @@ Conventions: `.trellis/spec/` (injected); structure: `design.md`; scope:
    powersync local state).
 2. Read `research/versions-*.md`; install EXACTLY these versions
    (all cross-checked against the npm registry on 2026-09-21 — do not let
-   `pnpm add` resolve to a different one; the traps are marked):
+   `pnpm add` resolve to a different one; the traps are marked). Per the prd
+   pinning policy every specifier below is exact (no `^`/`~` in any workspace
+   `package.json`); where the upstream Expo template uses `~`, pin its floor
+   version exactly:
 
    | Dependency | Pinned version | Trap / note |
    |------------|---------------|-------------|
    | pnpm | `12.5.1` | no `workspaces` field in root package.json (pnpm ≥12.4.1 warns); `pnpm-workspace.yaml` is the single workspace declaration |
    | Node | `24` (v24.21.0; `.nvmrc` 24.x, `engines >=22.13`) | spec fact-correction: Node 20 EOL 2026-04-30, Expo 57 needs ≥22.13 |
-   | typescript | `~6.0.3` | **npm latest is 7.0.2** (native compiler) — unsupported by typescript-eslint 8.70 (<6.1.0) and Expo 57; always pass the explicit version |
-   | expo | `~57.0.24` | SDK 57; `58.0.0-preview` = next tag, do not use |
+   | typescript | `6.0.3` | **npm latest is 7.0.2** (native compiler) — unsupported by typescript-eslint 8.70 (<6.1.0) and Expo 57; always pass the explicit version |
+   | expo | `57.0.24` | SDK 57; `58.0.0-preview` = next tag, do not use |
    | react / react-dom | `19.2.3` | official template exact pin |
-   | react-native / react-native-web | `0.86.3` / `~0.21.0` | official template pins |
-   | react-native-reanimated / worklets / gesture-handler / screens / safe-area-context | `4.5.1` / `0.10.1` / `~2.32.0` / `~4.26.0` / `~5.7.0` | official template pins (reanimated 4 needs worklets) |
-   | expo-router / expo-secure-store | `~57.0.22` / `~57.0.4` | |
-   | jest-expo / jest | `~57.0.5` / `29.7.0` | **jest 30 is INCOMPATIBLE** (jest-expo 57 is Jest 29-line; npm jest latest is 30.5.2) — pin 29.7.0 everywhere, one Jest major repo-wide |
+   | react-native / react-native-web | `0.86.3` / `0.21.0` | official template pins |
+   | react-native-reanimated / worklets / gesture-handler / screens / safe-area-context | `4.5.1` / `0.10.1` / `2.32.0` / `4.26.0` / `5.7.0` | official template pins (reanimated 4 needs worklets) |
+   | expo-router / expo-secure-store | `57.0.22` / `57.0.4` | |
+   | jest-expo / jest | `57.0.5` / `29.7.0` | **jest 30 is INCOMPATIBLE** (jest-expo 57 is Jest 29-line; npm jest latest is 30.5.2) — pin 29.7.0 everywhere, one Jest major repo-wide |
    | nativewind / tailwindcss | `4.2.7` / `3.4.19` | NativeWind 5 is RC only; tailwind 4.x is for NW5 |
    | @powersync/react-native | `2.2.1` | v2 SDK (2026-07 revamp); `@powersync/client` no longer exists |
    | @op-engineering/op-sqlite | `18.2.5` | must be a DIRECT dependency (autolinking) + allowlisted in `pnpm-workspace.yaml` `onlyBuiltDependencies` (pnpm 10+ blocks build scripts) |
@@ -33,8 +36,8 @@ Conventions: `.trellis/spec/` (injected); structure: `design.md`; scope:
    | PowerSync Service image | `journeyapps/powersync-service:1.26.1` | config = `service.yaml` + `sync-config.yaml` (NOT `syncs/app.yaml`) |
    | Tauri (Rust crate) / cli / api / plugin-stronghold | `2.11.6` / `2.11.5` / `2.11.1` / `2.3.2` | Tauri 3.0 is alpha — do not use; Rust stable 1.98.1 (MSRV 1.77.2); config field is `build.frontendDist` (v2) + `beforeBuildCommand` |
    | hono / @hono/node-server / pg | `4.13.8` / `2.1.1` / `8.23.0` | node adapter package is `@hono/node-server`, not `hono/node` |
-   | eslint / @eslint/js / typescript-eslint / prettier | `^10.11.0` / `^10.0.1` / `^8.70.0` / `3.9.8` | ESLint 10 (flat config is the only form); typescript-eslint 8.70 supports eslint 8/9/10 + TS <6.1.0 |
-   | @types/node / @types/react | `24.13.6` / `~19.2.2` | @types/node latest is 26.x (Node 26 line) — use the 24.x line |
+   | eslint / @eslint/js / typescript-eslint / eslint-config-prettier / prettier | `10.11.0` / `10.0.1` / `8.70.0` / `10.1.8` / `3.9.8` | ESLint 10 (flat config is the only form); typescript-eslint 8.70 supports eslint 8/9/10 + TS <6.1.0 |
+   | @types/node / @types/react | `24.13.6` / `19.2.2` | @types/node latest is 26.x (Node 26 line) — use the 24.x line |
 
    If any pinned version turns out unresolvable during install, stop and
    record it — do not silently substitute.

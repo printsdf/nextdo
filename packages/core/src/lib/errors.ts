@@ -1,44 +1,28 @@
-import type { ErrorEvent } from '../types/events';
-
 /**
- * Unified error hierarchy.
+ * Typed error hierarchy (spec: project/conventions.md §Error Handling).
  *
- * All application errors extend NextdoError so the IPC layer and the
- * event bus can shape them uniformly (see toErrorEvent).
+ * Every application error extends NextdoError and carries a stable
+ * `code` so the UI can branch without parsing messages.
  */
+
 export class NextdoError extends Error {
   readonly code: string;
-  readonly details?: Record<string, unknown>;
 
-  constructor(code: string, message: string, details?: Record<string, unknown>) {
+  constructor(code: string, message: string) {
     super(message);
     this.name = new.target.name;
     this.code = code;
-    this.details = details;
   }
 }
 
-export class ConfigError extends NextdoError {}
+/** Domain validation failure (invariants, transitions, incomplete input). */
+export class ValidationNextdoError extends NextdoError {}
 
-export class StorageError extends NextdoError {}
+/** Local sync / storage layer failure. */
+export class SyncNextdoError extends NextdoError {}
 
-export class AgentError extends NextdoError {}
+/** Engine input/output contract violation. */
+export class EngineNextdoError extends NextdoError {}
 
-export class IpcError extends NextdoError {}
-
-export class NotFoundError extends NextdoError {}
-
-/** Convert an Error into the EventBus `error` payload shape. */
-export function toErrorEvent(error: Error, code?: string): ErrorEvent {
-  const base: ErrorEvent = {
-    kind: 'error',
-    name: error.name,
-    message: error.message,
-    timestamp: new Date().toISOString(),
-    stack: error.stack,
-  };
-  if (error instanceof NextdoError) {
-    return { ...base, code: code ?? error.code, details: error.details };
-  }
-  return code !== undefined ? { ...base, code } : base;
-}
+/** Local database (PowerSync/Kysely) failure. */
+export class StorageNextdoError extends NextdoError {}

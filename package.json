@@ -2,21 +2,22 @@
   "name": "nextdo",
   "version": "0.1.0",
   "private": true,
-  "description": "Nextdo - AI-driven personal assistant (monorepo root)",
+  "description": "Nextdo - GTD next-action assistant (monorepo root)",
   "packageManager": "pnpm@12.5.1",
   "engines": {
-    "node": ">=24"
+    "node": ">=22.13"
   },
   "scripts": {
-    "lint": "pnpm -r lint",
+    "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "eslint": "^10.11.0",
+    "@eslint/js": "10.0.1",
+    "eslint": "10.11.0",
+    "eslint-config-prettier": "10.1.8",
     "prettier": "3.9.8",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.0"
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.0"
   }
 }

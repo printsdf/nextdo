@@ -12,14 +12,14 @@ dist/
 # Tauri (Rust)
 apps/desktop/src-tauri/target/
 
-# Runtime artifacts
-*.sqlite
-*.sqlite-*
-
-# Environment (never commit secrets; .env.example is allowed)
+# Local env / local overrides
 .env
 .env.*
 !.env.example
+*.local
+
+# PowerSync local dev state
+.powersync/
 
 # Logs
 *.log

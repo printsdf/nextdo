@@ -12,6 +12,11 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@nextdo/core": ["./packages/core/src/index.ts"],
+      "@nextdo/db": ["./packages/db/src/index.ts"],
+      "@nextdo/ui": ["./packages/ui/src/index.ts"]
+    }
   }
 }

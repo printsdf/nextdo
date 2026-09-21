@@ -1,25 +1,27 @@
 # Expo / React Native 版本锁定（2026-09-21 核实）
 
 > 核实方式：npm registry 元数据（`npm view`）+ Expo 官方文档版本表 + npm 官方模板包 `expo-template-default`（dist-tag `sdk-57`）。
+>
+> 版本策略（见 prd）：本仓库 `package.json` 一律精确版本（禁止 `^`/`~`）；下表"锁定版本"列为要写入的精确值（官方模板自身用 `~` 的，钉其下限版本）。
 
 ## 结论速查
 
 | 依赖 | 锁定版本 | 状态 |
 |---|---|---|
-| `expo` | `~57.0.24`（SDK 57） | latest 稳定版（57.0.24，2026-09-18 发布） |
+| `expo` | `57.0.24`（SDK 57） | latest 稳定版（2026-09-18 发布） |
 | `react` / `react-dom` | `19.2.3`（精确） | 官方模板固定值 |
 | `react-native` | `0.86.3`（精确） | 官方模板固定值 |
-| `react-native-web` | `~0.21.0` | 官方模板固定值 |
-| `expo-router` | `~57.0.22`（npm latest = 57.0.22） | 稳定 |
-| `expo-secure-store` | `~57.0.4`（npm latest = 57.0.4） | 稳定 |
-| `jest-expo` | `~57.0.5`（npm latest = 57.0.5） | 稳定；**Jest 29 系**（见下） |
+| `react-native-web` | `0.21.0` | 官方模板固定值 |
+| `expo-router` | `57.0.22`（npm latest） | 稳定 |
+| `expo-secure-store` | `57.0.4`（npm latest） | 稳定 |
+| `jest-expo` | `57.0.5`（npm latest） | 稳定；**Jest 29 系**（见下） |
 | `react-native-reanimated` | `4.5.1`（精确） | 官方模板固定值 |
 | `react-native-worklets` | `0.10.1`（精确） | 官方模板固定值（reanimated 4 的配套包，SDK 57 起需要） |
-| `react-native-gesture-handler` | `~2.32.0` | 官方模板固定值 |
-| `react-native-screens` | `~4.26.0` | 官方模板固定值 |
-| `react-native-safe-area-context` | `~5.7.0` | 官方模板固定值 |
-| `@types/react` | `~19.2.2`（19.2.x 最新 = 19.2.18） | 官方模板固定值 |
-| `typescript` | `~6.0.3` | 官方模板固定值（详见 versions-tooling.md 的 TS 版本冲突分析） |
+| `react-native-gesture-handler` | `2.32.0` | 官方模板固定值 |
+| `react-native-screens` | `4.26.0` | 官方模板固定值 |
+| `react-native-safe-area-context` | `5.7.0` | 官方模板固定值 |
+| `@types/react` | `19.2.2`（19.2.x 最新 = 19.2.18，按策略不浮动） | 官方模板固定值 |
+| `typescript` | `6.0.3` | 官方模板固定值（详见 versions-tooling.md 的 TS 版本冲突分析） |
 | NativeWind | `4.2.7`（latest 稳定） | 见下 |
 | `tailwindcss` | `3.4.19`（3.x 最终版） | NativeWind 4 的 peer 是 `~3` |
 

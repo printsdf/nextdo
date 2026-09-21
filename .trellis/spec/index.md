@@ -40,12 +40,20 @@ conventions**, not yet-existing code. When the scaffold task lands the first cod
 the spec files with real file paths and code examples (workflow Phase 3.3), so that later
 tasks see reality instead of intent.
 
-**Fact corrections (2026-09-21, pre-scaffold)**: two spec statements turned out to be
-stale and were corrected before implementation (evidence:
+**Fact corrections (2026-09-21, pre-scaffold)**: three stale statements turned out to
+need correction before implementation (evidence:
 `.trellis/tasks/09-21-monorepo-scaffold/research/`, versions cross-checked against the
 npm registry): (1) **Node 20 → 24** — Node 20 EOL'd 2026-04-30 and Expo SDK 57
 requires Node ≥ 22.13; (2) **PowerSync SDK v2 revamp (2026-07)** — package renames
 (`@powersync/web`, `@powersync/kysely-driver`; `@powersync/client`/`@powersync/axios`/
 `powersync-jwt` no longer exist), connector shape (`uploadData(database)` +
 `getNextCrudTransaction()` + `await tx.complete()`), and service config format
-(`service.yaml` + `sync-config.yaml`, replacing `syncs/app.yaml`).
+(`service.yaml` + `sync-config.yaml`, replacing `syncs/app.yaml`); (3) **ESLint 9 → 10** —
+the task premise's "ESLint 9" was one major behind (ESLint 10.0.0 shipped 2026-02-06;
+flat config is the only config form), so the toolchain pins exact
+`eslint 10.11.0` + `@eslint/js 10.0.1` + `typescript-eslint 8.70.0` (peer range covers
+eslint 8/9/10).
+
+**Pinning policy (2026-09-21)**: exact version specifiers in every workspace
+`package.json` (no `^`/`~` ranges; the committed lockfile is the source of truth for
+what gets installed). The prd and `implement.md` Step 0 enforce it.
