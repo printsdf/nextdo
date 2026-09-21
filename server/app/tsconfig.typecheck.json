@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "sourceMap": false,
+    "types": ["node", "jest"]
+  },
+  "include": ["src", "test"]
+}

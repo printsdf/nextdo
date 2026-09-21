@@ -1,0 +1,22 @@
+# Docker build context is the repo root (see server/app/Dockerfile).
+# Keep the context small — the build only needs manifests, the lockfile,
+# and server/app.
+node_modules
+**/node_modules
+.git
+.trellis
+.omp
+.agents
+.codex
+.cursor
+.claude
+.turbo
+apps/mobile/.expo
+apps/mobile/.swc
+apps/mobile/public
+apps/desktop/src-tauri/target
+**/dist
+**/.env
+*.local
+.powersync
+*.log

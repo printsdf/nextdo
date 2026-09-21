@@ -1,0 +1,64 @@
+# Local dev stack: Postgres (source DB + PowerSync bucket storage) +
+# PowerSync Service (journeyapps/powersync-service:1.26.1 — pinned per
+# research/versions-powersync.md).
+#
+# Run from server/powersync:
+#   cp .env.example .env    # then set a real JWT_SECRET (shared with server/app)
+#   docker compose up -d
+#
+# The Hono backend (server/app) runs on the HOST against this Postgres:
+#   pnpm --filter @nextdo/server build
+#   DATABASE_URL=postgresql://nextdo:nextdo@localhost:5432/nextdo \
+#   NEXTDO_OWNER_TOKEN=... JWT_SECRET=<same> pnpm --filter @nextdo/server start
+#
+# NOT part of the unit-test gate (tests mock pg) — this is the local E2E
+# loop: client → server/app (/credentials, /upload) → Postgres →
+# PowerSync Service → client.
+
+name: nextdo-powersync
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nextdo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nextdo}
+      POSTGRES_DB: ${POSTGRES_DB:-nextdo}
+    ports:
+      - '5432:5432'
+    volumes:
+      # Runs on first init only (alphabetical order): creates the bucket
+      # storage database + the app tables the upload endpoint writes to.
+      - ./init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U "${POSTGRES_USER:-nextdo}" -d "${POSTGRES_DB:-nextdo}"',
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  powersync:
+    image: journeyapps/powersync-service:1.26.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '8080:8080'
+    volumes:
+      # service.yaml + sync-config.yaml land in /config (the image reads
+      # its config there; sync_config.path is relative to it).
+      - ./service.yaml:/config/service.yaml:ro
+      - ./sync-config.yaml:/config/sync-config.yaml:ro
+    environment:
+      # Consumed by service.yaml's `!env` tags (PS_ prefix required).
+      PS_DATA_SOURCE_URI: postgresql://${POSTGRES_USER:-nextdo}:${POSTGRES_PASSWORD:-nextdo}@postgres:5432/${POSTGRES_DB:-nextdo}
+      PS_STORAGE_URI: postgresql://${POSTGRES_USER:-nextdo}:${POSTGRES_PASSWORD:-nextdo}@postgres:5432/nextdo_powersync
+      PS_JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (base64url shared secret — same value server/app signs with)}
+      PS_ADMIN_TOKEN: ${PS_ADMIN_TOKEN:-nextdo-admin-dev}
+
+volumes:
+  pgdata:

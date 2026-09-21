@@ -1,0 +1,59 @@
+# PowerSync Service config — journeyapps/powersync-service:1.26.1
+# (docs: docs.powersync.com/configuration/powersync-service/self-hosted-instances;
+# format verified against powersync-ja/self-host-demo, 2026-09-21).
+#
+# Secrets come from the environment — `!env PS_*` is the service's own
+# substitution tag (only `PS_`-prefixed variables may be referenced).
+# docker-compose.yml populates them from server/powersync/.env.
+
+# yaml-language-server: $schema=https://unpkg.com/@powersync/service-schema@latest/json-schema/powersync-config.json
+
+_type: self-hosted
+
+telemetry:
+  disable_telemetry_sharing: false
+
+# Source database replication — the SAME Postgres the upload endpoint
+# (server/app) writes to. Single user v1: the service reads all rows.
+replication:
+  connections:
+    - type: postgresql
+      uri: !env PS_DATA_SOURCE_URI
+      sslmode: disable # local/private network only; public deployments must use verify-full/verify-ca
+
+# Sync bucket storage — a second DATABASE in the same local Postgres
+# (allowed for PG >= 14; the service auto-migrates its own bucket tables).
+storage:
+  type: postgresql
+  uri: !env PS_STORAGE_URI
+  sslmode: disable
+
+port: 8080
+
+sync_config:
+  path: sync-config.yaml
+
+# Client (app) authentication — the JWT minted by server/app
+# (credentials.ts) is verified HERE, not by the app.
+#   - HS256 shared key in dev (the service's JWK `k` IS the base64url
+#     secret; server/app decodes the same value to its signing bytes —
+#     ONE secret, one form, shared via JWT_SECRET / PS_JWT_SECRET).
+#   - Production should switch to asymmetric keys (RS256/EdDSA).
+client_auth:
+  jwks:
+    keys:
+      - kty: oct
+        alg: HS256
+        kid: nextdo-dev
+        k: !env PS_JWT_SECRET
+  audience:
+    - nextdo
+
+api:
+  tokens:
+    - !env PS_ADMIN_TOKEN # local admin API / CLI token
+
+system:
+  logging:
+    level: info
+    format: json

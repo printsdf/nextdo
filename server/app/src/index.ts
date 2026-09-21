@@ -1,0 +1,62 @@
+/**
+ * @nextdo/server — process entry: `node dist/index.js` (Dockerfile CMD /
+ * `pnpm start`). Reads the environment, opens the pg pool, and serves the
+ * Hono app from src/app.ts on :PORT (default 8787).
+ *
+ * The app (createApp, the /credentials + /upload routes) lives in
+ * src/app.ts WITHOUT side effects; this file is the only module that
+ * self-starts. The import.meta entry-point check below keeps that true —
+ * and, as a consequence, NO other file in this package uses import.meta,
+ * so the jest suite (which imports src/app.ts directly) never has to parse
+ * it (babel compiles to CJS, where import.meta is a parse-time SyntaxError).
+ *
+ * @nextdo/server is the PowerSync protocol boundary and imports NOTHING
+ * from the monorepo (spec: project/directory-structure.md Rule 1).
+ */
+import { serve } from '@hono/node-server';
+import { pathToFileURL } from 'node:url';
+import { createApp } from './app.js';
+import { createPool } from './db.js';
+import { logger } from './logger.js';
+
+/** Read the environment, refuse to boot on a missing secret, serve. */
+export async function main(): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL;
+  const ownerToken = process.env.NEXTDO_OWNER_TOKEN;
+  const jwtSecret = process.env.JWT_SECRET;
+  if (databaseUrl === undefined || databaseUrl === '') {
+    throw new Error('DATABASE_URL is not set');
+  }
+  if (ownerToken === undefined || ownerToken === '') {
+    throw new Error('NEXTDO_OWNER_TOKEN is not set');
+  }
+  if (jwtSecret === undefined || jwtSecret === '') {
+    throw new Error('JWT_SECRET is not set');
+  }
+  const portRaw = process.env.PORT;
+  const port = portRaw === undefined ? 8787 : Number(portRaw);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`PORT is not a valid port: ${portRaw}`);
+  }
+
+  const pool = createPool(databaseUrl);
+  const app = createApp({ pool, ownerToken, jwtSecret });
+  serve({ fetch: app.fetch, port }, (info) => {
+    logger.info(`listening on :${info.port}`);
+  });
+}
+
+/** True when this file is the process entry point (`node dist/index.js`). */
+function isDirectRun(): boolean {
+  const entry = process.argv[1];
+  return entry !== undefined && import.meta.url === pathToFileURL(entry).href;
+}
+
+/* Node entry — `node dist/index.js` (Dockerfile CMD / pnpm start). The
+ * check keeps the app importable without starting the server. */
+if (isDirectRun()) {
+  main().catch((error: unknown) => {
+    logger.error('failed to start', error);
+    process.exitCode = 1;
+  });
+}
