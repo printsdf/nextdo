@@ -5,6 +5,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# PowerSync web worker: keep the shipped JS + wasm, drop the dev-only source maps
+apps/mobile/public/**/*.map
+
 # Expo / React Native
 .expo/
 .swc/
