@@ -1,0 +1,8 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'server/app'
+
+# pnpm 10+ blocks build scripts by default; op-sqlite needs its native build
+onlyBuiltDependencies:
+  - '@op-engineering/op-sqlite'

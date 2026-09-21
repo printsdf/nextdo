@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Expo / React Native
+.expo/
+.swc/
+
+# Tauri (Rust)
+apps/desktop/src-tauri/target/
+
+# Runtime artifacts
+*.sqlite
+*.sqlite-*
+
+# Environment (never commit secrets; .env.example is allowed)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store

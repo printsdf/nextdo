@@ -1,0 +1,47 @@
+# Hook Guidelines
+
+> Two kinds of hooks in this project: **data hooks** and **UI hooks**.
+
+---
+
+## Data Hooks
+
+- Read the local database (via `packages/db`) and return typed domain rows.
+  Naming: `use<Thing>s` (`useInboxItems`, `useTodayActions`), singular for one row
+  (`useRecommendedAction`).
+- Live-update with PowerSync subscriptions: the hook owns the subscription and cleans it
+  up on unmount. Components never see the subscription mechanism.
+- A data hook owns **one** query concern. Need a joined view? Add the query in
+  `packages/db/src/queries`, then a thin hook around it. No multi-query aggregation
+  inside a hook beyond what one screen needs.
+- Loading/error state: data hooks return `{ data, error }` (or `null` + `error` for
+  single rows). Reads are local (the local DB), so there is no network-loading spinner
+  for reads. Writes are likewise immediate-local (see State Management, Rule 4) — a
+  mutation hook resolves when the **local transaction** commits, not when the change
+  has synced; surfaces a `SyncNextdoError` only if the local write itself fails.
+- Mutations: **never `db.update(...)` in a component.** Mutations go through query
+  functions in `packages/db` that wrap the domain operations from `packages/core`
+  (e.g. `completeAction(id, now)`), so invariants are enforced in one place.
+
+## UI Hooks
+
+- Own transient, local-to-a-screen state: `useFocusSession`, `useSheetOpen`,
+  `useNowPageState`.
+- May read data hooks; may hold `useState`/`useReducer`/`useEffect`.
+- UI hooks live next to the screen that uses them, or in `apps/mobile/hooks` when shared.
+
+## Rules
+
+1. Hook file = one hook. `use-today-actions.ts` exports `useTodayActions` (+ its types).
+2. No hooks that take a component or a ref to a component.
+3. No `useEffect` whose only job is to sync a derived value — compute it in render.
+4. All time-sensitive logic receives `now` (from a single app-level clock hook,
+   `useNow()`, which ticks on a minute interval) — hooks do not call `Date.now()`.
+5. A hook must be safe to call unconditionally (rules of hooks); conditional logic goes
+   inside the hook.
+
+## Forbidden
+
+- Direct `expo-sqlite` / PowerSync API usage outside `packages/db` (exception: `@powersync/react` Provider/hooks per the Database Guidelines boundary).
+- `fetch`/network calls in hooks (the sync layer is the only network path).
+- Storing DB rows in a Zustand store "for convenience" (see State Management).
