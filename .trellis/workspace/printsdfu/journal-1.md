@@ -135,3 +135,27 @@ NativeWind v4、`@nextdo/db` 连接器接线、登录门、owner-token 会话）
 **未验证：** 真实浏览器运行时启动（本会话 IDE 浏览器 MCP 持续报
 "MCP descriptor not found"，停止重试）；完整同步 E2E 需 PowerSync server
 （本工作区无 server 项目）。
+
+
+## Session 1: Monorepo scaffold: Step 6 verification, clean gate, spec backfill
+<!-- trellis-session: v=2 fp=30aa3e8c3062e1c0 -->
+
+**Date**: 2026-09-22
+**Task**: Monorepo scaffold: Step 6 verification, clean gate, spec backfill
+**Branch**: `main`
+
+### Summary
+
+Verified Step 6 server backend against the client contract (51 mocked-pg tests, tsc build, JWT/sync-config parity). Independently reproduced and fixed the packages/db cold-parallel jest failure (inline babel plugin functions dropped by jest config serialization -> path-based .cjs plugin); db cold+parallel 127/127 green 3/3. Ran the Step 7 clean-state gate (rm node_modules -> pnpm install -> lint/typecheck/test): all green (core 153, db 127, mobile 4, server 51). Step 8: backfilled .trellis/spec from intent to reality (directory-structure tree, next-action-engine Implementation mapping, database-guidelines real-file citations + jest gotcha + recorded deviations: server app.ts/index.ts split, Tauri stronghold defect).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9e7b904` | fix(db): load the import.meta babel plugin by path (cold parallel) |
+| `bdda947` | feat(server): Step 6 Hono backend + PowerSync service |
+| `0ff05ec` | docs(spec): Step 8 backfill spec from intent to reality |
+
+### Status
+
+[OK] **Completed**
