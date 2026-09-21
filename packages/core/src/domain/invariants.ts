@@ -56,9 +56,9 @@ function assertValue(value: unknown, field: string): asserts value is Value {
   }
 }
 
-function assertEstMinutes(value: unknown): asserts value is number {
+function assertEstMinutes(value: unknown, field: string): asserts value is number {
   if (typeof value !== 'number' || value <= 0) {
-    throw new ValidationNextdoError('validation.estMinutes', 'estMinutes must be > 0');
+    throw new ValidationNextdoError(`validation.${field}`, `${field} must be > 0`);
   }
 }
 
@@ -69,15 +69,15 @@ function assertHhmm(value: unknown, field: string): asserts value is string {
   parseHhmm(value); // throws ValidationNextdoError when malformed
 }
 
-function assertWindowDays(value: unknown): asserts value is number[] {
+function assertWindowDays(value: unknown, field: string): asserts value is number[] {
   if (!Array.isArray(value)) {
-    throw new ValidationNextdoError('validation.windowDays', 'windowDays must be an array');
+    throw new ValidationNextdoError(`validation.${field}`, `${field} must be an array`);
   }
   for (const day of value) {
     if (typeof day !== 'number' || !Number.isInteger(day) || day < 0 || day > 6) {
       throw new ValidationNextdoError(
-        'validation.windowDays',
-        'windowDays entries must be integers 0..6 (0=Sunday … 6=Saturday)',
+        `validation.${field}`,
+        `${field} entries must be integers 0..6 (0=Sunday … 6=Saturday)`,
       );
     }
   }
@@ -89,11 +89,11 @@ function assertStringArray(value: unknown, field: string): asserts value is stri
   }
 }
 
-function assertConsecutiveSkips(value: unknown): asserts value is number {
+function assertConsecutiveSkips(value: unknown, field: string): asserts value is number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
     throw new ValidationNextdoError(
-      'validation.consecutiveSkips',
-      'consecutiveSkips must be a non-negative integer',
+      `validation.${field}`,
+      `${field} must be a non-negative integer`,
     );
   }
 }
@@ -126,13 +126,13 @@ function assertSharedActionFields(
   prefix: string,
 ): void {
   assertNonEmptyString(action.title, `${prefix}.title`);
-  assertEstMinutes(action.estMinutes);
+  assertEstMinutes(action.estMinutes, `${prefix}.estMinutes`);
   assertValue(action.value, `${prefix}.value`);
   assertStringArray(action.contextIds, `${prefix}.contextIds`);
-  assertConsecutiveSkips(action.consecutiveSkips);
+  assertConsecutiveSkips(action.consecutiveSkips, `${prefix}.consecutiveSkips`);
   if (action.windowStart !== undefined) assertHhmm(action.windowStart, `${prefix}.windowStart`);
   if (action.windowEnd !== undefined) assertHhmm(action.windowEnd, `${prefix}.windowEnd`);
-  if (action.windowDays !== undefined) assertWindowDays(action.windowDays);
+  if (action.windowDays !== undefined) assertWindowDays(action.windowDays, `${prefix}.windowDays`);
 }
 
 export function assertValidNextAction(action: NextAction): void {
@@ -172,11 +172,11 @@ export function assertValidContext(context: Context): void {
 export function assertValidHabit(habit: Habit): void {
   assertNonEmptyString(habit.title, 'habit.title');
   assertNonEmptyString(habit.actionTitle, 'habit.actionTitle');
-  assertEstMinutes(habit.estMinutes);
+  assertEstMinutes(habit.estMinutes, 'habit.estMinutes');
   assertValue(habit.value, 'habit.value');
   if (habit.windowStart !== undefined) assertHhmm(habit.windowStart, 'habit.windowStart');
   if (habit.windowEnd !== undefined) assertHhmm(habit.windowEnd, 'habit.windowEnd');
-  if (habit.windowDays !== undefined) assertWindowDays(habit.windowDays);
+  if (habit.windowDays !== undefined) assertWindowDays(habit.windowDays, 'habit.windowDays');
   if (typeof habit.cycleDays !== 'number' || !Number.isInteger(habit.cycleDays) || habit.cycleDays < 1) {
     throw new ValidationNextdoError(
       'validation.habit.cycleDays',
@@ -203,7 +203,7 @@ export function assertValidHabitDay(day: HabitDay): void {
       `habitDay.id must be ${expectedId} (got: ${day.id})`,
     );
   }
-  assertConsecutiveSkips(day.consecutiveSkips);
+  assertConsecutiveSkips(day.consecutiveSkips, 'habitDay.consecutiveSkips');
 }
 
 export function assertValidReminder(reminder: Reminder): void {

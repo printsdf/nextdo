@@ -1,0 +1,376 @@
+/**
+ * Query tests — NextAction CRUD + the canonical transactions
+ * (spec: domain/domain-model.md "The Complete Transaction",
+ * next-action-engine.md "Skip & Re-clarify").
+ *
+ * Covers every exported function: happy path + empty database +
+ * invariant-violation cases (typed error codes).
+ */
+import { toIso, ulid, type NextAction, type Value } from '@nextdo/core';
+import {
+  addNextAction,
+  completeAction,
+  listNextActions,
+  skipAction,
+  snoozeAction,
+  trashAction,
+  updateNextAction,
+} from '../queries/actions';
+import { openTestDb, type TestDb } from './query-helpers';
+import { FIXTURE_IDS, FIXTURE_NOW } from './fixtures';
+
+const A = FIXTURE_IDS.actions;
+const H = FIXTURE_IDS.habits;
+
+let env: TestDb | null = null;
+afterEach(async () => {
+  if (env !== null) {
+    await env.close();
+    env = null;
+  }
+});
+async function open(seed = false, now: Date = FIXTURE_NOW): Promise<TestDb> {
+  env = await openTestDb(seed, now);
+  return env;
+}
+
+function makeAction(overrides: Partial<NextAction> = {}): NextAction {
+  const now = FIXTURE_NOW;
+  return {
+    id: ulid(now),
+    createdAt: toIso(now),
+    updatedAt: toIso(now),
+    deletedAt: null,
+    title: '测试动作',
+    contextIds: [],
+    estMinutes: 25,
+    value: 3 as Value,
+    status: 'open',
+    consecutiveSkips: 0,
+    ...overrides,
+  };
+}
+
+describe('listNextActions', () => {
+  it('returns [] on an empty database', async () => {
+    const { db, close } = await open();
+    try {
+      expect(await listNextActions(db)).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
+  it('lists live next actions (soft-deleted excluded by default)', async () => {
+    const { db, close } = await open(true);
+    try {
+      const list = await listNextActions(db);
+      const ids = new Set(list.map((action) => action.id));
+      expect(list).toHaveLength(9);
+      for (const id of [A.b, A.a, A.blocked, A.baseline, A.depDone, A.done, A.window, A.snoozed, A.skipped]) {
+        expect(ids.has(id)).toBe(true);
+      }
+      expect(ids.has(A.trashed)).toBe(false);
+      // ordered by created_at
+      const createdAt = list.map((action) => action.createdAt);
+      expect([...createdAt].sort()).toEqual(createdAt);
+    } finally {
+      await close();
+    }
+  });
+
+  it('includeDeleted returns the trashed row too', async () => {
+    const { db, close } = await open(true);
+    try {
+      const list = await listNextActions(db, { includeDeleted: true });
+      expect(list).toHaveLength(10);
+      expect(list.map((action) => action.id)).toContain(A.trashed);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('addNextAction', () => {
+  it('inserts a valid action and it is readable back', async () => {
+    const { db, close } = await open();
+    try {
+      const action = makeAction({ title: '新动作' });
+      await addNextAction(db, action);
+      const list = await listNextActions(db);
+      expect(list).toHaveLength(1);
+      expect(list[0]).toEqual(action);
+    } finally {
+      await close();
+    }
+  });
+
+  it('rejects an empty title with a typed validation error', async () => {
+    const { db, close } = await open();
+    try {
+      await expect(addNextAction(db, makeAction({ title: '  ' }))).rejects.toMatchObject({
+        name: 'ValidationNextdoError',
+        code: 'validation.nextAction.title',
+      });
+      expect(await listNextActions(db)).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
+  it('rejects a non-positive estimate', async () => {
+    const { db, close } = await open();
+    try {
+      await expect(addNextAction(db, makeAction({ estMinutes: 0 }))).rejects.toMatchObject({
+        code: 'validation.nextAction.estMinutes',
+      });
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('updateNextAction', () => {
+  it('redefining (title change) resets consecutiveSkips and lastSkippedAt', async () => {
+    const { db, close } = await open(true);
+    try {
+      const skipped = (await listNextActions(db)).find((action) => action.id === A.skipped);
+      expect(skipped).toBeDefined();
+      const updated = await updateNextAction(db, {
+        ...(skipped as NextAction),
+        title: '重新定义的标题',
+        updatedAt: toIso(FIXTURE_NOW),
+      });
+      expect(updated.consecutiveSkips).toBe(0);
+      expect(updated.lastSkippedAt).toBeUndefined();
+      const reloaded = (await listNextActions(db)).find((action) => action.id === A.skipped);
+      expect(reloaded?.consecutiveSkips).toBe(0);
+      expect(reloaded?.lastSkippedAt).toBeUndefined();
+    } finally {
+      await close();
+    }
+  });
+
+  it('a non-redefining update keeps the skip streak', async () => {
+    const { db, close } = await open(true);
+    try {
+      const skipped = (await listNextActions(db)).find((action) => action.id === A.skipped);
+      const updated = await updateNextAction(db, {
+        ...(skipped as NextAction),
+        value: 4 as Value,
+        updatedAt: toIso(FIXTURE_NOW),
+      });
+      expect(updated.consecutiveSkips).toBe(3);
+    } finally {
+      await close();
+    }
+  });
+
+  it('throws not-found for a missing action', async () => {
+    const { db, close } = await open(true);
+    try {
+      const action = makeAction();
+      await expect(updateNextAction(db, action)).rejects.toMatchObject({ code: 'action.not-found' });
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('completeAction (The Complete Transaction)', () => {
+  it('next: status done + CompletionRecord with the copied estimate', async () => {
+    const { db, close } = await open(true);
+    try {
+      await completeAction(db, { actionKind: 'next', actionId: A.a, now: FIXTURE_NOW });
+      const list = await listNextActions(db);
+      const done = list.find((action) => action.id === A.a);
+      expect(done?.status).toBe('done');
+      const records = await db
+        .selectFrom('completion_records')
+        .selectAll()
+        .where('action_id', '=', A.a)
+        .execute();
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ action_kind: 'next', est_minutes: 10 });
+    } finally {
+      await close();
+    }
+  });
+
+  it('next (snoozed): clears snoozedUntil and cancels the scheduled Reminder', async () => {
+    const { db, close } = await open(true);
+    try {
+      await completeAction(db, { actionKind: 'next', actionId: A.snoozed, now: FIXTURE_NOW });
+      const action = (await listNextActions(db)).find((item) => item.id === A.snoozed);
+      expect(action?.status).toBe('done');
+      expect(action?.snoozedUntil).toBeUndefined();
+      const reminder = await db
+        .selectFrom('reminders')
+        .selectAll()
+        .where('id', '=', FIXTURE_IDS.reminders.snooze)
+        .executeTakeFirst();
+      expect(reminder?.state).toBe('cancelled');
+    } finally {
+      await close();
+    }
+  });
+
+  it('habit: completing the LAST cycle day marks the habit completed', async () => {
+    const { db, close } = await open(true);
+    try {
+      const dayId = (await db
+        .selectFrom('habit_days')
+        .select('id')
+        .where('habit_id', '=', H.last)
+        .execute())[0]?.id;
+      expect(dayId).toBeDefined();
+      await completeAction(db, { actionKind: 'habit', actionId: dayId as string, now: FIXTURE_NOW });
+      const habit = await db
+        .selectFrom('habits')
+        .select('status')
+        .where('id', '=', H.last)
+        .executeTakeFirst();
+      expect(habit?.status).toBe('completed');
+      const records = await db
+        .selectFrom('completion_records')
+        .selectAll()
+        .where('action_kind', '=', 'habit')
+        .execute();
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ action_id: dayId, est_minutes: 10 });
+    } finally {
+      await close();
+    }
+  });
+
+  it('habit: a mid-cycle day does NOT complete the habit', async () => {
+    const { db, close } = await open(true);
+    try {
+      const dayId = (await db
+        .selectFrom('habit_days')
+        .select('id')
+        .where('habit_id', '=', H.mid)
+        .where('status', '=', 'open')
+        .execute())[0]?.id;
+      expect(dayId).toBeDefined();
+      await completeAction(db, { actionKind: 'habit', actionId: dayId as string, now: FIXTURE_NOW });
+      const habit = await db
+        .selectFrom('habits')
+        .select('status')
+        .where('id', '=', H.mid)
+        .executeTakeFirst();
+      expect(habit?.status).toBe('active');
+    } finally {
+      await close();
+    }
+  });
+
+  it('refuses a second completion (illegal transition done → done)', async () => {
+    const { db, close } = await open(true);
+    try {
+      await expect(
+        completeAction(db, { actionKind: 'next', actionId: A.done, now: FIXTURE_NOW }),
+      ).rejects.toMatchObject({ code: 'invalid-transition:done:done' });
+    } finally {
+      await close();
+    }
+  });
+
+  it('refuses a soft-deleted action (not-found)', async () => {
+    const { db, close } = await open(true);
+    try {
+      await expect(
+        completeAction(db, { actionKind: 'next', actionId: A.trashed, now: FIXTURE_NOW }),
+      ).rejects.toMatchObject({ code: 'action.not-found' });
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('skipAction', () => {
+  it('increments consecutiveSkips and sets lastSkippedAt', async () => {
+    const { db, close } = await open(true);
+    try {
+      await skipAction(db, { actionKind: 'next', actionId: A.skipped, now: FIXTURE_NOW });
+      const action = (await listNextActions(db)).find((item) => item.id === A.skipped);
+      expect(action?.consecutiveSkips).toBe(4);
+      expect(action?.lastSkippedAt).toBe(toIso(FIXTURE_NOW));
+    } finally {
+      await close();
+    }
+  });
+
+  it('never creates a Reminder (skips are DB-only)', async () => {
+    const { db, close } = await open(true);
+    try {
+      const before = (await db.selectFrom('reminders').selectAll().execute()).length;
+      await skipAction(db, { actionKind: 'next', actionId: A.a, now: FIXTURE_NOW });
+      const after = (await db.selectFrom('reminders').selectAll().execute()).length;
+      expect(after).toBe(before);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('snoozeAction', () => {
+  it('sets snoozedUntil, resets skips, and creates the matching Reminder', async () => {
+    const { db, close } = await open(true);
+    try {
+      const target = new Date(FIXTURE_NOW.getTime() + 3600_000);
+      const before = (await db.selectFrom('reminders').selectAll().execute()).length;
+      await snoozeAction(db, { actionKind: 'next', actionId: A.skipped, snoozedUntil: target, now: FIXTURE_NOW });
+      const action = (await listNextActions(db)).find((item) => item.id === A.skipped);
+      expect(action?.snoozedUntil).toBe(toIso(target));
+      expect(action?.consecutiveSkips).toBe(0);
+      const reminders = await db.selectFrom('reminders').selectAll().execute();
+      expect(reminders).toHaveLength(before + 1);
+      const created = reminders.find((reminder) => reminder.action_id === A.skipped);
+      expect(created).toBeDefined();
+      expect(created?.state).toBe('scheduled');
+      expect(created?.fires_at).toBe(toIso(target));
+    } finally {
+      await close();
+    }
+  });
+
+  it('throws not-found for a missing action', async () => {
+    const { db, close } = await open(true);
+    try {
+      const target = new Date(FIXTURE_NOW.getTime() + 3600_000);
+      await expect(
+        snoozeAction(db, { actionKind: 'next', actionId: '01TST0000000000000000000099', snoozedUntil: target, now: FIXTURE_NOW }),
+      ).rejects.toMatchObject({ code: 'action.not-found' });
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('trashAction', () => {
+  it('soft-deletes (deleted_at set; the row is kept)', async () => {
+    const { db, close } = await open(true);
+    try {
+      await trashAction(db, { actionKind: 'next', actionId: A.a, now: FIXTURE_NOW });
+      const list = await listNextActions(db);
+      expect(list.map((action) => action.id)).not.toContain(A.a);
+      const row = await db.selectFrom('next_actions').selectAll().where('id', '=', A.a).executeTakeFirst();
+      expect(row?.deleted_at).toBe(toIso(FIXTURE_NOW));
+    } finally {
+      await close();
+    }
+  });
+
+  it('trashing twice throws not-found (the row is no longer live)', async () => {
+    const { db, close } = await open(true);
+    try {
+      await trashAction(db, { actionKind: 'next', actionId: A.a, now: FIXTURE_NOW });
+      await expect(trashAction(db, { actionKind: 'next', actionId: A.a, now: FIXTURE_NOW })).rejects.toMatchObject({
+        code: 'action.not-found',
+      });
+    } finally {
+      await close();
+    }
+  });
+});

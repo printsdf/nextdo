@@ -81,9 +81,18 @@ UI:
     entire queue (official guidance).
 - **Upload conflict policy v1 (single user)**: the upload endpoint upserts —
   last-uploaded wins per row. Append-only tables (`completion_records`,
-  `review_records`) are insert-only there. `focus_sessions` is a **mutable** row
-  (active → completed/abandoned), upserted like anything else — do not call it
-  append-only. No CRDTs in v1.
+  `review_records`) are insert-only **at the endpoint** (it rejects UPDATE/DELETE
+  for them). `focus_sessions` is a **mutable** row (active → completed/abandoned),
+  upserted like anything else — do not call it append-only. No CRDTs in v1.
+  - **Client-side declaration**: the audit tables are declared as **regular upsert
+    tables in `schema.ts` — NOT `Table.createInsertOnly`**. PowerSync's
+    createInsertOnly never applies a local write to the local DB (its generated
+    INSTEAD-OF INSERT trigger only enqueues the CRuDe op), which would leave
+    `review_records`/`completion_records` unreadable offline until a server
+    round-trip — violating the "works with no network" rule. As upsert tables, a
+    local write applies locally (immediately readable) *and* enqueues the CRuDe op
+    in the same transaction (the queue never desyncs from local data); the
+    append-only guarantee is enforced solely at the upload endpoint.
 - **Schema changes — there is no client-side migration mechanism.** The protocol is
   schemaless; the client schema in `schema.ts` is a *view* that takes effect
   immediately when the new app version runs. Changes must stay backwards-compatible
