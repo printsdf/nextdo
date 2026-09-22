@@ -1,0 +1,7 @@
+{
+  "name": "@nextdo/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "E2E sync round-trip verification (manual/on-demand runner; deliberately NOT a pnpm workspace package and NOT part of the root lint/typecheck/test gates — see README.md)"
+}

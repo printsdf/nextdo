@@ -15,6 +15,10 @@ export default tseslint.config(
       '.trellis/**',
       '.agents/**',
       '.codex/**',
+      // e2e/ is a manual, Docker-dependent verification runner —
+      // deliberately outside the root lint/typecheck/test gates (see
+      // e2e/README.md; task 09-22-e2e-sync-roundtrip).
+      'e2e/**',
     ],
   },
   js.configs.recommended,
