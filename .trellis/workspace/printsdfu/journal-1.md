@@ -159,3 +159,27 @@ Verified Step 6 server backend against the client contract (51 mocked-pg tests, 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: E2E sync round-trip: real-chain verification green, scaffold runtime fixes
+<!-- trellis-session: v=2 fp=6d01105dedfbed3f -->
+
+**Date**: 2026-09-22
+**Task**: E2E sync round-trip: real-chain verification green, scaffold runtime fixes
+**Branch**: `main`
+
+### Summary
+
+Built the re-runnable E2E runner (e2e/sync-roundtrip.ts, @powersync/node clients on node:sqlite, 7-step protocol: bootstrap -> auth negatives -> JWT acceptance -> read path -> write path incl. append-only 2xx -> cross-client -> cleanup) and drove the real chain to green: final run 7/7 PASS, 14s, exit 0. Found and fixed 3 scaffold runtime bugs the compose-only validation missed: POWERSYNC_CONFIG_PATH (service exited 150 / ran without sync config -> PSYNC_S2302 on every /sync/stream while connect+subscribe still succeeded), postgres wal_level=logical, and CREATE PUBLICATION powersync in the init DDL (PSYNC_S1141); init scripts only run at container creation, so existing postgres needs a recreate. Also fixed 2 e2e-tool bugs: crudQueueDepth queried a non-existent ps_crud.table_name column (v2 schema: id/data/tx_id, table name at json_extract(data,'$.type'), probe-verified 1/2/3) and awaitWithTimeout's unref'd timer drained the event loop when the SDK close() promise stayed pending -> 'unsettled top-level await' exit 13 (ref'd timer + clearTimeout in finally; close() itself settles in <10ms once the loop stays alive). No product-code bugs: connector, JWT minting, /upload, append-only trigger all behaved as designed; no product regression tests needed — the E2E suite is the regression test for the service layer. Root gate green (lint/typecheck/test). Spec updated: database-guidelines gained the self-hosted service operational contract (hard requirements + failure/symptom matrix + ps_crud v2 debugging) and the E2E runner entry in Testing; app/index.md Quality Check gained the 'sync-chain changes must pass the E2E runner' item. Note: the implementation subagent died twice on transient Anthropic 502s (its orphaned background run had already proven the sync chain works); the parent session completed the remaining work directly. Docker stack left running by design (down subcommand documented).
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b9f2513` | fix(server): self-hosted stack runtime fixes — POWERSYNC_CONFIG_PATH, wal_level=logical, powersync publication |
+| `20a004b` | test(e2e): real sync-chain round-trip runner (manual, outside root gate) |
+| `18b35ec` | docs(spec): self-hosted service contract + e2e runner in database guidelines |
+
+### Status
+
+[OK] **Completed**

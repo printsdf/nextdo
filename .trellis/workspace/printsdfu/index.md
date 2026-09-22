@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 1
+- **Total Sessions**: 2
 - **Last Active**: 2026-09-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~161 | Active |
+| `journal-1.md` | ~185 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 2 | 2026-09-22 | E2E sync round-trip: real-chain verification green, scaffold runtime fixes | `b9f2513`, `20a004b`, `18b35ec` | `main` |
 | 1 | 2026-09-22 | Monorepo scaffold: Step 6 verification, clean gate, spec backfill | `9e7b904`, `bdda947`, `0ff05ec` | `main` |
 <!-- @@@/auto:session-history -->
 
