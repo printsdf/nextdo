@@ -207,3 +207,11 @@ CREATE TABLE completion_records (
   completed_at TEXT,
   est_minutes INTEGER
 );
+
+-- PowerSync logical replication: the service's replicator streams the WAL
+-- through a publication named `powersync` in the SOURCE database. Without
+-- it every replication attempt fails PSYNC_S1141 ("Publication 'powersync'
+-- does not exist"). FOR ALL TABLES covers the 14 tables above and any
+-- additive v1 schema change (the official self-host-demo creates it in its
+-- init script the same way).
+CREATE PUBLICATION powersync FOR ALL TABLES;

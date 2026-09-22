@@ -20,6 +20,11 @@ name: nextdo-powersync
 services:
   postgres:
     image: postgres:16-alpine
+    # PowerSync's Postgres replication requires LOGICAL WAL decoding — the
+    # image default is `replica`, and without this the service's WalStream
+    # fails at startup ("wal_level must be set to 'logical'"). wal_level is
+    # a postmaster parameter, so the -c flag works on existing volumes too.
+    command: ['postgres', '-c', 'wal_level=logical']
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-nextdo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nextdo}
@@ -49,11 +54,19 @@ services:
     ports:
       - '8080:8080'
     volumes:
-      # service.yaml + sync-config.yaml land in /config (the image reads
-      # its config there; sync_config.path is relative to it).
+      # service.yaml + sync-config.yaml land in /config (the image's
+      # POWERSYNC_CONFIG_PATH convention, same as the official self-host-demo).
+      # service.yaml's `sync_config.path: sync-config.yaml` is relative to the
+      # CONFIG FILE's directory (/config) — NOT the container CWD; do not add
+      # a working_dir override (it breaks the image's own entry, which runs
+      # `node service/lib/entry.js` relative to /app).
       - ./service.yaml:/config/service.yaml:ro
       - ./sync-config.yaml:/config/sync-config.yaml:ro
     environment:
+      # WHERE the config file is — without this the service falls back to
+      # /app/powersync.yaml (missing) and exits(150). Same pattern as the
+      # official self-host-demo (services/powersync.yaml).
+      POWERSYNC_CONFIG_PATH: /config/service.yaml
       # Consumed by service.yaml's `!env` tags (PS_ prefix required).
       PS_DATA_SOURCE_URI: postgresql://${POSTGRES_USER:-nextdo}:${POSTGRES_PASSWORD:-nextdo}@postgres:5432/${POSTGRES_DB:-nextdo}
       PS_STORAGE_URI: postgresql://${POSTGRES_USER:-nextdo}:${POSTGRES_PASSWORD:-nextdo}@postgres:5432/nextdo_powersync
