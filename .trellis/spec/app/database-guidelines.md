@@ -191,6 +191,56 @@ UI:
   successful sync; the full app works with no network; queued uploads flush on
   reconnect.
 
+## Self-Hosted PowerSync Service (`server/powersync/`) — operational contract
+
+**Scope / trigger**: any change to `server/powersync/` (compose, `service.yaml`,
+`sync-config.yaml`, `init/` DDL), a service image upgrade, or a "the client can't
+sync" investigation. Unit tests can never catch this layer (server/app tests mock
+pg; packages/db tests never `connect()`), so this contract is enforced by the E2E
+runner (see Testing below). `docker compose config` validates YAML only — none of
+the failures below is caught by it.
+
+**Hard requirements for a working stack** (verified 2026-09-22 against
+journeyapps/powersync-service:1.26.1 + postgres:16-alpine; each one cost a failed
+E2E cycle when missing):
+
+1. **Postgres must run `wal_level=logical`** (image default is `replica`). Compose
+   sets `command: ['postgres', '-c', 'wal_level=logical']` — `wal_level` is a
+   postmaster parameter, so the `-c` flag also takes effect on existing volumes
+   (no volume wipe).
+2. **The source DB must contain `CREATE PUBLICATION powersync FOR ALL TABLES;`**
+   (lives in `init/02-nextdo-schema.sql`; FOR ALL TABLES covers the 14 tables and
+   additive v1 schema changes). Gotcha: compose init scripts only run at container
+   **creation** — a pre-existing postgres container needs a recreate (or the
+   statement run by hand) after the DDL changes.
+3. **The service must be told where its config is**:
+   `POWERSYNC_CONFIG_PATH: /config/service.yaml` in the service's env. Without it
+   the image falls back to `/app/powersync.yaml` (missing) and the container
+   exits(150). `service.yaml`'s `sync_config.path` is resolved **relative to the
+   config file's directory** (`/config`), not the container CWD — do not add a
+   `working_dir` override (it breaks the image entry, which runs
+   `node service/lib/entry.js` relative to `/app`).
+4. **Sync rules (edition 3)**: `queries:` entries are **plain SQL strings** —
+   verified correct on 1.26.1; do not "fix" them into `{query: ...}` objects.
+   Column lists must match `packages/db/src/schema.ts` exactly (one change unit —
+   see Schema Changes).
+
+**Failure → symptom matrix**:
+
+| Missing | Symptom |
+|---------|---------|
+| `POWERSYNC_CONFIG_PATH` | container exit(150); or service "up" with the sync config unloaded → client `connect()` + `subscribe` **succeed** (the subscription is client-side) but every `POST /sync/stream` returns 500 `PSYNC_S2302 "No sync config available"` — the failure only surfaces at the first checkpoint fetch |
+| `wal_level=logical` | service replication fails at startup: "wal_level must be set to 'logical', your database has it set to 'replica'" |
+| `powersync` publication | every replication attempt fails `PSYNC_S1141 "Publication 'powersync' does not exist"` |
+
+**Upload-queue debugging (v2 `ps_crud` format)**: the client's upload-queue table
+has **only** `id, data, tx_id` columns — there is no `table_name`. Each op is
+serialized in `data` as `{"op":"PUT|PATCH|DELETE","id":...,"type":"<table>",
+"data":{...},"old":{...}}`; queue depth for one table:
+`SELECT count(*) FROM ps_crud WHERE json_extract(data, '$.type') = '<table>'`.
+Queue drained ⇒ the endpoint answered 2xx (a non-2xx blocks the queue — see
+PowerSync Rules).
+
 ## Mutations
 
 - Domain operations (complete, skip, snooze, clarify) are **methods in
@@ -223,6 +273,18 @@ UI:
 - `server/app` tests use a mocked `pg` client and assert the exact SQL text +
   bound values, the status-code matrix, and real JWT verification (tokens are
   minted wall-anchored — `jose` verifies `exp` against the real clock).
+- **Full-chain regression test — manual / on-demand, deliberately NOT in the root
+  gate (needs Docker)**: `node e2e/sync-roundtrip.ts` runs the real stack (compose
+  Postgres + PowerSync Service, `server/app` on :8787, two real clients) through
+  auth negatives → JWT acceptance → read path → write path (incl. the
+  append-only 2xx protocol) → cross-client replication → cleanup; 7 steps,
+  per-step PASS/FAIL, non-zero exit on any failure, idempotent (fresh secrets +
+  unique ULIDs per run). Run it after any change to `server/powersync/`, the
+  `server/app` endpoints, or `packages/db/src/powersync.ts`. The Node client
+  **must** be `@powersync/node` — `@powersync/web` on plain Node auto-detects SSR
+  and installs a no-op sync implementation (connect / triggerCrudUpload /
+  requestCheckpoint are no-ops), so it can never exercise the protocol. See
+  `e2e/README.md` and the Self-Hosted Service contract above.
 - Every query function: happy path + empty result + (for mutations) invariant-violation
   case.
 

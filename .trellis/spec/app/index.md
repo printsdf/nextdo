@@ -20,6 +20,7 @@
 - [ ] No `console.*`; no direct `expo-sqlite`/PowerSync access outside `packages/db` (exception: `@powersync/react` Provider/hooks per the Database Guidelines boundary)
 - [ ] Every interactive element has an `accessibilityLabel` and ≥ 44pt touch target
 - [ ] No blocking work on the UI thread for list rendering (no heavy mapping of full tables in render)
+- [ ] Changes to `server/powersync/`, the `server/app` endpoints, or `packages/db/src/powersync.ts` are verified with `node e2e/sync-roundtrip.ts` (the sync chain has no unit-test coverage — see Database Guidelines "Self-Hosted PowerSync Service")
 
 ---
 
