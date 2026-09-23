@@ -2,9 +2,9 @@
  * The Clarify / Re-clarify wizard — a PURE state machine (design.md §4.3).
  *
  * The wizard walks core's Clarify decision table one question at a time
- * (Q1 actionable? → Q1b kind / Q2 multiple steps? → Q3 ~2 min? → Q3b
- * completed on the spot? / Q4 my responsibility? → Q5 fixed time?). This
- * module holds:
+ * (Q1 actionable? → Q1b kind / Q2 multiple steps? → Q2b which project? →
+ * Q3 ~2 min? → Q3b completed on the spot? / Q4 my responsibility? → Q5
+ * fixed time?). This module holds:
  *
  * - the reducer (`clarifyReducer`) — forwards only; the system back button
  *   walks the stack, the reducer never moves backwards;
@@ -68,6 +68,7 @@ export type WizardState = WizardBase &
     | { step: 'q1' }
     | { step: 'q1b' }
     | { step: 'q2' }
+    | { step: 'q2b' }
     | { step: 'q3' }
     | { step: 'q3b' }
     | { step: 'q4' }
@@ -80,6 +81,11 @@ export type WizardState = WizardBase &
         /** True when the 'action' form was reached via Q3 (~2 min) —
          *  selects the two-minute answers branch at submission. */
         twoMinute: boolean;
+        /** Q2b attach: the 'action' form was reached via an EXISTING
+         *  project — the attachment is fixed for this submission (changing
+         *  it means going back to Q2b). Only the attach path carries these. */
+        projectId?: string;
+        projectTitle?: string;
       }
     | { step: 'done'; result: WizardResult }
   );
@@ -88,6 +94,18 @@ export type WizardAction =
   | { type: 'answer-q1'; actionable: boolean }
   | { type: 'answer-q1b'; kind: 'reference' | 'someday' | 'trash' }
   | { type: 'answer-q2'; multipleSteps: boolean }
+  /** Q2b: 它属于哪个项目？ — none → Q3 (regular chain); new-project →
+   *  the project form; attach → the action form. The attach data travels
+   *  in the action payload — the reducer stays pure. */
+  | { type: 'answer-q2b'; choice: 'none' }
+  | { type: 'answer-q2b'; choice: 'new-project' }
+  | {
+      type: 'answer-q2b';
+      choice: 'attach';
+      projectId: string;
+      projectValue: Value;
+      projectTitle: string;
+    }
   | { type: 'answer-q3'; twoMinutes: boolean }
   /** Only the "not completed on the spot" branch — Q3b-YES is an immediate
    *  submission (`buildDoNowSubmission`), it never parks in a form. */
@@ -123,10 +141,30 @@ export function createWizardState(mode: WizardMode, defaultTitle: string): Wizar
   return mode === 'clarify' ? { ...base, step: 'q1' } : { ...base, step: 'q2' };
 }
 
-function toForm(state: WizardBase, form: FormKind, twoMinute: boolean, estDefault: number | null): WizardState {
+function toForm(
+  state: WizardBase,
+  form: FormKind,
+  twoMinute: boolean,
+  estDefault: number | null,
+  attach?: { projectId: string; projectValue: Value; projectTitle: string },
+): WizardState {
   const fields = emptyFields(state.defaultTitle);
   if (estDefault !== null) fields.estMinutes = estDefault;
-  return { ...state, step: 'form', form, fields, error: null, twoMinute };
+  // Q2b attach: the value defaults to the project's value (still editable).
+  if (attach !== undefined) fields.value = attach.projectValue;
+  if (attach === undefined) {
+    return { ...state, step: 'form', form, fields, error: null, twoMinute };
+  }
+  return {
+    ...state,
+    step: 'form',
+    form,
+    fields,
+    error: null,
+    twoMinute,
+    projectId: attach.projectId,
+    projectTitle: attach.projectTitle,
+  };
 }
 
 export function clarifyReducer(state: WizardState, action: WizardAction): WizardState {
@@ -150,7 +188,18 @@ export function clarifyReducer(state: WizardState, action: WizardAction): Wizard
       return state;
     case 'q2':
       if (action.type === 'answer-q2') {
-        return action.multipleSteps ? toForm(state, 'project', false, null) : { ...state, step: 'q3' };
+        return action.multipleSteps ? toForm(state, 'project', false, null) : { ...state, step: 'q2b' };
+      }
+      return state;
+    case 'q2b':
+      if (action.type === 'answer-q2b') {
+        if (action.choice === 'none') return { ...state, step: 'q3' };
+        if (action.choice === 'new-project') return toForm(state, 'project', false, null);
+        return toForm(state, 'action', false, null, {
+          projectId: action.projectId,
+          projectValue: action.projectValue,
+          projectTitle: action.projectTitle,
+        });
       }
       return state;
     case 'q3':
@@ -326,8 +375,16 @@ export function buildDoNowSubmission(mode: WizardMode): Submission {
 /**
  * Build the submission for a validated form state. `validateForm` must have
  * returned null first — this function assumes the required fields are set.
+ * `projectId` is the form's Q2b attachment (the 'action' form reached via
+ * an existing project); it is absent for every other form.
  */
-export function buildFormSubmission(mode: WizardMode, form: FormKind, fields: FormFields, twoMinute: boolean): Submission {
+export function buildFormSubmission(
+  mode: WizardMode,
+  form: FormKind,
+  fields: FormFields,
+  twoMinute: boolean,
+  projectId?: string,
+): Submission {
   const optional = (text: string): string | undefined => (text.trim() === '' ? undefined : text.trim());
 
   switch (form) {
@@ -434,6 +491,10 @@ export function buildFormSubmission(mode: WizardMode, form: FormKind, fields: Fo
             ...(twoMinute ? { completedOnTheSpot: false } : {}),
             myResponsibility: true,
             fixedTime: false,
+            // Q2b attach: carry the existing project (the project-attach
+            // outcome). Without it the field stays ABSENT — the Q3–Q5
+            // semantics (the action is not in a project).
+            ...(projectId !== undefined ? { projectId } : {}),
           },
           target,
         };
@@ -446,6 +507,10 @@ export function buildFormSubmission(mode: WizardMode, form: FormKind, fields: Fo
           ...(twoMinute ? { completedOnTheSpot: false } : {}),
           myResponsibility: true,
           fixedTime: false,
+          // Three-state: attach → the project id; no attachment → null
+          // (explicit detach — re-clarify always walks Q2b, so "not in a
+          // project" must be said out loud to drop an old attachment).
+          projectId: projectId ?? null,
         },
         target,
       };
@@ -471,6 +536,6 @@ export function outcomeLabel(outcome: ClarifyOutcome): string {
     case 'calendar-action':
       return '固定时间行动';
     case 'next-action':
-      return '下一步行动';
+      return outcome.source === 'project-attach' ? '项目行动（挂接已有项目）' : '下一步行动';
   }
 }

@@ -51,6 +51,7 @@ import {
   inboxItemFromRow,
   inboxItemToRow,
   nextActionToRow,
+  projectFromRow,
   projectToRow,
   referenceItemToRow,
   somedayMaybeItemToRow,
@@ -74,6 +75,29 @@ async function loadInboxRow(db: NextdoDb, inboxId: string) {
     throw new StorageNextdoError('inbox.not-found', `No live InboxItem with id ${inboxId}`);
   }
   return row;
+}
+
+/**
+ * Q2b attach: the target project must exist, be live, and be `active`.
+ * Throws BEFORE the calling transaction starts, so a failure leaves no
+ * write behind (no dirty rows to roll back).
+ */
+async function loadAttachableProject(db: NextdoDb, projectId: string): Promise<Project> {
+  const row = await db
+    .selectFrom('projects')
+    .selectAll()
+    .where('id', '=', projectId)
+    .executeTakeFirst();
+  if (row === undefined || row.deleted_at !== null) {
+    throw new StorageNextdoError('clarify.project-not-found', `No live Project with id ${projectId}`);
+  }
+  if (row.status !== 'active') {
+    throw new ValidationNextdoError(
+      'clarify.project-not-active',
+      `Project ${projectId} is not active (status: ${row.status})`,
+    );
+  }
+  return projectFromRow(row);
 }
 
 export async function listInboxItems(
@@ -186,6 +210,13 @@ export interface ReclarifyAnswers {
   myResponsibility: boolean;
   /** Q5: 必须在特定日期/时间执行吗？ */
   fixedTime: boolean;
+  /**
+   * Q2b: 它属于哪个项目？ — three-state: non-empty string = attach to the
+   * given (validated) project; `null` = explicit "not in a project" (detach
+   * — the replacement row has no project); `undefined` = not asked
+   * (defensive — keep the old row's project).
+   */
+  projectId?: string | null;
 }
 
 export interface ReclarifyResult {
@@ -292,6 +323,16 @@ export async function applyClarify(
   const outcome = classifyInboxItem(answers);
   const base = { nowIso, title: inbox.title, sourceInboxId: inbox.id };
 
+  // Q2b attach: validate the target project BEFORE the transaction — a
+  // failure throws without any write (same rule as the answer validation).
+  const attachProject =
+    outcome.kind === 'next-action' &&
+    outcome.source === 'project-attach' &&
+    typeof answers.projectId === 'string' &&
+    answers.projectId !== ''
+      ? await loadAttachableProject(db, answers.projectId)
+      : null;
+
   const createdIds: string[] = [];
   await db.transaction().execute(async (tx) => {
     switch (outcome.kind) {
@@ -390,7 +431,13 @@ export async function applyClarify(
         break;
       }
       case 'next-action': {
-        const action = buildNextAction(now, base, target);
+        // project-attach: the project's value is the DEFAULT — the form
+        // value still wins (buildNextAction: target.value ?? keptValue ?? 3).
+        const actionBase =
+          attachProject !== null
+            ? { ...base, projectId: attachProject.id, keptValue: attachProject.value }
+            : base;
+        const action = buildNextAction(now, actionBase, target);
         assertValidNextAction(action);
         createdIds.push(action.id);
         await tx.insertInto('next_actions').values({ id: action.id, ...nextActionToRow(action) }).execute();
@@ -453,10 +500,23 @@ export async function reclarifyAction(
   const oldTitle = actionRow.title ?? '';
   const oldSourceInboxId = actionRow.source_inbox_id ?? undefined;
   const oldKeptValue = (actionRow.value ?? NEXT_ACTION_DEFAULT_VALUE) as Value;
+  // Q2b "keep the old attachment": only next actions carry a project
+  // (CalendarAction has no projectId — v1 mutual exclusion).
+  const oldProjectId =
+    actionKind === 'next' && 'project_id' in actionRow ? actionRow.project_id ?? undefined : undefined;
 
   // Question 1 was already answered YES for this existing action — the
   // table is re-entered at question 2.
   const outcome = classifyInboxItem({ actionable: true, ...answers });
+
+  // Q2b attach: validate the target project BEFORE the transaction (a
+  // failure throws without any write — the old action row stays untouched).
+  const attachProject =
+    outcome.kind === 'next-action' &&
+    typeof answers.projectId === 'string' &&
+    answers.projectId !== ''
+      ? await loadAttachableProject(db, answers.projectId)
+      : null;
 
   if (outcome.kind === 'do-now-completed') {
     // Completed on the spot → the canonical complete transaction
@@ -526,7 +586,22 @@ export async function reclarifyAction(
         break;
       }
       case 'next-action': {
-        const action = buildNextAction(now, replacementBase, target);
+        // Q2b three-state: attach (non-empty string) / detach (null — or
+        // '', defensively treated as an explicit no-attach) / keep the old
+        // attachment (undefined — defensive; the wizard always asks Q2b).
+        const actionBase =
+          attachProject !== null
+            ? {
+                // The project's value is the default — the form value still
+                // wins (buildNextAction: target.value ?? keptValue ?? 3).
+                ...replacementBase,
+                projectId: attachProject.id,
+                keptValue: attachProject.value,
+              }
+            : answers.projectId === undefined && oldProjectId !== undefined
+              ? { ...replacementBase, projectId: oldProjectId }
+              : replacementBase;
+        const action = buildNextAction(now, actionBase, target);
         assertValidNextAction(action);
         createdIds.push(action.id);
         await tx.insertInto('next_actions').values({ id: action.id, ...nextActionToRow(action) }).execute();

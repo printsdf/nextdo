@@ -28,6 +28,13 @@ export interface ClarifyAnswers {
   myResponsibility: boolean;
   /** Q5, my responsibility only: 必须在特定日期/时间执行吗？ */
   fixedTime: boolean;
+  /**
+   * Q2b, single-step only: 它属于哪个项目？ — attach to an EXISTING project.
+   * Three-state: non-empty string = attach (wins over the Q3–Q5 branches
+   * below); `null` = explicit "not in a project" (re-clarify detach) or
+   * `undefined` = not asked — both fall through to the regular chain.
+   */
+  projectId?: string | null;
 }
 
 export type ClarifyOutcome =
@@ -44,6 +51,13 @@ export type ClarifyOutcome =
    * value = NEXT_ACTION_DEFAULT_VALUE; questions 4–5 do not apply.
    */
   | { kind: 'next-action'; source: 'two-minute' }
+  /**
+   * Q2b: attach to an EXISTING project — the db layer validates the project
+   * (exists / live / active) and defaults the value to the project's value.
+   * Questions 4–5 do not apply (v1: CalendarAction has no projectId, and
+   * re-asking responsibility for a project action is redundant).
+   */
+  | { kind: 'next-action'; source: 'project-attach' }
   | { kind: 'project' }
   | { kind: 'waiting-for' }
   | { kind: 'calendar-action' }
@@ -80,6 +94,12 @@ export function classifyInboxItem(answers: ClarifyAnswers): ClarifyOutcome {
     }
     // Project + its first NextAction are created ATOMICALLY by the caller.
     return { kind: 'project' };
+  }
+
+  // Q2b: attach to an existing project — a non-empty string wins over the
+  // Q3–Q5 branches. null / undefined / '' = no attachment (regular chain).
+  if (typeof answers.projectId === 'string' && answers.projectId !== '') {
+    return { kind: 'next-action', source: 'project-attach' };
   }
 
   if (answers.twoMinutes) {

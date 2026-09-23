@@ -1,9 +1,10 @@
 /**
  * Unit tests — the Clarify / Re-clarify pure state machine (lib/clarify-flow).
  *
- * Covers every decision-table outcome (7), every required-field
- * interception (Chinese messages), the do-now immediate path, the
- * two-minute prefill, and the re-clarify entry (Q2, no Q1 field).
+ * Covers every decision-table outcome (8, incl. the Q2b project attach),
+ * every required-field interception (Chinese messages), the do-now
+ * immediate path, the two-minute prefill, the re-clarify entry (Q2, no
+ * Q1 field), and the projectId three-state in the action submission.
  */
 import {
   buildDoNowSubmission,
@@ -147,11 +148,105 @@ describe('outcome 4 — project (q2 yes → 项目 + 首个行动)', () => {
   });
 });
 
+describe('outcome 8 — project attach (q2b → existing project)', () => {
+  const atQ2 = walkTo(
+    createWizardState('clarify', TITLE),
+    { type: 'answer-q1', actionable: true },
+    { type: 'answer-q2', multipleSteps: false },
+  );
+
+  it('q2 no → q2b (the project question, not q3 anymore)', () => {
+    expect(atQ2.step).toBe('q2b');
+  });
+
+  it('none → q3 (the regular chain)', () => {
+    expect(clarifyReducer(atQ2, { type: 'answer-q2b', choice: 'none' }).step).toBe('q3');
+  });
+
+  it('new-project → the project form', () => {
+    const state = clarifyReducer(atQ2, { type: 'answer-q2b', choice: 'new-project' });
+    expect(formState(state).form).toBe('project');
+  });
+
+  it('attach → the action form with the project value prefilled and the attachment carried', () => {
+    const state = clarifyReducer(atQ2, {
+      type: 'answer-q2b',
+      choice: 'attach',
+      projectId: 'p-1',
+      projectValue: 4,
+      projectTitle: '毕业论文实验',
+    });
+    const form = formState(state);
+    expect(form.form).toBe('action');
+    expect(form.twoMinute).toBe(false);
+    expect(form.fields.value).toBe(4);
+    expect(form.projectId).toBe('p-1');
+    expect(form.projectTitle).toBe('毕业论文实验');
+  });
+
+  it('re-clarify walks the same q2b (re-entry at q2)', () => {
+    const state = clarifyReducer(createWizardState('reclarify', TITLE), {
+      type: 'answer-q2',
+      multipleSteps: false,
+    });
+    expect(state.step).toBe('q2b');
+  });
+});
+
+describe('buildFormSubmission — the projectId three-state (action form)', () => {
+  const fields = fill(
+    {
+      title: TITLE,
+      url: '',
+      note: '',
+      waitingOn: '',
+      expectedBy: '',
+      projectTitle: TITLE,
+      projectOutcome: '',
+      projectValue: 3,
+      actionTitle: TITLE,
+      estMinutes: null,
+      value: 3,
+      deadline: '',
+      startsAtDate: '',
+      startsAtTime: '',
+    },
+    { estMinutes: 20 },
+  );
+
+  it('clarify + attach → answers.projectId = the project id', () => {
+    const submission = buildFormSubmission('clarify', 'action', fields, false, 'p-1');
+    expect(submission.answers).toMatchObject({ projectId: 'p-1', twoMinutes: false });
+  });
+
+  it('clarify without attach → the field is ABSENT (Q3–Q5 semantics)', () => {
+    const submission = buildFormSubmission('clarify', 'action', fields, false);
+    expect('projectId' in submission.answers).toBe(false);
+  });
+
+  it('reclarify + attach → answers.projectId = the project id', () => {
+    const submission = buildFormSubmission('reclarify', 'action', fields, false, 'p-1');
+    expect(submission.answers).toMatchObject({ projectId: 'p-1' });
+    expect('actionable' in submission.answers).toBe(false);
+  });
+
+  it('reclarify without attach → answers.projectId = null (explicit detach)', () => {
+    const submission = buildFormSubmission('reclarify', 'action', fields, false);
+    expect(submission.answers).toMatchObject({ projectId: null });
+  });
+
+  it('two-minute path is unaffected (attach never reaches q3)', () => {
+    const submission = buildFormSubmission('reclarify', 'action', fields, true);
+    expect(submission.answers).toMatchObject({ twoMinutes: true, completedOnTheSpot: false, projectId: null });
+  });
+});
+
 describe('outcome 5 — waiting-for (q4 no → 等待他人)', () => {
   const state = walkTo(
     createWizardState('clarify', TITLE),
     { type: 'answer-q1', actionable: true },
     { type: 'answer-q2', multipleSteps: false },
+    { type: 'answer-q2b', choice: 'none' },
     { type: 'answer-q3', twoMinutes: false },
     { type: 'answer-q4', myResponsibility: false },
   );
@@ -184,6 +279,7 @@ describe('outcome 6 — calendar-action (q5 yes → 固定时间行动)', () => 
     createWizardState('clarify', TITLE),
     { type: 'answer-q1', actionable: true },
     { type: 'answer-q2', multipleSteps: false },
+    { type: 'answer-q2b', choice: 'none' },
     { type: 'answer-q3', twoMinutes: false },
     { type: 'answer-q4', myResponsibility: true },
     { type: 'answer-q5', fixedTime: true },
@@ -217,6 +313,7 @@ describe('outcome 7a — next-action clarified (q5 no)', () => {
     createWizardState('clarify', TITLE),
     { type: 'answer-q1', actionable: true },
     { type: 'answer-q2', multipleSteps: false },
+    { type: 'answer-q2b', choice: 'none' },
     { type: 'answer-q3', twoMinutes: false },
     { type: 'answer-q4', myResponsibility: true },
     { type: 'answer-q5', fixedTime: false },
@@ -256,6 +353,7 @@ describe('outcome 7b — two-minute path (q3 yes)', () => {
       createWizardState('clarify', TITLE),
       { type: 'answer-q1', actionable: true },
       { type: 'answer-q2', multipleSteps: false },
+      { type: 'answer-q2b', choice: 'none' },
       { type: 'answer-q3', twoMinutes: true },
     );
     expect(atQ3b.step).toBe('q3b');
@@ -276,6 +374,7 @@ describe('outcome 7b — two-minute path (q3 yes)', () => {
       createWizardState('clarify', TITLE),
       { type: 'answer-q1', actionable: true },
       { type: 'answer-q2', multipleSteps: false },
+      { type: 'answer-q2b', choice: 'none' },
       { type: 'answer-q3', twoMinutes: true },
       { type: 'answer-q3b', completedOnTheSpot: false },
     );
@@ -290,6 +389,7 @@ describe('outcome 7b — two-minute path (q3 yes)', () => {
       createWizardState('clarify', TITLE),
       { type: 'answer-q1', actionable: true },
       { type: 'answer-q2', multipleSteps: false },
+      { type: 'answer-q2b', choice: 'none' },
       { type: 'answer-q3', twoMinutes: true },
       { type: 'answer-q3b', completedOnTheSpot: false },
     );
@@ -435,5 +535,6 @@ describe('outcomeLabel (Chinese summary for the done step)', () => {
     expect(outcomeLabel({ kind: 'calendar-action' })).toBe('固定时间行动');
     expect(outcomeLabel({ kind: 'next-action', source: 'clarified' })).toBe('下一步行动');
     expect(outcomeLabel({ kind: 'next-action', source: 'two-minute' })).toBe('下一步行动');
+    expect(outcomeLabel({ kind: 'next-action', source: 'project-attach' })).toBe('项目行动（挂接已有项目）');
   });
 });

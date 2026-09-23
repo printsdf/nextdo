@@ -25,6 +25,19 @@ InboxItem
 │       │   │       transaction. If the user aborts before both are confirmed,
 │       │   │       neither row exists (all-or-nothing; the InboxItem survives).
 │       │   └─ NO ↓
+│       ├─ 2b. 属于哪个已有项目？(Part of an existing project?)
+│       │   ├─ <an existing ACTIVE project> → NextAction attached to it:
+│       │   │       `projectId` = the project's id; `value` defaults to the
+│       │   │       project's value (overridable in the action form).
+│       │   │       Questions 3–5 do NOT apply — a project-attached action is
+│       │   │       always a NextAction in v1 (a CalendarAction has no
+│       │   │       `projectId`; fixed-time and project membership are mutually
+│       │   │       exclusive). The project must exist and be `active`
+│       │   │       (db errors `clarify.project-not-found` /
+│       │   │       `clarify.project-not-active`; validated before the
+│       │   │       transaction — no partial writes).
+│       │   ├─ 新建项目 (New project) → the Project branch above (same form).
+│       │   └─ 不属于项目 (No project) ↓
 │       ├─ 3. 约 2 分钟内能完成吗？(Doable in ~2 min?)
 │       │   ├─ YES → DO NOW: the UI executes it immediately.
 │       │   │   • completed on the spot → CompletionRecord(action_kind="do_now",
@@ -55,7 +68,12 @@ Rules:
 - Re-clarify (triggered by the engine, see Next Action Engine) re-enters this table at
   question 2 for the existing action: the outcome replaces the old action row
   (old row soft-deleted; `sourceInboxId` chain preserved via the new row's
-  `replacesActionId`).
+  `replacesActionId`). Because it re-enters at question 2, re-clarify also passes
+  through question 2b — the user can keep the current project, re-attach to another,
+  or detach (the replacement action's `projectId` is null).
+- Capture handoff (v1 UI): each saved capture enters this walk **immediately**
+  (one item at a time; after the walk the UI offers "capture another" / "done").
+  An aborted walk leaves the InboxItem in the inbox for later.
 
 ## Core Entities
 
@@ -67,7 +85,9 @@ camelCase TS fields; the mapping table is the single one in
 
 ### InboxItem
 Raw capture (Proposal §5.1). Required: `title` (free text), `capturedAt`. No contexts,
-no estimates — captures stay friction-free.
+no estimates — captures stay friction-free. The v1 capture UI hands each saved item
+straight into the Clarify walk (see "Capture handoff" rule below); an item survives
+in the inbox only when the walk is aborted.
 
 ### Project
 A multi-step outcome (Proposal §5.3).
@@ -84,7 +104,7 @@ A single concrete step (Proposal §5.3: "运行 baseline A", never "完成论文
 - `contextIds: string[]` (where it can be done),
 - `estMinutes: number` (user estimate; feeds the engine's hard filter and `time-fit`),
 - `value: 1..5` (set in Clarify; defaults to the parent project's value when created
-  from one),
+  from one or attached to one via question 2b — overridable in the form),
 - `category?: "work" | "health" | "life" | "other"` (the health signal reads
   `category === "health"`),
 - `dueDate?` (ISO date, soft) / `deadline?` (ISO **datetime** — the exact moment;

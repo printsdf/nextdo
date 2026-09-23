@@ -5,15 +5,19 @@
  *   classification, no required fields — Proposal §5.1);
  * - quick capture modal: automatically displayed on launch for zero-friction
  *   thought dump;
+ * - R1 handoff: EVERY capture path (modal + inline bar) funnels through
+ *   `handoffToClarify` — the modal closes and the Clarify wizard opens for
+ *   the new item immediately (记一条问一条); "再记一条" from the wizard
+ *   returns here via the one-shot `recapture=1` route param;
  * - list: oldest first; a row opens the Clarify wizard; the row's trash
  *   button confirms inline (one tap to arm, one tap to delete).
  *
  * Presentational only: data arrives from `useInboxItems`, mutations go
  * through the mutation hooks (component-guidelines).
  */
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Button, Card, EmptyState } from '@nextdo/ui';
 import { useInboxItems } from '@/hooks/use-inbox-items';
 import { useAddInboxItem } from '@/hooks/use-add-inbox-item';
@@ -83,13 +87,34 @@ export default function InboxScreen() {
   const [saving, setSaving] = useState(false);
   const [showQuickCapture, setShowQuickCapture] = useState(true);
 
+  // R1: the SINGLE handoff for both capture paths (modal onCaptured +
+  // inline bar) — close the modal (if open) and open the Clarify wizard
+  // for the freshly captured item.
+  const handoffToClarify = useCallback((item: InboxItem) => {
+    setShowQuickCapture(false);
+    router.push(`/clarify/${item.id}`);
+  }, []);
+
+  // "再记一条" from the wizard's done step arrives with recapture=1 —
+  // one-shot consumption: reopen the modal and clear the param.
+  const { recapture } = useLocalSearchParams<{ recapture?: string }>();
+  useEffect(() => {
+    if (recapture === '1') {
+      setShowQuickCapture(true);
+      router.setParams({ recapture: undefined });
+    }
+  }, [recapture]);
+
   const capture = async () => {
     const title = draft.trim();
     if (title === '' || saving) return;
     setSaving(true);
     try {
-      await add(title);
-      setDraft('');
+      const item = await add(title);
+      if (item !== null) {
+        setDraft('');
+        handoffToClarify(item);
+      }
     } finally {
       setSaving(false);
     }
@@ -146,11 +171,13 @@ export default function InboxScreen() {
         />
       )}
 
-      {/* On-launch & triggerable quick capture modal */}
+      {/* On-launch & triggerable quick capture modal (R1: onCaptured hands
+       *  the saved item to the Clarify wizard) */}
       <QuickCaptureModal
         visible={showQuickCapture}
         onClose={() => setShowQuickCapture(false)}
         onAdd={add}
+        onCaptured={handoffToClarify}
         error={captureError}
       />
     </View>

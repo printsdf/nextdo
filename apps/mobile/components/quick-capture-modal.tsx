@@ -2,9 +2,11 @@
  * QuickCaptureModal (design.md §4.2):
  *
  * Lightweight iOS-style quick capture modal triggered on app launch
- * or via quick capture actions. Auto-focuses text input, saves on Enter
- * or [记录], supports multi-capture in one session, and dismisses on
- * mask tap / ESC / [完成].
+ * or via quick capture actions. Auto-focuses text input and saves on
+ * Enter or [记录]. Each successful save hands the new InboxItem to
+ * `onCaptured` (the parent closes the modal and opens the Clarify wizard
+ * for it — PRD R1: 记一条问一条, which replaces the old multi-capture
+ * session). Dismisses on mask tap / ESC / 稍后再说.
  */
 import { useState } from 'react';
 import {
@@ -18,11 +20,15 @@ import {
 } from 'react-native';
 import { Button } from '@nextdo/ui';
 import { errorMessage } from '@/lib/error-messages';
+import type { InboxItem } from '@nextdo/core';
 
 export interface QuickCaptureModalProps {
   visible: boolean;
   onClose: () => void;
-  onAdd: (title: string) => Promise<unknown>;
+  onAdd: (title: string) => Promise<InboxItem | null>;
+  /** Capture-and-continue (PRD R1): called with the saved item — the
+   *  parent closes the modal and opens the Clarify wizard for it. */
+  onCaptured?: (item: InboxItem) => void;
   error?: unknown;
 }
 
@@ -30,20 +36,24 @@ export function QuickCaptureModal({
   visible,
   onClose,
   onAdd,
+  onCaptured,
   error,
 }: QuickCaptureModalProps) {
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
-  const [savedCount, setSavedCount] = useState(0);
 
   const handleCapture = async () => {
     const title = draft.trim();
     if (title === '' || saving) return;
     setSaving(true);
     try {
-      await onAdd(title);
-      setDraft('');
-      setSavedCount((count) => count + 1);
+      const item = await onAdd(title);
+      if (item !== null) {
+        // R1 handoff: reset the draft and let the parent take the item to
+        // the Clarify wizard (记一条问一条).
+        setDraft('');
+        onCaptured?.(item);
+      }
     } finally {
       setSaving(false);
     }
@@ -51,7 +61,6 @@ export function QuickCaptureModal({
 
   const handleClose = () => {
     setDraft('');
-    setSavedCount(0);
     onClose();
   };
 
@@ -85,13 +94,6 @@ export function QuickCaptureModal({
                 清空大脑：记录想法、待办或灵感
               </Text>
             </View>
-            {savedCount > 0 ? (
-              <View className="rounded-full bg-accent/15 px-2.5 py-0.5 dark:bg-accent-dark/20">
-                <Text className="text-xs font-medium text-accent dark:text-accent-dark">
-                  已记下 {savedCount} 条
-                </Text>
-              </View>
-            ) : null}
           </View>
 
           <TextInput
@@ -123,7 +125,7 @@ export function QuickCaptureModal({
 
           <View className="flex-row items-center justify-end gap-2.5">
             <Button
-              label={savedCount > 0 ? '完成' : '稍后再说'}
+              label="稍后再说"
               variant="ghost"
               onPress={handleClose}
             />

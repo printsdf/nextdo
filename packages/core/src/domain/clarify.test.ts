@@ -69,6 +69,39 @@ describe('classifyInboxItem — Q2 multiple steps', () => {
   });
 });
 
+describe('classifyInboxItem — Q2b project attach', () => {
+  it('a non-empty projectId → next-action (project-attach)', () => {
+    expect(classifyInboxItem({ ...base, projectId: 'p-1' })).toEqual({
+      kind: 'next-action',
+      source: 'project-attach',
+    });
+  });
+
+  it('priority: projectId beats twoMinutes (attach skips Q3–Q5)', () => {
+    expect(
+      classifyInboxItem({ ...base, projectId: 'p-1', twoMinutes: true, completedOnTheSpot: false }),
+    ).toEqual({ kind: 'next-action', source: 'project-attach' });
+  });
+
+  it('priority: multipleSteps beats projectId', () => {
+    expect(
+      classifyInboxItem({ ...base, multipleSteps: true, projectOutcome: '跑完 baseline', projectId: 'p-1' }),
+    ).toEqual({ kind: 'project' });
+  });
+
+  it('null / undefined / empty string fall through to the regular chain', () => {
+    expect(classifyInboxItem({ ...base, projectId: null })).toEqual({
+      kind: 'next-action',
+      source: 'clarified',
+    });
+    expect(classifyInboxItem(base)).toEqual({ kind: 'next-action', source: 'clarified' });
+    expect(classifyInboxItem({ ...base, projectId: '' })).toEqual({
+      kind: 'next-action',
+      source: 'clarified',
+    });
+  });
+});
+
 describe('classifyInboxItem — Q3 two minutes (DO NOW)', () => {
   it('completed on the spot → do-now-completed', () => {
     expect(

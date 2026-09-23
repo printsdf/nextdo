@@ -15,7 +15,7 @@
  * Presentational otherwise: no engine logic, no stored engine output
  * (component-guidelines).
  */
-import { useEffect, useMemo, useReducer, useState, type Dispatch, type ReactNode } from 'react';
+import { useMemo, useReducer, useState, type Dispatch, type ReactNode } from 'react';
 import { router } from 'expo-router';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { Button, Card, cn } from '@nextdo/ui';
@@ -26,10 +26,11 @@ import {
   type ActionKind,
 } from '@nextdo/db';
 import { usePowerSync } from '@powersync/react';
-import type { Value } from '@nextdo/core';
+import type { Project, Value } from '@nextdo/core';
 import { useAppClock } from '@/hooks/use-app-clock';
 import { useInboxItem } from '@/hooks/use-inbox-item';
 import { useActionTitle } from '@/hooks/use-action-title';
+import { useProjects } from '@/hooks/use-projects';
 import { errorMessage } from '@/lib/error-messages';
 import {
   buildDoNowSubmission,
@@ -130,23 +131,24 @@ export interface WizardBodyProps {
   actionKind: Extract<ActionKind, 'next' | 'calendar'> | null;
   /** The target's title — defaults for every editable title field. */
   defaultTitle: string;
+  /** Reclarify only: the existing action's project (null = standalone) —
+   *  marks the Q2b "current" project. */
+  currentProjectId: string | null;
 }
 
-export function WizardBody({ mode, id, actionKind, defaultTitle }: WizardBodyProps) {
+export function WizardBody({ mode, id, actionKind, defaultTitle, currentProjectId }: WizardBodyProps) {
   const powersync = usePowerSync();
   const db = useMemo(() => wrapDb(powersync), [powersync]);
   const now = useAppClock();
 
+  // Q2b: the attachable projects (active only — on-hold/done/dropped are
+  // not attachable; the db layer re-checks status at submit time).
+  const { data: allProjects } = useProjects();
+  const activeProjects = allProjects.filter((project) => project.status === 'active');
+
   const [state, dispatch] = useReducer(clarifyReducer, undefined, () => createWizardState(mode, defaultTitle));
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  // Done step: auto-return after a short pause so the summary is visible.
-  useEffect(() => {
-    if (state.step !== 'done') return;
-    const timer = setTimeout(() => router.back(), 1500);
-    return () => clearTimeout(timer);
-  }, [state.step]);
 
   async function submit(submission: Submission) {
     setSubmitting(true);
@@ -182,13 +184,13 @@ export function WizardBody({ mode, id, actionKind, defaultTitle }: WizardBodyPro
     void submit(buildDoNowSubmission(mode));
   }
 
-  function handleFormSubmit(form: FormKind, fields: FormFields, twoMinute: boolean) {
+  function handleFormSubmit(form: FormKind, fields: FormFields, twoMinute: boolean, projectId?: string) {
     const problem = validateForm(form, fields);
     if (problem !== null) {
       dispatch({ type: 'form-error', error: problem });
       return;
     }
-    void submit(buildFormSubmission(mode, form, fields, twoMinute));
+    void submit(buildFormSubmission(mode, form, fields, twoMinute, projectId));
   }
 
   function setField(field: keyof FormFields, value: string | number | null) {
@@ -212,13 +214,28 @@ export function WizardBody({ mode, id, actionKind, defaultTitle }: WizardBodyPro
           <Text className="text-base font-medium text-ink dark:text-ink-dark">
             已整理为「{outcomeLabel(state.result.outcome)}」
           </Text>
-          <Text className="text-sm text-muted dark:text-muted-dark">正在返回…</Text>
-          <Button label="返回" variant="secondary" onPress={() => router.back()} />
+          {/* Explicit exits (R1): loop back to capture, or return to the
+           *  screen the wizard was pushed from. No auto-back timer. The
+           *  recapture param is a one-shot (the inbox screen consumes it). */}
+          <Button
+            label="再记一条"
+            onPress={() =>
+              router.navigate({ pathname: '/(tabs)/inbox', params: { recapture: '1' } })
+            }
+          />
+          <Button label="完成" variant="secondary" onPress={() => router.back()} />
         </Card>
       ) : (
         <Card>
-          {(state.step === 'q1' || state.step === 'q2' || state.step === 'q3' || state.step === 'q4' || state.step === 'q5' || state.step === 'q3b') && (
-            <QuestionCard state={state} dispatch={dispatch} onDoNow={handleDoNow} disabled={submitting} />
+          {(state.step === 'q1' || state.step === 'q2' || state.step === 'q2b' || state.step === 'q3' || state.step === 'q4' || state.step === 'q5' || state.step === 'q3b') && (
+            <QuestionCard
+              state={state}
+              dispatch={dispatch}
+              onDoNow={handleDoNow}
+              disabled={submitting}
+              projects={activeProjects}
+              currentProjectId={currentProjectId}
+            />
           )}
           {state.step === 'q1b' && (
             <View className="gap-4">
@@ -232,7 +249,7 @@ export function WizardBody({ mode, id, actionKind, defaultTitle }: WizardBodyPro
             <FormCard
               state={state}
               onField={setField}
-              onSubmit={() => handleFormSubmit(state.form, state.fields, state.twoMinute)}
+              onSubmit={() => handleFormSubmit(state.form, state.fields, state.twoMinute, state.projectId)}
               disabled={submitting}
             />
           )}
@@ -253,10 +270,15 @@ export function WizardBody({ mode, id, actionKind, defaultTitle }: WizardBodyPro
 // ---------------------------------------------------------------------------
 
 interface QuestionCardProps {
-  state: Extract<WizardState, { step: 'q1' | 'q2' | 'q3' | 'q3b' | 'q4' | 'q5' }>;
+  state: Extract<WizardState, { step: 'q1' | 'q2' | 'q2b' | 'q3' | 'q3b' | 'q4' | 'q5' }>;
   dispatch: Dispatch<WizardAction>;
   onDoNow: () => void;
   disabled: boolean;
+  /** Q2b only: the active (attachable) projects. */
+  projects: Project[];
+  /** Q2b only (reclarify): the action's current project — gets the
+   *  "当前" marker. */
+  currentProjectId: string | null;
 }
 
 function Question({ title, sub }: { title: string; sub?: string }) {
@@ -268,7 +290,7 @@ function Question({ title, sub }: { title: string; sub?: string }) {
   );
 }
 
-function QuestionCard({ state, dispatch, onDoNow, disabled }: QuestionCardProps) {
+function QuestionCard({ state, dispatch, onDoNow, disabled, projects, currentProjectId }: QuestionCardProps) {
   switch (state.step) {
     case 'q1':
       return (
@@ -284,6 +306,43 @@ function QuestionCard({ state, dispatch, onDoNow, disabled }: QuestionCardProps)
           <Question title="需要多个步骤才能完成吗？" />
           <Button label="是，拆成项目" onPress={() => dispatch({ type: 'answer-q2', multipleSteps: true })} disabled={disabled} />
           <Button label="否，一步能完成" variant="secondary" onPress={() => dispatch({ type: 'answer-q2', multipleSteps: false })} disabled={disabled} />
+        </View>
+      );
+    case 'q2b':
+      return (
+        <View className="gap-4">
+          <Question title="它属于哪个项目？" sub="挂到已有项目下（价值默认跟随项目），或新建 / 不挂。" />
+          {projects.map((project) => (
+            <Pressable
+              key={project.id}
+              accessibilityRole="button"
+              accessibilityLabel={`挂到项目：${project.title}`}
+              onPress={() =>
+                dispatch({
+                  type: 'answer-q2b',
+                  choice: 'attach',
+                  projectId: project.id,
+                  projectValue: project.value,
+                  projectTitle: project.title,
+                })
+              }
+              disabled={disabled}
+              className="rounded-md border border-border bg-surface p-3 dark:border-border-dark dark:bg-surface-dark"
+            >
+              <View className="flex-row items-center gap-2">
+                <Text className="flex-1 text-base text-ink dark:text-ink-dark">
+                  {project.title}（价值 {project.value}）
+                </Text>
+                {currentProjectId === project.id ? (
+                  <Text className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent dark:bg-accent-dark/20 dark:text-accent-dark">
+                    当前
+                  </Text>
+                ) : null}
+              </View>
+            </Pressable>
+          ))}
+          <Button label="新建项目" variant="secondary" onPress={() => dispatch({ type: 'answer-q2b', choice: 'new-project' })} disabled={disabled} />
+          <Button label="不属于项目" variant="secondary" onPress={() => dispatch({ type: 'answer-q2b', choice: 'none' })} disabled={disabled} />
         </View>
       );
     case 'q3':
@@ -472,6 +531,13 @@ function FormCard({ state, onField, onSubmit, disabled }: FormCardProps) {
       case 'action':
         return (
           <View className="gap-4">
+            {state.projectId !== undefined ? (
+              // Q2b attach: the project is fixed for this submission —
+              // changing it means going back to Q2b (not in-form).
+              <Text className="rounded-md bg-canvas p-2.5 text-sm text-muted dark:bg-canvas-dark dark:text-muted-dark">
+                所属项目：{state.projectTitle ?? ''}
+              </Text>
+            ) : null}
             <Question
               title={state.twoMinute ? '记成一个行动（约 2 分钟）' : '记成一个行动'}
               sub="进入 Now 执行池，可以被推荐。"
@@ -597,6 +663,13 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
   }
 
   return (
-    <WizardBody key={`${mode}-${id}`} mode={mode} id={id} actionKind={actionKind} defaultTitle={title} />
+    <WizardBody
+      key={`${mode}-${id}`}
+      mode={mode}
+      id={id}
+      actionKind={actionKind}
+      defaultTitle={title}
+      currentProjectId={isReclarify ? action.projectId : null}
+    />
   );
 }

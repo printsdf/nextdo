@@ -6,6 +6,10 @@
  * - next/calendar → the action row's title;
  * - habit → the HabitDay row (no title of its own) → the parent habit's
  *   title (the daily instance is "the habit, today").
+ *
+ * The same single query also yields the action's `projectId` (null for
+ * calendar/habit and for standalone actions) — zero extra cost, one query
+ * concern (hook-guidelines).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { usePowerSync } from '@powersync/react';
@@ -21,6 +25,9 @@ import { logger } from '@nextdo/core';
 
 export interface UseActionTitleResult {
   title: string | null;
+  /** The action's project (next actions only — CalendarAction has no
+   *  projectId in v1) — null for standalone actions / not loaded. */
+  projectId: string | null;
   loaded: boolean;
   error: string | null;
 }
@@ -32,6 +39,7 @@ export function useActionTitle(
   const powersync = usePowerSync();
   const db = useMemo(() => wrapDb(powersync), [powersync]);
   const [title, setTitle] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,12 +47,14 @@ export function useActionTitle(
     if (actionKind === null || actionId === null) return;
     let cancelled = false;
     setTitle(null);
+    setProjectId(null);
     setLoaded(false);
     setError(null);
 
-    const settle = (found: string | null) => {
+    const settle = (foundTitle: string | null, foundProjectId: string | null = null) => {
       if (cancelled) return;
-      setTitle(found);
+      setTitle(foundTitle);
+      setProjectId(foundProjectId);
       setLoaded(true);
     };
     const fail = (err: unknown) => {
@@ -69,16 +79,25 @@ export function useActionTitle(
       };
     }
 
-    const query = actionKind === 'next' ? listNextActions(db) : listCalendarActions(db);
-    query
-      .then((actions) => {
-        settle(actions.find((candidate) => candidate.id === actionId)?.title ?? null);
-      })
-      .catch(fail);
+    if (actionKind === 'next') {
+      listNextActions(db)
+        .then((actions) => {
+          const found = actions.find((candidate) => candidate.id === actionId);
+          settle(found?.title ?? null, found?.projectId ?? null);
+        })
+        .catch(fail);
+    } else {
+      listCalendarActions(db)
+        .then((actions) => {
+          const found = actions.find((candidate) => candidate.id === actionId);
+          settle(found?.title ?? null);
+        })
+        .catch(fail);
+    }
     return () => {
       cancelled = true;
     };
   }, [db, actionKind, actionId]);
 
-  return { title, loaded, error };
+  return { title, projectId, loaded, error };
 }

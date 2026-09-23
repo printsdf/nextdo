@@ -1,5 +1,16 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import type { InboxItem } from '@nextdo/core';
 import { QuickCaptureModal } from '@/components/quick-capture-modal';
+
+/** A freshly captured item (R1 handoff payload). */
+const ITEM: InboxItem = {
+  id: 'inbox-new-1',
+  createdAt: '2026-09-22T02:00:00.000Z',
+  updatedAt: '2026-09-22T02:00:00.000Z',
+  deletedAt: null,
+  title: '买牛奶和咖啡豆',
+  capturedAt: '2026-09-22T02:00:00.000Z',
+};
 
 describe('QuickCaptureModal', () => {
   it('renders title and inputs when visible', () => {
@@ -7,7 +18,7 @@ describe('QuickCaptureModal', () => {
       <QuickCaptureModal
         visible={true}
         onClose={jest.fn()}
-        onAdd={jest.fn()}
+        onAdd={jest.fn(async () => null)}
       />,
     );
 
@@ -15,13 +26,15 @@ describe('QuickCaptureModal', () => {
     expect(screen.getByPlaceholderText(/记下任何事/)).toBeTruthy();
   });
 
-  it('submits captured text and resets input on submit', async () => {
-    const onAdd = jest.fn().mockResolvedValue(undefined);
+  it('submits captured text and hands the saved item to onCaptured', async () => {
+    const onAdd = jest.fn(async () => ITEM);
+    const onCaptured = jest.fn();
     render(
       <QuickCaptureModal
         visible={true}
         onClose={jest.fn()}
         onAdd={onAdd}
+        onCaptured={onCaptured}
       />,
     );
 
@@ -33,10 +46,36 @@ describe('QuickCaptureModal', () => {
       expect(onAdd).toHaveBeenCalledWith('买牛奶和咖啡豆');
     });
 
-    // Successfully saved badge appears
+    // R1 handoff: the parent gets the item (it opens the Clarify wizard).
     await waitFor(() => {
-      expect(screen.getByText('已记下 1 条')).toBeTruthy();
+      expect(onCaptured).toHaveBeenCalledWith(ITEM);
     });
+    // The draft is reset for the next capture.
+    expect(screen.getByPlaceholderText(/记下任何事/).props.value).toBe('');
+  });
+
+  it('a failed save (null) does not call onCaptured', async () => {
+    const onAdd = jest.fn(async () => null);
+    const onCaptured = jest.fn();
+    render(
+      <QuickCaptureModal
+        visible={true}
+        onClose={jest.fn()}
+        onAdd={onAdd}
+        onCaptured={onCaptured}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText(/记下任何事/);
+    fireEvent.changeText(input, '保存失败');
+    fireEvent.press(screen.getByText('记录'));
+
+    await waitFor(() => {
+      expect(onAdd).toHaveBeenCalledWith('保存失败');
+    });
+    expect(onCaptured).not.toHaveBeenCalled();
+    // The draft is kept so the user can retry.
+    expect(screen.getByPlaceholderText(/记下任何事/).props.value).toBe('保存失败');
   });
 
   it('calls onClose when backdrop or cancel button is pressed', () => {
@@ -45,7 +84,7 @@ describe('QuickCaptureModal', () => {
       <QuickCaptureModal
         visible={true}
         onClose={onClose}
-        onAdd={jest.fn()}
+        onAdd={jest.fn(async () => null)}
       />,
     );
 
@@ -54,12 +93,14 @@ describe('QuickCaptureModal', () => {
   });
 
   it('submits on Enter key press', async () => {
-    const onAdd = jest.fn().mockResolvedValue(undefined);
+    const onAdd = jest.fn(async () => ITEM);
+    const onCaptured = jest.fn();
     render(
       <QuickCaptureModal
         visible={true}
         onClose={jest.fn()}
         onAdd={onAdd}
+        onCaptured={onCaptured}
       />,
     );
 
@@ -70,6 +111,9 @@ describe('QuickCaptureModal', () => {
     await waitFor(() => {
       expect(onAdd).toHaveBeenCalledWith('键盘回车录入');
     });
+    await waitFor(() => {
+      expect(onCaptured).toHaveBeenCalledWith(ITEM);
+    });
   });
 
   it('dismisses modal on Escape key press', () => {
@@ -78,7 +122,7 @@ describe('QuickCaptureModal', () => {
       <QuickCaptureModal
         visible={true}
         onClose={onClose}
-        onAdd={jest.fn()}
+        onAdd={jest.fn(async () => null)}
       />,
     );
 

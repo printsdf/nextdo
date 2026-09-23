@@ -4,15 +4,18 @@
  * contexts/estimates/values at capture) and delegates to the packages/db
  * `addInboxItem` query. `now` comes from the single app clock (hook-
  * guidelines Rule 4).
+ *
+ * `add` resolves to the created InboxItem (its `id` drives the immediate
+ * Clarify handoff, PRD R1) — or `null` when the local write failed.
  */
 import { useCallback, useMemo, useState } from 'react';
 import { usePowerSync } from '@powersync/react';
 import { addInboxItem, wrapDb } from '@nextdo/db';
-import { logger, toIso, ulid } from '@nextdo/core';
+import { logger, toIso, ulid, type InboxItem } from '@nextdo/core';
 import { useAppClock } from './use-app-clock';
 
 export interface UseAddInboxItemResult {
-  add: (title: string) => Promise<void>;
+  add: (title: string) => Promise<InboxItem | null>;
   error: string | null;
 }
 
@@ -23,9 +26,9 @@ export function useAddInboxItem(): UseAddInboxItemResult {
   const [error, setError] = useState<string | null>(null);
 
   const add = useCallback(
-    async (title: string) => {
+    async (title: string): Promise<InboxItem | null> => {
       const nowIso = toIso(now);
-      const item = {
+      const item: InboxItem = {
         id: ulid(now),
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -36,9 +39,11 @@ export function useAddInboxItem(): UseAddInboxItemResult {
       try {
         await addInboxItem(db, item);
         setError(null);
+        return item;
       } catch (err: unknown) {
         logger.error('inbox capture failed', err instanceof Error ? err : new Error(String(err)));
         setError(err instanceof Error ? err.message : String(err));
+        return null;
       }
     },
     [db, now],

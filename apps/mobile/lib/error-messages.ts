@@ -14,6 +14,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   'clarify.project-value': '项目价值需在 1–5 之间',
   'reclarify.unsupported-kind': '习惯不能重新明晰（请编辑习惯本身）',
   'reclarify.action-not-open': '只有进行中的行动可以重新明晰',
+  'clarify.project-not-found': '这个项目不存在了',
+  'clarify.project-not-active': '这个项目当前不是进行中状态，无法挂接',
   // Core invariants
   'validation.waitingForItem.waitingOn': '请填写在等谁 / 什么',
   'validation.calendarAction.startsAt': '请选择开始时间',
