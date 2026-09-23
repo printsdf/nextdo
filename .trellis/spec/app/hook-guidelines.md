@@ -39,6 +39,11 @@
    `useNow()`, which ticks on a minute interval) — hooks do not call `Date.now()`.
 5. A hook must be safe to call unconditionally (rules of hooks); conditional logic goes
    inside the hook.
+6. PowerSync watch results: `@powersync/react` types `useQuery`'s `error` as
+   `Error | undefined`, but the runtime delivers `null` (watch state). Normalize with a
+   **truthy** check (`error ? String(error.message) : null`) — never `error === undefined`
+   with an else-branch, which dereferences `null.message` and crashes the whole tree
+   (no error boundary in v1). Regression: `apps/mobile/__tests__/watch-error-null.test.tsx`.
 
 ## Forbidden
 
