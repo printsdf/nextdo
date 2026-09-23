@@ -7,23 +7,31 @@ export type TagTone = 'neutral' | 'accent' | 'warning' | 'danger';
 export interface TagProps {
   label: string;
   tone?: TagTone;
+  className?: string;
 }
 
-const TONE_CLASSES: Record<TagTone, string> = {
-  neutral: 'bg-border/60 text-ink dark:bg-border-dark dark:text-ink-dark',
-  accent: 'bg-accent/15 text-accent dark:bg-accent-dark/20 dark:text-accent-dark',
-  warning: 'bg-warning/15 text-warning',
-  danger: 'bg-danger/15 text-danger',
+const BG_CLASSES: Record<TagTone, string> = {
+  neutral: 'bg-border/60 dark:bg-border-dark',
+  accent: 'bg-accent/15 dark:bg-accent-dark/20',
+  warning: 'bg-warning/15',
+  danger: 'bg-danger/15',
 };
 
-/** Small non-interactive label chip (status, kind, flags). */
-export function Tag({ label, tone = 'neutral' }: TagProps) {
+const TEXT_CLASSES: Record<TagTone, string> = {
+  neutral: 'text-ink dark:text-ink-dark font-medium',
+  accent: 'text-accent dark:text-accent-dark font-medium',
+  warning: 'text-warning font-medium',
+  danger: 'text-danger font-medium',
+};
+
+/** Small non-interactive label chip (status, kind, flags) — iOS pill style. */
+export function Tag({ label, tone = 'neutral', className }: TagProps) {
   return (
     <View
       accessibilityRole="text"
-      className={cn('h-5 items-center justify-center rounded-full px-2', TONE_CLASSES[tone])}
+      className={cn('h-6 items-center justify-center rounded-full px-2.5', BG_CLASSES[tone], className)}
     >
-      <Text className="text-xs" numberOfLines={1}>
+      <Text className={cn('text-xs', TEXT_CLASSES[tone])} numberOfLines={1}>
         {label}
       </Text>
     </View>

@@ -6,42 +6,70 @@ export interface ButtonProps {
   /** Visible label; also the accessibility label (names the action). */
   label: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'tinted';
+  size?: 'sm' | 'md' | 'lg';
   disabled?: boolean;
+  className?: string;
 }
 
 const VARIANT_CLASSES: Record<NonNullable<ButtonProps['variant']>, string> = {
-  primary: 'bg-accent active:bg-accent/90 dark:bg-accent-dark',
+  primary: 'bg-accent active:opacity-85 dark:bg-accent-dark',
   secondary:
-    'border border-border bg-surface active:bg-surface/90 dark:border-border-dark dark:bg-surface-dark',
-  ghost: 'bg-transparent',
+    'border border-border bg-surface active:bg-surface/80 active:opacity-80 dark:border-border-dark dark:bg-surface-dark',
+  ghost: 'bg-transparent active:opacity-60',
+  tinted: 'bg-accent/15 active:bg-accent/25 dark:bg-accent-dark/20',
 };
 
 const VARIANT_TEXT_CLASSES: Record<NonNullable<ButtonProps['variant']>, string> = {
-  primary: 'text-on-accent',
-  secondary: 'text-ink dark:text-ink-dark',
-  ghost: 'text-accent dark:text-accent-dark',
+  primary: 'text-on-accent dark:text-on-accent-dark font-semibold',
+  secondary: 'text-ink dark:text-ink-dark font-medium',
+  ghost: 'text-accent dark:text-accent-dark font-medium',
+  tinted: 'text-accent dark:text-accent-dark font-semibold',
+};
+
+const SIZE_CLASSES: Record<NonNullable<ButtonProps['size']>, string> = {
+  sm: 'h-9 px-3 rounded-lg',
+  md: 'h-11 px-4 rounded-xl',
+  lg: 'h-13 px-6 rounded-2xl',
+};
+
+const SIZE_TEXT_CLASSES: Record<NonNullable<ButtonProps['size']>, string> = {
+  sm: 'text-xs',
+  md: 'text-sm',
+  lg: 'text-base',
 };
 
 /**
- * Tappable action button. 44pt tall (touch target, tokens.spacing.touch),
+ * Tappable action button (iOS style). Touch target ≥ 44pt (tokens.spacing.touch),
  * labelled for accessibility (component-guidelines).
  */
-export function Button({ label, onPress, variant = 'primary', disabled = false }: ButtonProps) {
+export function Button({
+  label,
+  onPress,
+  variant = 'primary',
+  size = 'md',
+  disabled = false,
+  className,
+}: ButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
       disabled={disabled}
+      hitSlop={size === 'sm' ? { top: 4, bottom: 4, left: 4, right: 4 } : undefined}
       onPress={onPress}
       className={cn(
-        'h-11 items-center justify-center rounded-md px-4',
+        'items-center justify-center',
+        SIZE_CLASSES[size],
         VARIANT_CLASSES[variant],
         disabled && 'opacity-40',
+        className,
       )}
     >
-      <Text className={cn('text-sm font-medium', VARIANT_TEXT_CLASSES[variant])}>{label}</Text>
+      <Text className={cn(SIZE_TEXT_CLASSES[size], VARIANT_TEXT_CLASSES[variant])}>
+        {label}
+      </Text>
     </Pressable>
   );
 }

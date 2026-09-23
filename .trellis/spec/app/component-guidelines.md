@@ -32,6 +32,7 @@
 - Dynamic classes: build the full class string (`cn()` helper in `packages/ui`) —
   NativeWind does not recognize classes assembled from partial fragments at runtime.
 - Dark mode: class-based (`dark:` variant). Tokens are defined for both modes.
+- Text styling: text color and typography classes (`text-*`, `font-*`) must be placed directly on `<Text>` elements, never on `<View>` containers (React Native native runtimes do not cascade text styles from View to Text).
 
 ## Lists
 
@@ -45,7 +46,7 @@
 
 - Every tappable element: `accessibilityRole="button"` + `accessibilityLabel` that names
   the action and its object (`"Start focus session: run baseline"`).
-- Touch targets ≥ 44×44 pt (use padding, not smaller hit areas).
+- Touch targets ≥ 44×44 pt (use padding or `hitSlop` on compact visual elements, not smaller hit areas).
 - Color is never the only state signal (due/overdue gets an icon or text, not just red).
 
 ## Forbidden
