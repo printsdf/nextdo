@@ -29,6 +29,52 @@ export { skipAction } from './queries/actions';
 export { listInboxItems } from './queries/inbox';
 export { listProjects, projectActionCoverage } from './queries/projects';
 export { listReviewRecords } from './queries/reviews';
+// Inbox capture + the Clarify / re-clarify transactions (task 09-22-app-ui-screens).
+export {
+  addInboxItem,
+  applyClarify,
+  reclarifyAction,
+  trashInboxItem,
+} from './queries/inbox';
+export type {
+  ClarifyResult,
+  ClarifyTarget,
+  ReclarifyAnswers,
+  ReclarifyResult,
+} from './queries/inbox';
+// Action reads + the canonical mutation transactions (all three action kinds).
+export {
+  addNextAction,
+  completeAction,
+  listNextActions,
+  snoozeAction,
+  trashAction,
+  updateNextAction,
+} from './queries/actions';
+// Project mutations.
+export { addProject, trashProject, updateProject } from './queries/projects';
+// Waiting / someday / calendar / context lists (review + Now screens).
+export { listWaitingForItems } from './queries/waiting';
+export { listSomedayMaybeItems, trashSomedayMaybeItem } from './queries/someday';
+export { listCalendarActions } from './queries/calendar';
+export { addContext, listContexts } from './queries/contexts';
+// Habit lists (Now screen habit strip).
+export { listHabits, listHabitDays } from './queries/habits';
+// Focus-session transactions + read (focus screen, re-entry recovery).
+export {
+  abandonFocusSession,
+  completeFocusSession,
+  listFocusSessions,
+  recordPause,
+  startFocusSession,
+} from './queries/focus';
+// Review records: the append + the completion trail + the snapshot builders.
+export {
+  addReviewRecord,
+  buildDailyReviewSnapshot,
+  buildWeeklyReviewSnapshot,
+  listCompletionRecords,
+} from './queries/reviews';
 // Watched-query builders for the app's `@powersync/react` data hooks
 // (database-guidelines "@powersync/react boundary").
 export {

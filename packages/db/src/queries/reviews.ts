@@ -14,8 +14,23 @@
  * applied as real transactions — the record is the audit trail, the
  * entities are the state.
  */
-import { assertReviewRecord, type ReviewRecord } from '@nextdo/core';
-import { reviewRecordFromRow, reviewRecordToRow } from '../schema';
+import {
+  RECLARIFY_THRESHOLD,
+  assertReviewRecord,
+  localDateKey,
+  parseIso,
+  toIso,
+  type CompletionRecord,
+  type DailyReviewSnapshot,
+  type ReviewRecord,
+  type WeeklyReviewSnapshot,
+} from '@nextdo/core';
+import {
+  completionRecordFromRow,
+  reviewRecordFromRow,
+  reviewRecordToRow,
+} from '../schema';
+import { projectActionCoverage } from './projects';
 import type { NextdoDb } from '../types';
 
 export async function listReviewRecords(
@@ -42,4 +57,324 @@ export async function addReviewRecord(db: NextdoDb, record: ReviewRecord): Promi
     .values({ id: record.id, ...reviewRecordToRow(record) })
     .execute();
   return record;
+}
+
+// ---------------------------------------------------------------------------
+// Completion records (read-only — the write path is the complete
+// transaction in queries/actions.ts and the do-now path in queries/inbox.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Completion audit trail (append-only). Filters are optional:
+ * `actionIds` restricts to the given action ids (any kind); `since`
+ * keeps completions at/after the given instant (`completed_at >= since`,
+ * both ISO-8601 UTC — lexicographic comparison is chronological).
+ */
+export async function listCompletionRecords(
+  db: NextdoDb,
+  options?: { actionIds?: string[]; since?: Date },
+): Promise<CompletionRecord[]> {
+  // An empty id list can never match (SQL `IN ()` is invalid) — short-circuit.
+  if (options?.actionIds !== undefined && options.actionIds.length === 0) {
+    return [];
+  }
+  let query = db.selectFrom('completion_records').selectAll();
+  if (options?.actionIds !== undefined) {
+    query = query.where('action_id', 'in', options.actionIds);
+  }
+  if (options?.since !== undefined) {
+    query = query.where('completed_at', '>=', toIso(options.since));
+  }
+  const rows = await query.orderBy('completed_at').execute();
+  return rows.map((row) => (row.deleted_at === null ? completionRecordFromRow(row) : null))
+    .filter((record): record is CompletionRecord => record !== null);
+}
+
+// ---------------------------------------------------------------------------
+// Review snapshots (design.md §3 — every field derived from existing data,
+// no new storage; "today"/"next 7 days" are DEVICE-LOCAL calendar days via
+// core's `localDateKey`)
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 86_400_000;
+
+function startOfLocalDay(now: Date): Date {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+/** WaitingForItems whose `expectedBy` has passed (expectedBy local day is
+ *  on or before `now`'s local day). Items without an `expectedBy` are not
+ *  overdue. (design.md §3 "过期 waiting".) */
+async function overdueWaitingFollowUps(db: NextdoDb, todayKey: string) {
+  const rows = await db
+    .selectFrom('waiting_for_items')
+    .select(['id', 'expected_by'])
+    .where('deleted_at', 'is', null)
+    .execute();
+  return rows
+    .filter((row) => {
+      if (row.expected_by === null) return false;
+      try {
+        return localDateKey(parseIso(row.expected_by)) <= todayKey;
+      } catch {
+        return false; // corrupt stored date — never overdue, never a crash
+      }
+    })
+    .map((row) => row.id);
+}
+
+/**
+ * The daily review snapshot (core `DailyReviewSnapshot`). Field semantics
+ * (design.md §3):
+ * - `inboxCount` — non-deleted InboxItems;
+ * - `completedToday` — completion records on `now`'s local day (any action
+ *   kind, incl. `do_now`);
+ * - `stillOpen` — every open, non-deleted NextAction, created-ascending;
+ * - `projectsMissingActions` — the active projects lacking an open action
+ *   (same derivation as `projectActionCoverage`);
+ * - `waitingFollowUps` — overdue waiting items (see above);
+ * - `calendarToday` / `calendarTomorrow` — non-deleted CalendarActions whose
+ *   `startsAt` falls on today's / tomorrow's local day (any status — this is
+ *   the day's schedule, not the engine pool);
+ * - `repeatedSkips` — open, non-deleted actions of ALL THREE kinds
+ *   (next / calendar / habit-day) with `consecutiveSkips >=
+ *   RECLARIFY_THRESHOLD` (the same set the Now screen's `needsReclarify`
+ *   banner is built from).
+ */
+export async function buildDailyReviewSnapshot(
+  db: NextdoDb,
+  now: Date,
+): Promise<DailyReviewSnapshot> {
+  const todayKey = localDateKey(now);
+  // Tomorrow = the local day after today, as a WALL-CLOCK day (setDate(+1)
+  // crosses DST transitions correctly; a fixed +24 h still lands on the
+  // same local day in the morning of a 25-hour fall-back day).
+  const tomorrowStart = startOfLocalDay(now);
+  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+  const tomorrowKey = localDateKey(tomorrowStart);
+
+  const [inboxRows, completionRows, openNextRows, uncovered, waitingFollowUps, calendarRows, skipRows] =
+    await Promise.all([
+      db.selectFrom('inbox_items').select('id').where('deleted_at', 'is', null).execute(),
+      db
+        .selectFrom('completion_records')
+        .select(['id', 'action_id', 'completed_at'])
+        .where('deleted_at', 'is', null)
+        .execute(),
+      db
+        .selectFrom('next_actions')
+        .select('id')
+        .where('status', '=', 'open')
+        .where('deleted_at', 'is', null)
+        .orderBy('created_at')
+        .execute(),
+      projectActionCoverage(db),
+      overdueWaitingFollowUps(db, todayKey),
+      db
+        .selectFrom('calendar_actions')
+        .select(['id', 'starts_at'])
+        .where('deleted_at', 'is', null)
+        .execute(),
+      Promise.all(
+        (['next_actions', 'calendar_actions', 'habit_days'] as const).map((table) =>
+          db
+            .selectFrom(table)
+            .select('id')
+            .where('status', '=', 'open')
+            .where('deleted_at', 'is', null)
+            .where('consecutive_skips', '>=', RECLARIFY_THRESHOLD)
+            .execute(),
+        ),
+      ),
+    ]);
+
+  const byLocalDay = (iso: string | null, key: string): boolean => {
+    if (iso === null) return false;
+    try {
+      return localDateKey(parseIso(iso)) === key;
+    } catch {
+      return false;
+    }
+  };
+  const completedToday: string[] = [];
+  for (const row of completionRows) {
+    if (row.completed_at === null || row.action_id === null) continue;
+    if (byLocalDay(row.completed_at, todayKey)) completedToday.push(row.action_id);
+  }
+  const calendarToday: string[] = [];
+  const calendarTomorrow: string[] = [];
+  for (const row of calendarRows) {
+    if (row.starts_at === null) continue;
+    if (byLocalDay(row.starts_at, todayKey)) calendarToday.push(row.id);
+    else if (byLocalDay(row.starts_at, tomorrowKey)) calendarTomorrow.push(row.id);
+  }
+
+  return {
+    inboxCount: inboxRows.length,
+    completedToday,
+    stillOpen: openNextRows.map((row) => row.id),
+    projectsMissingActions: uncovered.map((project) => project.id),
+    waitingFollowUps,
+    calendarToday,
+    calendarTomorrow,
+    repeatedSkips: skipRows.flat().map((row) => row.id),
+  };
+}
+
+/**
+ * A project counts as stalled when it is active and quiet: no completion on
+ * any of its actions for ≥ `STALL_DAYS` days. A project that has never been
+ * completed is only stalled once it has EXISTED for ≥ `STALL_DAYS` days (a
+ * brand-new project is not yet "stalled" — the fixtures' weekly snapshot
+ * keeps a never-worked, recently-created project out of `stalledProjects`).
+ */
+const STALL_DAYS = 14;
+
+function isStalled(
+  lastProgressAt: string | null,
+  createdAt: string | null,
+  now: Date,
+): boolean {
+  const nowMs = now.getTime();
+  const stallWindowMs = STALL_DAYS * DAY_MS;
+  if (lastProgressAt !== null) {
+    try {
+      return nowMs - parseIso(lastProgressAt).getTime() >= stallWindowMs;
+    } catch {
+      return false; // corrupt timestamp — never stall on garbage
+    }
+  }
+  if (createdAt === null) return false;
+  try {
+    return nowMs - parseIso(createdAt).getTime() >= stallWindowMs;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The weekly review snapshot (core `WeeklyReviewSnapshot`). Field semantics
+ * (design.md §3):
+ * - `inboxCount` — non-deleted InboxItems (same as daily);
+ * - `projects` — EVERY non-deleted project, each with its derived
+ *   `hasOpenAction` (≥ 1 open, non-deleted NextAction) and `lastProgressAt`
+ *   (the latest completion of any of its actions, `null` when never done);
+ * - `waitingFollowUps` — overdue waiting items (same as daily);
+ * - `somedayCount` — non-deleted SomedayMaybeItems;
+ * - `stalledProjects` — active projects with no completion on their actions
+ *   for ≥ 14 days (see `isStalled` for the never-completed edge case);
+ * - `calendarNext7` — non-deleted CalendarActions whose `startsAt` falls in
+ *   the 7 local days starting today (`[today 00:00, today+7d 00:00)`).
+ */
+export async function buildWeeklyReviewSnapshot(
+  db: NextdoDb,
+  now: Date,
+): Promise<WeeklyReviewSnapshot> {
+  const todayKey = localDateKey(now);
+  // The 7-day window ends at local MIDNIGHT of day+7 — wall-clock date
+  // arithmetic (setDate) so DST transitions cannot shift the boundary by an
+  // hour (a fixed +7*86400000 ms would).
+  const windowStart = startOfLocalDay(now);
+  const windowEnd = new Date(windowStart);
+  windowEnd.setDate(windowEnd.getDate() + 7);
+  const windowStartMs = windowStart.getTime();
+  const windowEndMs = windowEnd.getTime();
+
+  const [inboxRows, projectRows, actionRows, completionRows, somedayRows, waitingFollowUps, calendarRows] =
+    await Promise.all([
+      db.selectFrom('inbox_items').select('id').where('deleted_at', 'is', null).execute(),
+      db
+        .selectFrom('projects')
+        .select(['id', 'title', 'status', 'created_at'])
+        .where('deleted_at', 'is', null)
+        .orderBy('created_at')
+        .execute(),
+      db
+        .selectFrom('next_actions')
+        .select(['id', 'project_id', 'status'])
+        .where('deleted_at', 'is', null)
+        .execute(),
+      db
+        .selectFrom('completion_records')
+        .select(['action_id', 'completed_at'])
+        .where('deleted_at', 'is', null)
+        .execute(),
+      db.selectFrom('someday_maybe_items').select('id').where('deleted_at', 'is', null).execute(),
+      overdueWaitingFollowUps(db, todayKey),
+      db
+        .selectFrom('calendar_actions')
+        .select(['id', 'starts_at'])
+        .where('deleted_at', 'is', null)
+        .execute(),
+    ]);
+
+  // Latest completion per action id (any kind).
+  const latestCompletionByAction = new Map<string, string>();
+  for (const row of completionRows) {
+    if (row.completed_at === null || row.action_id === null) continue;
+    const existing = latestCompletionByAction.get(row.action_id);
+    if (existing === undefined || row.completed_at > existing) {
+      latestCompletionByAction.set(row.action_id, row.completed_at);
+    }
+  }
+
+  // Per project: action ids + whether any is open.
+  const actionIdsByProject = new Map<string, string[]>();
+  const hasOpenActionByProject = new Map<string, boolean>();
+  for (const row of actionRows) {
+    const projectId = row.project_id;
+    if (projectId === null) continue;
+    const ids = actionIdsByProject.get(projectId) ?? [];
+    ids.push(row.id);
+    actionIdsByProject.set(projectId, ids);
+    if (row.status === 'open') hasOpenActionByProject.set(projectId, true);
+  }
+
+  const projects: WeeklyReviewSnapshot['projects'] = projectRows.map((row) => {
+    const actionIds = actionIdsByProject.get(row.id) ?? [];
+    let lastProgressAt: string | null = null;
+    for (const actionId of actionIds) {
+      const completedAt = latestCompletionByAction.get(actionId);
+      if (completedAt !== undefined && (lastProgressAt === null || completedAt > lastProgressAt)) {
+        lastProgressAt = completedAt;
+      }
+    }
+    return {
+      id: row.id,
+      title: row.title ?? '',
+      hasOpenAction: hasOpenActionByProject.get(row.id) === true,
+      lastProgressAt,
+    };
+  });
+
+  const stalledProjects: string[] = [];
+  for (const row of projectRows) {
+    if (row.status !== 'active') continue;
+    const snapshot = projects.find((p) => p.id === row.id);
+    if (snapshot !== undefined && isStalled(snapshot.lastProgressAt, row.created_at, now)) {
+      stalledProjects.push(row.id);
+    }
+  }
+
+  const calendarNext7: string[] = [];
+  for (const row of calendarRows) {
+    if (row.starts_at === null) continue;
+    try {
+      const ms = parseIso(row.starts_at).getTime();
+      if (ms >= windowStartMs && ms < windowEndMs) calendarNext7.push(row.id);
+    } catch {
+      // corrupt stored timestamp — skip, never crash the review
+    }
+  }
+
+  return {
+    inboxCount: inboxRows.length,
+    projects,
+    waitingFollowUps,
+    somedayCount: somedayRows.length,
+    stalledProjects,
+    calendarNext7,
+  };
 }
