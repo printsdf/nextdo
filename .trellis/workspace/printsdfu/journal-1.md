@@ -266,3 +266,31 @@ Fix PowerSync v2 'Not signed in' sync-loop spam by letting the app own connect/d
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: 捕获后即时澄清 + 问题链内置项目归属
+<!-- trellis-session: v=2 fp=capture-clarify-flow -->
+
+**Date**: 2026-09-23
+**Task**: 09-23-capture-clarify-flow — 捕获后即时澄清 + 问题链内置项目归属
+**Branch**: `feature/capture-clarify-flow`
+
+### Summary
+
+捕获（弹窗/内联条）保存后立即进入 Clarify 逐步提问（记一条问一条）；完成步改为「再记一条/完成」显式出口（再记一条经一次性 `recapture=1` 路由参数重开捕获弹窗）。问题链 Q2=否 后新增 Q2b「它属于哪个项目？」：挂接已有 active 项目（直接进行动表单，价值继承项目价值，跳过 Q3–Q5）/ 新建项目 / 不属于项目；re-clarify 经 Q2b 可保持/改挂/解除（db 三态 string/null/undefined）。core 新增 `ClarifyAnswers.projectId` + `project-attach` outcome；db 新增 `loadAttachableProject` 校验（`clarify.project-not-found` / `clarify.project-not-active`，事务前校验零脏写）。518 测试全绿；Web 端完整冒烟通过（建项目→再捕获→Q2b 挂接→项目详情出现挂接行动且价值继承）。spec `domain-model.md` 决策表已补 Q2b 分支与 capture-handoff 规则。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f24582a` | feat: clarify captured items immediately; project attach in the clarify question chain |
+| `163e611` | docs(trellis): add capture-clarify-flow task artifacts |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 分支 `feature/capture-clarify-flow` 待合并（base: `feature/app-ui-ios-redesign`）
+- 可选：`CalendarAction` 支持 `projectId`（v1 互斥，当前固定时间与项目归属不可并存）
