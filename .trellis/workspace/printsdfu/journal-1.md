@@ -183,3 +183,27 @@ Built the re-runnable E2E runner (e2e/sync-roundtrip.ts, @powersync/node clients
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: App UI 四 tab 功能化收尾：走查补全 + 根门 + 提交归档
+<!-- trellis-session: v=2 fp=1aaa0c26ad6a2d9e -->
+
+**Date**: 2026-09-23
+**Task**: App UI 四 tab 功能化收尾：走查补全 + 根门 + 提交归档
+**Branch**: `main`
+
+### Summary
+
+完成 09-22-app-ui-screens 收尾（步骤 8 + Phase 3）。浏览器补走 AC2 全 7 分支（reference 拦截+落行、do-now Q3b 直提、someday/waiting/calendar/project 行各归其位，远期日程不入池为 spec 预期）、AC4 放弃+重入不恢复、AC6 已完成勾选+排期 2026-09-24、AC7 删 someday；文案中文化扫描通过。根门复跑全绿（466→check pass 补 4 条边界用例后 470 passed）。trellis-check 全量审查：db 只增不改、now 纪律、提交顺序均合规；自修日期校验边界（不可能日期/无效排期拦截）+ 文档数字修正。spec 增补：testing-guidelines 新篇 + hook-guidelines Rule 6（PowerSync watch error: null truthy 判空，B1 白屏回归）。3 个工作提交 + 归档 + 日志。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a3509d7` | feat(db): review snapshot queries and completion record listing |
+| `b4caf50` | feat(app): functional four-tab UI — capture + clarify wizard, now, focus, projects, review |
+| `ff46ae9` | docs(spec): app testing guidelines + powersync watch error rule |
+
+### Status
+
+[OK] **Completed**

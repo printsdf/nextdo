@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
-- **Last Active**: 2026-09-22
+- **Total Sessions**: 3
+- **Last Active**: 2026-09-23
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~185 | Active |
+| `journal-1.md` | ~209 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-09-23 | App UI 四 tab 功能化收尾：走查补全 + 根门 + 提交归档 | `a3509d7`, `b4caf50`, `ff46ae9` | `main` |
 | 2 | 2026-09-22 | E2E sync round-trip: real-chain verification green, scaffold runtime fixes | `b9f2513`, `20a004b`, `18b35ec` | `main` |
 | 1 | 2026-09-22 | Monorepo scaffold: Step 6 verification, clean gate, spec backfill | `9e7b904`, `bdda947`, `0ff05ec` | `main` |
 <!-- @@@/auto:session-history -->
