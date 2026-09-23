@@ -57,6 +57,8 @@ export function useActionPool(now: Date): UseActionPoolResult {
 
   return {
     data: pool,
-    error: error ?? (watchError !== undefined ? String(watchError.message) : null),
+    // `watchError` is typed `Error | undefined` but can be `null` at runtime —
+    // a truthy check, not `!== undefined` (which reads `null.message` and throws).
+    error: error ?? (watchError ? String(watchError.message) : null),
   };
 }

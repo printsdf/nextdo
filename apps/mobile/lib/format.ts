@@ -11,3 +11,13 @@ export function formatLocalDate(iso: string): string {
   }
   return date.toLocaleDateString();
 }
+
+/** Device-local "date + HH:mm" (calendar startsAt, deadlines, reminders). */
+export function formatLocalDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  return `${date.toLocaleDateString()} ${time}`;
+}

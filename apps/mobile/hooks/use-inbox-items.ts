@@ -17,5 +17,7 @@ export function useInboxItems(): UseInboxItemsResult {
   const powersync = usePowerSync();
   const db = useMemo(() => wrapDb(powersync), [powersync]);
   const { data, error } = useQuery(inboxItemsWatchQuery(db));
-  return { data, error: error === undefined ? null : String(error.message) };
+  // `@powersync/react` types `error` as `Error | undefined` but delivers
+  // `null` at runtime (watch state) — a truthy check, not `=== undefined`.
+  return { data, error: error ? String(error.message) : null };
 }

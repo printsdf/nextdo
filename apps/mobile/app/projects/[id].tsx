@@ -1,0 +1,288 @@
+/**
+ * The project detail route (design.md §4.4 — PRD R6): the project header
+ * (title / status / value / outcome) + its OPEN next actions (complete /
+ * snooze / trash per row) + the inline add-action form (`addNextAction`
+ * carrying the projectId).
+ *
+ * Data: the project row comes from the `useProjects` watched query (the
+ * coverage tag re-derives itself when an action lands or completes); the
+ * action list is query-style via `useProjectActions` (client-side
+ * projectId filter, design.md §8). Project STATUS is not editable here —
+ * status decisions live in the weekly review (PRD R7, design.md §4.4).
+ */
+import { useState } from 'react';
+import { Pressable, Text, TextInput, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Button, Card, EmptyState, Tag, type TagTone } from '@nextdo/ui';
+import type { ProjectStatus, Value } from '@nextdo/core';
+import { useProjects } from '@/hooks/use-projects';
+import { useProjectActions } from '@/hooks/use-project-actions';
+import { useAddNextAction } from '@/hooks/use-add-next-action';
+import { useCompleteAction } from '@/hooks/use-complete-action';
+import { useSnoozeAction } from '@/hooks/use-snooze-action';
+import { useTrashAction } from '@/hooks/use-trash-action';
+import { useAppClock } from '@/hooks/use-app-clock';
+import { errorMessage } from '@/lib/error-messages';
+import { PROJECT_STATUS_LABELS } from '@/lib/status-labels';
+import { endOfLocalDayIso } from '@/lib/clarify-flow';
+import { formatLocalDate } from '@/lib/format';
+import { SnoozeSheet } from '@/components/snooze-sheet';
+
+const STATUS_TONES: Record<ProjectStatus, TagTone> = {
+  active: 'accent',
+  'on-hold': 'warning',
+  done: 'neutral',
+  dropped: 'neutral',
+};
+
+const EST_CHIPS = [5, 10, 20, 30, 60, 120];
+const VALUE_CHIPS: Value[] = [1, 2, 3, 4, 5];
+
+const INPUT_CLASS =
+  'rounded-md border border-border bg-surface p-3 text-base text-ink placeholder:text-muted dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
+
+function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      className={
+        active
+          ? 'h-8 w-8 items-center justify-center rounded-full bg-accent dark:bg-accent-dark'
+          : 'h-8 w-8 items-center justify-center rounded-full border border-border dark:border-border-dark'
+      }
+    >
+      <Text className={active ? 'text-sm text-on-accent' : 'text-sm text-ink dark:text-ink-dark'}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** The inline add-action form (title + est + value + optional deadline). */
+function AddActionForm({ projectId, onDone, onAdded }: { projectId: string; onDone: () => void; onAdded: () => void }) {
+  const { add, error } = useAddNextAction();
+  const [title, setTitle] = useState('');
+  const [estMinutes, setEstMinutes] = useState<number | null>(null);
+  const [value, setValue] = useState<Value>(3);
+  const [deadline, setDeadline] = useState('');
+  const [deadlineHint, setDeadlineHint] = useState<string | null>(null);
+  const [customEst, setCustomEst] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const canSubmit = title.trim() !== '' && estMinutes !== null && !submitting;
+
+  const applyCustomEst = () => {
+    const parsed = Number(customEst);
+    if (Number.isFinite(parsed) && parsed >= 1) setEstMinutes(Math.round(parsed));
+    setCustomEst('');
+  };
+
+  const addAction = () => {
+    if (!canSubmit || estMinutes === null) return;
+    // The domain deadline is an ISO *datetime*; the input is a local date —
+    // compose that local day's 23:59:59 (the same convention as the Clarify
+    // wizard), and block impossible dates instead of storing them raw.
+    let deadlineIso: string | undefined;
+    if (deadline.trim() !== '') {
+      const iso = endOfLocalDayIso(deadline.trim());
+      if (iso === null) {
+        setDeadlineHint('日期格式应为 YYYY-MM-DD（例如 2026-10-01）');
+        return;
+      }
+      deadlineIso = iso;
+    }
+    setSubmitting(true);
+    void add({ title, estMinutes, value, projectId, deadline: deadlineIso }).then(() => {
+      setSubmitting(false);
+      setTitle('');
+      setEstMinutes(null);
+      setValue(3);
+      setDeadline('');
+      setDeadlineHint(null);
+      onAdded();
+      onDone();
+    });
+  };
+
+  return (
+    <Card className="gap-3">
+      <Text className="text-sm font-medium text-muted dark:text-muted-dark">添加行动</Text>
+      <TextInput
+        className={INPUT_CLASS}
+        placeholder="下一步行动（具体的、单步的）"
+        value={title}
+        onChangeText={setTitle}
+      />
+      <View className="flex-row flex-wrap items-center gap-2">
+        <Text className="text-sm font-medium text-ink dark:text-ink-dark">预估时长（分钟）</Text>
+      </View>
+      <View className="flex-row flex-wrap items-center gap-2">
+        {EST_CHIPS.map((chip) => (
+          <Chip key={chip} label={String(chip)} active={estMinutes === chip} onPress={() => setEstMinutes(chip)} />
+        ))}
+        <TextInput
+          className={`${INPUT_CLASS} h-8 w-20 p-1`}
+          placeholder="自定义"
+          keyboardType="number-pad"
+          value={customEst}
+          onChangeText={setCustomEst}
+          onSubmitEditing={applyCustomEst}
+        />
+      </View>
+      <View className="flex-row items-center justify-between">
+        <Text className="text-sm font-medium text-ink dark:text-ink-dark">价值（1–5）</Text>
+        <View className="flex-row gap-2">
+          {VALUE_CHIPS.map((chip) => (
+            <Chip key={chip} label={String(chip)} active={value === chip} onPress={() => setValue(chip)} />
+          ))}
+        </View>
+      </View>
+      <TextInput
+        className={INPUT_CLASS}
+        placeholder="截止（YYYY-MM-DD，可选）"
+        value={deadline}
+        onChangeText={(value) => {
+          setDeadline(value);
+          setDeadlineHint(null);
+        }}
+        autoCapitalize="none"
+      />
+      {deadlineHint !== null ? (
+        <Text className="text-sm text-danger">{deadlineHint}</Text>
+      ) : null}
+      {error !== null ? <Text className="text-sm text-danger">{errorMessage(error)}</Text> : null}
+      <View className="flex-row gap-2">
+        <Button label="添加" onPress={addAction} disabled={!canSubmit} />
+        <Button label="取消" variant="secondary" onPress={onDone} />
+      </View>
+    </Card>
+  );
+}
+
+export default function ProjectDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const projectId = typeof id === 'string' ? id : null;
+
+  const { data: projects, error: projectsError } = useProjects();
+  const { data: actions, error: actionsError, reload } = useProjectActions(projectId);
+  const { error: addError } = useAddNextAction();
+  const { complete, error: completeError } = useCompleteAction();
+  const { snooze, error: snoozeError } = useSnoozeAction();
+  const { trash, error: trashError } = useTrashAction();
+  const now = useAppClock();
+
+  const [showForm, setShowForm] = useState(false);
+  const [snoozeTarget, setSnoozeTarget] = useState<string | null>(null);
+
+  if (projectId === null) {
+    return (
+      <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
+        <EmptyState title="缺少参数，无法打开" hint="返回项目列表重试。">
+          <View className="mt-4">
+            <Button label="返回" variant="secondary" onPress={() => router.back()} />
+          </View>
+        </EmptyState>
+      </View>
+    );
+  }
+
+  const project = projects.find((entry) => entry.id === projectId);
+  const mutationError = addError ?? completeError ?? snoozeError ?? trashError;
+
+  return (
+    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
+      <View className="mb-4 flex-row items-center justify-between">
+        <Button label="← 项目" variant="ghost" onPress={() => router.back()} />
+      </View>
+
+      {projectsError !== null ? (
+        <EmptyState title="加载项目失败" hint={errorMessage(projectsError)} />
+      ) : project === undefined ? (
+        <EmptyState title="项目不存在" hint="它可能已被删除，或数据还在同步。" />
+      ) : (
+        <>
+          <Card className="gap-2">
+            <View className="flex-row items-center gap-2">
+              <Text className="flex-1 text-lg font-semibold text-ink dark:text-ink-dark">{project.title}</Text>
+              <Tag label={PROJECT_STATUS_LABELS[project.status]} tone={STATUS_TONES[project.status]} />
+            </View>
+            <Text className="text-sm text-muted dark:text-muted-dark">完成是什么样：{project.outcome}</Text>
+            <View className="flex-row items-center gap-2">
+              <Tag
+                label={project.hasOpenAction ? '有进行中的行动' : '缺少行动'}
+                tone={project.hasOpenAction ? 'accent' : 'danger'}
+              />
+              <Tag label={`价值 ${project.value}`} />
+            </View>
+          </Card>
+
+          {mutationError !== null ? (
+            <Text className="mt-2 text-sm text-danger">{errorMessage(mutationError)}</Text>
+          ) : null}
+
+          <View className="mt-3 flex-row items-center justify-between">
+            <Text className="text-base font-medium text-ink dark:text-ink-dark">进行中的行动</Text>
+            <Button label="＋ 添加行动" variant="secondary" onPress={() => setShowForm((value) => !value)} />
+          </View>
+
+          {showForm ? (
+            <View className="mt-2">
+              <AddActionForm projectId={projectId} onDone={() => setShowForm(false)} onAdded={reload} />
+            </View>
+          ) : null}
+
+          <View className="mt-2 gap-2">
+            {actionsError !== null ? (
+              <EmptyState title="加载行动失败" hint={errorMessage(actionsError)} />
+            ) : actions === null ? (
+              <EmptyState title="加载中…" />
+            ) : actions.length === 0 ? (
+              <EmptyState
+                title="这个项目还没有进行中的行动"
+                hint="没有下一步行动的项目是回顾时的红灯 — 点「＋ 添加行动」。"
+              />
+            ) : (
+              actions.map((action) => (
+                <Card key={action.id} className="gap-2">
+                  <Text className="text-base text-ink dark:text-ink-dark">{action.title}</Text>
+                  <View className="flex-row flex-wrap items-center gap-2">
+                    <Tag label={`${action.estMinutes} 分钟`} />
+                    <Tag label={`价值 ${action.value}`} />
+                    {action.deadline !== undefined && action.deadline !== null ? (
+                      <Tag label={`截止 ${formatLocalDate(action.deadline)}`} tone="warning" />
+                    ) : null}
+                  </View>
+                  <View className="flex-row gap-2">
+                    <Button
+                      label="完成"
+                      variant="secondary"
+                      onPress={() => void complete({ actionKind: 'next', actionId: action.id }).then(reload)}
+                    />
+                    <Button label="稍后" variant="secondary" onPress={() => setSnoozeTarget(action.id)} />
+                    <Button
+                      label="删除"
+                      variant="ghost"
+                      onPress={() => void trash({ actionKind: 'next', actionId: action.id }).then(reload)}
+                    />
+                  </View>
+                </Card>
+              ))
+            )}
+          </View>
+        </>
+      )}
+
+      <SnoozeSheet
+        open={snoozeTarget !== null}
+        now={now}
+        onClose={() => setSnoozeTarget(null)}
+        onSelect={(target) => {
+          if (snoozeTarget !== null) {
+            void snooze({ actionKind: 'next', actionId: snoozeTarget, snoozedUntil: target }).then(reload);
+          }
+        }}
+      />
+    </View>
+  );
+}

@@ -1,12 +1,17 @@
 /**
- * Smoke test: the four tabs (Now / Inbox / Projects / Review) render
- * without crashing — empty states are the expected content (no synced data
- * exists in the test environment).
+ * Regression test — PowerSync watch `error: null` must not crash a screen.
  *
- * The PowerSync layer is mocked at the package boundary — this test
- * exercises the SHELL (route tree, root layout, tab bar, screens, empty
- * states), not sync. The data path is covered by the packages/db query
- * tests. The mocks are self-contained factories (jest.mock hoisting).
+ * `@powersync/react` types the watched-query `error` as `Error | undefined`,
+ * but the runtime watch state delivers `null`. The data hooks used to read
+ * `error.message` behind an `error === undefined` guard, which throws
+ * `Cannot read properties of null` on `null` and — with no error boundary —
+ * unmounts the whole tree (blank app). The unit/smoke mocks always returned
+ * `error: undefined`, so they never hit the `null` path.
+ *
+ * This test mocks `useQuery` to return `error: null` (the exact crashing
+ * shape) and renders every tab. Any hook that dereferences `null.message`
+ * throws during render and fails the test. The fix is a truthy check
+ * (`error ? String(error.message) : null`).
  */
 jest.mock('@nextdo/db', () => {
   const compilable = () => ({
@@ -55,14 +60,13 @@ jest.mock('@powersync/react', () => {
     connect: () => Promise.resolve(undefined),
     close: async () => undefined,
   };
-  // Stable identity across renders — the real hook only returns a new
-  // result reference when the query's result set changes; a fresh object
-  // per render would loop the Now hook's recompute effect.
+  // The exact runtime shape that used to crash the hooks: `error` is `null`,
+  // not `undefined`.
   const queryResult = {
     data: [],
     isLoading: false,
     isFetching: false,
-    error: undefined,
+    error: null,
     refresh: async () => undefined,
   };
   return {
@@ -83,14 +87,12 @@ const TABS = [
   { url: '/(tabs)/review', emptyState: '还没有回顾记录' },
 ];
 
-describe('mobile shell smoke', () => {
-  it.each(TABS)('renders the $url tab without crashing', async ({ url, emptyState }) => {
-    // RNTL wraps render in act itself — do not nest another act around it.
+describe('watch query error: null does not crash a screen (regression)', () => {
+  it.each(TABS)('renders the $url tab with a null watch error', async ({ url, emptyState }) => {
     renderRouter('app', { initialUrl: url });
-    // Flush the mocked async pool computation BEFORE asserting: the Now
-    // screen distinguishes "loading" from "empty pool" (the pool mock
-    // resolves in a microtask).
     await act(async () => {});
+    // If a hook dereferenced null.message this throws and the test fails;
+    // reaching the assertion means every tab rendered its empty state.
     expect(screen.getByText(emptyState)).toBeTruthy();
   });
 });
