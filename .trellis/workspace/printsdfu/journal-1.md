@@ -207,3 +207,39 @@ Built the re-runnable E2E runner (e2e/sync-roundtrip.ts, @powersync/node clients
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: app-owned PowerSync connect/disconnect driven by owner token
+<!-- trellis-session: v=2 fp=b0b666e5272dbe52 -->
+
+**Date**: 2026-09-23
+**Task**: app-owned PowerSync connect/disconnect driven by owner token
+**Branch**: `main`
+
+### Summary
+
+Fix PowerSync v2 'Not signed in' sync-loop spam by letting the app own connect/disconnect based on owner-token state
+
+### Main Changes
+
+- db/owner-token: new subscribeToOwnerTokenChange (notify after write, snapshot iteration, listener error isolation)
+- mobile _layout: PowerSyncProvider connects only with owner token, disconnects without, follows token changes
+- connector.test: +5 subscription lifecycle tests; 8 screen test mocks extended
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `51e29a1` | fix(sync): app-owned PowerSync connect/disconnect driven by owner token |
+
+### Testing
+
+- [OK] Root gate green: lint/typecheck/test 0 failures (475 tests: db 146, mobile 125, core 153, server 51); browser smoke clean at :8081/now
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Add owner-token entry UI so sync can actually activate
