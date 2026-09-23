@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
+- **Total Sessions**: 5
 - **Last Active**: 2026-09-23
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~245 | Active |
+| `journal-1.md` | ~268 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-09-23 | iOS 简约风 UI 重新设计与重构 | `3f686f7`, `f64799e` | `feature/app-ui-ios-redesign` |
 | 4 | 2026-09-23 | app-owned PowerSync connect/disconnect driven by owner token | `51e29a1` | `main` |
 | 3 | 2026-09-23 | App UI 四 tab 功能化收尾：走查补全 + 根门 + 提交归档 | `a3509d7`, `b4caf50`, `ff46ae9` | `main` |
 | 2 | 2026-09-22 | E2E sync round-trip: real-chain verification green, scaffold runtime fixes | `b9f2513`, `20a004b`, `18b35ec` | `main` |

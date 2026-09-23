@@ -243,3 +243,26 @@ Fix PowerSync v2 'Not signed in' sync-loop spam by letting the app own connect/d
 ### Next Steps
 
 - Add owner-token entry UI so sync can actually activate
+
+
+## Session 5: iOS 简约风 UI 重新设计与重构
+<!-- trellis-session: v=2 fp=b0f1af1366cdb086 -->
+
+**Date**: 2026-09-23
+**Task**: iOS 简约风 UI 重新设计与重构
+**Branch**: `feature/app-ui-ios-redesign`
+
+### Summary
+
+基于 iOS 简约风格重构 Design Tokens（Grouped 背景与 Inset 卡片）、重排 Tab 导航（收件箱居首）、增加开屏极速捕获弹窗 QuickCaptureModal、重构 Now 屏大按钮与操作栏空间解耦、去除角落多余按钮，全量 39 个测试套件通过并在 Web 端走查验证
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3f686f7` | feat(ui): upgrade tokens and components to iOS minimalist system |
+| `f64799e` | feat(mobile): redesign navigation, quick capture modal, and tabs for iOS style |
+
+### Status
+
+[OK] **Completed**
