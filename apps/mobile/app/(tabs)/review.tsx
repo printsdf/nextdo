@@ -31,19 +31,37 @@ export default function ReviewScreen() {
 
   return (
     <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
-      <Text className="mb-4 text-xl font-semibold text-ink dark:text-ink-dark">回顾</Text>
+      {/* iOS Large Title Header */}
+      <Text className="mb-4 text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">
+        回顾
+      </Text>
 
-      <View className="flex-row gap-2">
+      {/* Two Prominent Action Cards */}
+      <View className="flex-row gap-3">
         <View className="flex-1">
-          <Button label="今日回顾" onPress={() => router.push('/review/daily')} />
+          <Button
+            size="md"
+            label="今日回顾"
+            variant="primary"
+            className="w-full shadow-xs"
+            onPress={() => router.push('/review/daily')}
+          />
         </View>
         <View className="flex-1">
-          <Button label="本周回顾" onPress={() => router.push('/review/weekly')} />
+          <Button
+            size="md"
+            label="本周回顾"
+            variant="secondary"
+            className="w-full shadow-xs"
+            onPress={() => router.push('/review/weekly')}
+          />
         </View>
       </View>
 
-      <View className="mt-5 flex-1">
-        <Text className="mb-2 text-base font-medium text-ink dark:text-ink-dark">历史记录</Text>
+      <View className="mt-6 flex-1">
+        <Text className="mb-2.5 text-sm font-semibold text-muted dark:text-muted-dark">
+          历史记录
+        </Text>
         {error !== null ? (
           <EmptyState title="加载回顾记录失败" hint={error} />
         ) : records.length === 0 ? (
@@ -55,16 +73,18 @@ export default function ReviewScreen() {
           <FlatList
             data={records}
             keyExtractor={(item) => item.id}
-            contentContainerClassName="gap-2"
+            contentContainerClassName="gap-2.5"
             renderItem={({ item }) => (
-              <Card className="gap-1">
+              <Card className="gap-1.5 p-4">
                 <View className="flex-row items-center justify-between gap-2">
                   <Tag label={REVIEW_KIND_LABELS[item.kind]} tone="accent" />
-                  <Text className="text-sm text-muted dark:text-muted-dark">
+                  <Text className="text-xs font-medium text-muted dark:text-muted-dark">
                     {formatLocalDate(item.at)}
                   </Text>
                 </View>
-                <Text className="text-xs text-muted dark:text-muted-dark">{recordSummary(item)}</Text>
+                <Text className="text-xs text-muted dark:text-muted-dark">
+                  {recordSummary(item)}
+                </Text>
               </Card>
             )}
           />

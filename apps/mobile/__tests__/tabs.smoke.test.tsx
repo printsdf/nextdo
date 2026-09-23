@@ -96,4 +96,10 @@ describe('mobile shell smoke', () => {
     await act(async () => {});
     expect(screen.getByText(emptyState)).toBeTruthy();
   });
+
+  it('redirects root / to the Inbox tab', async () => {
+    const view = renderRouter('app', { initialUrl: '/' });
+    await act(async () => {});
+    expect(view.getPathname()).toBe('/inbox');
+  });
 });

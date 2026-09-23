@@ -27,7 +27,7 @@ const STATUS_TONES: Record<ProjectStatus, TagTone> = {
 const VALUE_CHIPS: Value[] = [1, 2, 3, 4, 5];
 
 const INPUT_CLASS =
-  'rounded-md border border-border bg-surface p-3 text-base text-ink placeholder:text-muted dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
+  'rounded-2xl border border-border/80 bg-canvas p-3.5 text-base text-ink placeholder:text-muted focus:border-accent dark:border-border-dark dark:bg-canvas-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
 
 /** The inline new-project form (title + outcome + value 1–5). */
 function NewProjectForm({ onDone }: { onDone: () => void }) {
@@ -52,8 +52,8 @@ function NewProjectForm({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <Card className="gap-3">
-      <Text className="text-sm font-medium text-muted dark:text-muted-dark">新项目</Text>
+    <Card className="gap-3.5 p-5 shadow-md">
+      <Text className="text-sm font-semibold text-muted dark:text-muted-dark">新项目</Text>
       <TextInput
         className={INPUT_CLASS}
         placeholder="项目标题"
@@ -75,16 +75,17 @@ function NewProjectForm({ onDone }: { onDone: () => void }) {
               accessibilityRole="button"
               accessibilityLabel={`价值 ${chip}`}
               accessibilityState={{ selected: value === chip }}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
               onPress={() => setValue(chip)}
               className={
                 value === chip
                   ? 'h-8 w-8 items-center justify-center rounded-full bg-accent dark:bg-accent-dark'
-                  : 'h-8 w-8 items-center justify-center rounded-full border border-border dark:border-border-dark'
+                  : 'h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface dark:border-border-dark dark:bg-surface-dark'
               }
             >
               <Text
                 className={
-                  value === chip ? 'text-sm text-on-accent' : 'text-sm text-ink dark:text-ink-dark'
+                  value === chip ? 'text-sm font-semibold text-on-accent dark:text-on-accent-dark' : 'text-sm font-medium text-ink dark:text-ink-dark'
                 }
               >
                 {chip}
@@ -94,7 +95,7 @@ function NewProjectForm({ onDone }: { onDone: () => void }) {
         </View>
       </View>
       {error !== null ? <Text className="text-sm text-danger">{errorMessage(error)}</Text> : null}
-      <View className="flex-row gap-2">
+      <View className="mt-1 flex-row gap-2.5">
         <Button label="创建" onPress={create} disabled={!canSubmit} />
         <Button label="取消" variant="secondary" onPress={onDone} />
       </View>
@@ -108,40 +109,50 @@ export default function ProjectsScreen() {
 
   return (
     <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
-      <View className="mb-4 flex-row items-center justify-between">
-        <Text className="text-xl font-semibold text-ink dark:text-ink-dark">项目</Text>
-        <Button label="＋ 新项目" variant="secondary" onPress={() => setShowForm((value) => !value)} />
-      </View>
+      {/* iOS Large Title Header */}
+      <Text className="mb-4 text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">
+        项目
+      </Text>
 
-      {showForm ? <NewProjectForm onDone={() => setShowForm(false)} /> : null}
-
+      {showForm ? (
+        <NewProjectForm onDone={() => setShowForm(false)} />
+      ) : (
+        <View className="mb-3">
+          <Button
+            label="＋ 新项目"
+            variant="secondary"
+            className="w-full"
+            onPress={() => setShowForm(true)}
+          />
+        </View>
+      )}
       <View className="mt-3 flex-1">
         {error !== null ? (
           <EmptyState title="加载项目失败" hint={errorMessage(error)} />
         ) : data.length === 0 && !showForm ? (
           <EmptyState
             title="还没有项目"
-            hint="需要多个步骤才能完成的事，就是一个项目。点右上「＋ 新项目」。"
+            hint="需要多个步骤才能完成的事，就是一个项目。点击上方「＋ 新项目」。"
           />
         ) : (
           <FlatList
             data={data}
             keyExtractor={(item) => item.id}
-            contentContainerClassName="gap-2"
+            contentContainerClassName="gap-2.5"
             renderItem={({ item }) => (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`打开项目：${item.title}`}
                 onPress={() => router.push(`/projects/${item.id}`)}
               >
-                <Card className="gap-1">
+                <Card className="gap-2 p-4">
                   <View className="flex-row items-center gap-2">
-                    <Text className="flex-1 text-base text-ink dark:text-ink-dark" numberOfLines={1}>
+                    <Text className="flex-1 text-base font-semibold text-ink dark:text-ink-dark" numberOfLines={1}>
                       {item.title}
                     </Text>
                     <Tag label={PROJECT_STATUS_LABELS[item.status]} tone={STATUS_TONES[item.status]} />
                   </View>
-                  <Text className="text-xs text-muted dark:text-muted-dark" numberOfLines={1}>
+                  <Text className="text-xs text-muted dark:text-muted-dark leading-relaxed" numberOfLines={2}>
                     {item.outcome}
                   </Text>
                   <View className="mt-1 flex-row items-center gap-2">
@@ -149,7 +160,7 @@ export default function ProjectsScreen() {
                       label={item.hasOpenAction ? '有进行中的行动' : '缺少行动'}
                       tone={item.hasOpenAction ? 'accent' : 'danger'}
                     />
-                    <Tag label={`价值 ${item.value}`} />
+                    <Tag label={`价值 ${item.value}`} tone="neutral" />
                   </View>
                 </Card>
               </Pressable>
