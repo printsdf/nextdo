@@ -191,8 +191,11 @@ export function createPowerSyncConnector(config: NextdoPowerSyncConfig): PowerSy
     async fetchCredentials(): Promise<PowerSyncCredentials | null> {
       const ownerToken = await getOwnerToken();
       if (ownerToken === null) {
-        // Not signed in (no owner token stored) — the SDK stays
-        // disconnected and re-checks automatically.
+        // Signed out (no owner token stored). This null is the SDK's
+        // "not signed in" signal — but the SDK does NOT idle on it: its
+        // sync loop would retry buildRequest() and log "Not signed in"
+        // every cycle. The app owns the lifecycle (root layout) and must
+        // not connect() while this returns null (it disconnects instead).
         return null;
       }
       let res: Response;

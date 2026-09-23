@@ -51,10 +51,13 @@ jest.mock('@nextdo/db', () => {
   const powersync = {
     init: async () => undefined,
     connect: () => Promise.resolve(undefined),
+    disconnect: async () => undefined,
     close: async () => undefined,
   };
   return {
     createPowerSyncDatabase: () => powersync,
+    getOwnerToken: async () => null,
+    subscribeToOwnerTokenChange: () => () => undefined,
     createPowerSyncConnector: () => ({
       fetchCredentials: async () => null,
       uploadData: async () => undefined,

@@ -197,21 +197,69 @@ export function __setStorageBackendForTests(store: KeyValueStore | null): void {
  * screen will call set/clear once it ships)
  * ------------------------------------------------------------------ */
 
-/** The stored owner token, or null when none is stored (v1: the app
- *  shows the token-entry screen and the SDK stays disconnected). */
+/** The stored owner token, or null when none is stored (v1: the app keeps
+ *  the PowerSync client disconnected — no sync — until a token is entered). */
 export async function getOwnerToken(): Promise<string | null> {
   return getBackend().getItem(OWNER_TOKEN_KEY);
 }
 
-/** Store the owner token the user entered (replaces any previous one). */
+/**
+ * Store the owner token the user entered (replaces any previous one).
+ * Notifies subscribers (sign-in) after the write succeeds.
+ */
 export async function setOwnerToken(token: string): Promise<void> {
   if (token === '') {
     throw new ValidationNextdoError('auth.empty-token', 'owner token must be non-empty');
   }
   await getBackend().setItem(OWNER_TOKEN_KEY, token);
+  notifyOwnerTokenChange();
 }
 
-/** Forget the stored token (sign-out on all surfaces). */
+/**
+ * Forget the stored token (sign-out on all surfaces).
+ * Notifies subscribers after the removal succeeds.
+ */
 export async function clearOwnerToken(): Promise<void> {
   await getBackend().removeItem(OWNER_TOKEN_KEY);
+  notifyOwnerTokenChange();
+}
+
+/* ------------------------------------------------------------------ *
+ * Owner-token change notification (sign-in / sign-out)
+ *
+ * The app's PowerSync provider subscribes here to drive connect()/
+ * disconnect(). The PowerSync v2 SDK must only run its sync loop while an
+ * owner token is present: `connect()` while signed out (fetchCredentials
+ * -> null) makes its streamingSync loop retry buildRequest() forever and
+ * log "Not signed in" every cycle. So the app connects when a token appears
+ * and disconnects when it is cleared.
+ * ------------------------------------------------------------------ */
+
+/** A "poke" — the callback takes no arguments; re-read the current value
+ *  with getOwnerToken() (the source of truth). */
+type OwnerTokenChangeListener = () => void;
+
+const ownerTokenChangeListeners = new Set<OwnerTokenChangeListener>();
+
+function notifyOwnerTokenChange(): void {
+  // Snapshot so a listener that unsubscribes (or adds one) mid-notify is safe.
+  for (const listener of [...ownerTokenChangeListeners]) {
+    try {
+      listener();
+    } catch {
+      // A broken listener must never break an auth operation.
+    }
+  }
+}
+
+/**
+ * Subscribe to owner-token changes (sign-in / sign-out). Returns an
+ * unsubscribe function to call on teardown. The callback takes no arguments
+ * — read the new value with getOwnerToken().
+ */
+export function subscribeToOwnerTokenChange(listener: OwnerTokenChangeListener): () => void {
+  ownerTokenChangeListeners.add(listener);
+  return () => {
+    ownerTokenChangeListeners.delete(listener);
+  };
 }

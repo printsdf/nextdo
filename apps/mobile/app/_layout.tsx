@@ -4,12 +4,16 @@
  *
  * - The instance is created once per app launch — it owns the local SQLite
  *   and the sync/upload loops.
- * - `connect()` is called with the `packages/db` connector built from the
- *   runtime backend config (`lib/env.ts`). When no owner token is stored the
- *   connector returns `null` credentials and the SDK simply stays
- *   disconnected — the app still works offline against the local DB.
- * - The single v1 stream is subscribed explicitly (the service declares it
- *   `auto_subscribe: true`; the stream name stays in `packages/db`).
+ * - The connect/disconnect lifecycle is owned by the app, driven by the
+ *   owner-token state (via `subscribeToOwnerTokenChange`): `connect()` is
+ *   called only while an owner token is stored, and `disconnect()` when it
+ *   is not. The PowerSync v2 SDK does NOT idle on null credentials — calling
+ *   `connect()` while signed out makes its sync loop retry `buildRequest()`
+ *   forever and log "Not signed in" every cycle. Offline (no token) the app
+ *   still works against the local DB; it simply does not sync.
+ * - The single v1 stream is subscribed explicitly once after init (the
+ *   service declares it `auto_subscribe: true`; the stream name stays in
+ *   `packages/db`).
  */
 import '../global.css';
 
@@ -19,7 +23,9 @@ import { PowerSyncContext } from '@powersync/react';
 import {
   createPowerSyncConnector,
   createPowerSyncDatabase,
+  getOwnerToken,
   subscribeAppStream,
+  subscribeToOwnerTokenChange,
 } from '@nextdo/db';
 import { logger } from '@nextdo/core';
 import { POWERSYNC_WEB_WORKER_PATH, getBackendConfig } from '@/lib/env';
@@ -38,6 +44,33 @@ function PowerSyncProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let disposed = false;
+    let unsubscribeOwnerToken: (() => void) | null = null;
+
+    // Connect / disconnect from the owner-token state. The PowerSync v2 SDK
+    // does not idle on null credentials: connect() while signed out spins its
+    // sync loop, logging "Not signed in" every cycle. So: signed in ->
+    // connect(); signed out -> disconnect() (offline, still usable locally).
+    const setSyncFromAuth = async () => {
+      const token = await getOwnerToken();
+      if (disposed) return;
+      if (token === null) {
+        logger.info('powersync: no owner token — staying disconnected');
+        try {
+          await powersync.disconnect();
+        } catch (error) {
+          logger.warn('powersync disconnect failed', toError(error));
+        }
+        return;
+      }
+      // connect() re-disconnects any prior connect() itself; the SDK retries
+      // rejections internally, so a rejection here is not fatal.
+      powersync
+        .connect(createPowerSyncConnector(getBackendConfig()))
+        .catch((error: unknown) => {
+          logger.error('powersync connect failed', toError(error));
+        });
+    };
+
     const start = async () => {
       try {
         await powersync.init();
@@ -46,25 +79,26 @@ function PowerSyncProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (disposed) return;
-      // The single v1 stream (safeguard — the service auto-subscribes too).
-      // Failure is not fatal: the sync loop retries on connect.
+      // The single v1 stream (client-side subscription; the service
+      // auto-subscribes too). Registered once, independent of auth. Failure
+      // is not fatal: the sync loop retries on connect.
       try {
         await subscribeAppStream(powersync);
       } catch (error) {
         logger.warn('stream subscription failed', toError(error));
       }
       if (disposed) return;
-      // connect() drives the SDK's connection loop (credentials, sync,
-      // upload). Rejections are retried by the SDK; log only.
-      powersync
-        .connect(createPowerSyncConnector(getBackendConfig()))
-        .catch((error: unknown) => {
-          logger.error('powersync connect failed', toError(error));
-        });
+      // Drive the connection from the current token, then follow sign-in /
+      // sign-out events for the life of the app.
+      void setSyncFromAuth();
+      unsubscribeOwnerToken = subscribeToOwnerTokenChange(() => {
+        void setSyncFromAuth();
+      });
     };
     void start();
     return () => {
       disposed = true;
+      unsubscribeOwnerToken?.();
       void powersync.close().catch((error: unknown) => {
         logger.warn('powersync close failed', toError(error));
       });

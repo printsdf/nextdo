@@ -19,6 +19,7 @@ import {
   clearOwnerToken,
   getOwnerToken,
   setOwnerToken,
+  subscribeToOwnerTokenChange,
 } from '../owner-token';
 import type {
   CommonPowerSyncDatabase,
@@ -108,6 +109,74 @@ describe('owner-token storage', () => {
   it('rejects an empty token with a typed validation error', async () => {
     await expect(setOwnerToken('')).rejects.toMatchObject({ code: 'auth.empty-token' });
     expect(await getOwnerToken()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// owner-token change notification (drives the app's connect/disconnect)
+// ---------------------------------------------------------------------------
+
+describe('owner-token change notification', () => {
+  it('fires on setOwnerToken (sign-in)', async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeToOwnerTokenChange(listener);
+    try {
+      await setOwnerToken('owner-token-1');
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(await getOwnerToken()).toBe('owner-token-1');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('fires on clearOwnerToken (sign-out)', async () => {
+    await setOwnerToken('owner-token-1');
+    const listener = jest.fn();
+    const unsubscribe = subscribeToOwnerTokenChange(listener);
+    try {
+      await clearOwnerToken();
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(await getOwnerToken()).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('does not fire after unsubscribe', async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeToOwnerTokenChange(listener);
+    unsubscribe();
+    await setOwnerToken('owner-token-1');
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('does not fire when setOwnerToken rejects (empty token)', async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeToOwnerTokenChange(listener);
+    try {
+      await expect(setOwnerToken('')).rejects.toMatchObject({ code: 'auth.empty-token' });
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('a throwing listener does not break the auth operation', async () => {
+    const bad = jest.fn(() => {
+      throw new Error('listener broke');
+    });
+    const good = jest.fn();
+    const unsubBad = subscribeToOwnerTokenChange(bad);
+    const unsubGood = subscribeToOwnerTokenChange(good);
+    try {
+      await setOwnerToken('owner-token-1');
+      expect(bad).toHaveBeenCalledTimes(1);
+      expect(good).toHaveBeenCalledTimes(1);
+      expect(await getOwnerToken()).toBe('owner-token-1');
+    } finally {
+      unsubBad();
+      unsubGood();
+    }
   });
 });
 
