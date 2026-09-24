@@ -8,7 +8,8 @@
  *   title (the daily instance is "the habit, today").
  *
  * The same single query also yields the action's `projectId` (null for
- * calendar/habit and for standalone actions) — zero extra cost, one query
+ * calendar/habit and for standalone actions) AND its `contextIds`
+ * (re-clarify form prefill, design §3.3) — zero extra cost, one query
  * concern (hook-guidelines).
  */
 import { useEffect, useMemo, useState } from 'react';
@@ -28,6 +29,9 @@ export interface UseActionTitleResult {
   /** The action's project (next actions only — CalendarAction has no
    *  projectId in v1) — null for standalone actions / not loaded. */
   projectId: string | null;
+  /** The action's execution contexts (re-clarify form prefill, design §3.3)
+   *  — [] for habits / not loaded. */
+  contextIds: string[];
   loaded: boolean;
   error: string | null;
 }
@@ -40,6 +44,7 @@ export function useActionTitle(
   const db = useMemo(() => wrapDb(powersync), [powersync]);
   const [title, setTitle] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [contextIds, setContextIds] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,13 +53,19 @@ export function useActionTitle(
     let cancelled = false;
     setTitle(null);
     setProjectId(null);
+    setContextIds([]);
     setLoaded(false);
     setError(null);
 
-    const settle = (foundTitle: string | null, foundProjectId: string | null = null) => {
+    const settle = (
+      foundTitle: string | null,
+      foundProjectId: string | null = null,
+      foundContextIds: string[] = [],
+    ) => {
       if (cancelled) return;
       setTitle(foundTitle);
       setProjectId(foundProjectId);
+      setContextIds(foundContextIds);
       setLoaded(true);
     };
     const fail = (err: unknown) => {
@@ -83,14 +94,14 @@ export function useActionTitle(
       listNextActions(db)
         .then((actions) => {
           const found = actions.find((candidate) => candidate.id === actionId);
-          settle(found?.title ?? null, found?.projectId ?? null);
+          settle(found?.title ?? null, found?.projectId ?? null, found?.contextIds ?? []);
         })
         .catch(fail);
     } else {
       listCalendarActions(db)
         .then((actions) => {
           const found = actions.find((candidate) => candidate.id === actionId);
-          settle(found?.title ?? null);
+          settle(found?.title ?? null, null, found?.contextIds ?? []);
         })
         .catch(fail);
     }
@@ -99,5 +110,5 @@ export function useActionTitle(
     };
   }, [db, actionKind, actionId]);
 
-  return { title, projectId, loaded, error };
+  return { title, projectId, contextIds, loaded, error };
 }

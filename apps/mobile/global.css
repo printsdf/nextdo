@@ -1,3 +1,22 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Global default body font (Paper Serenity, design §1.3): every Text renders
+ * in Plus Jakarta Sans unless a class overrides it (`font-display` for the
+ * Epilogue display type). NativeWind v4 supports `@layer base` rules
+ * targeting core React Native components; the web build must carry this rule
+ * (verify in the exported CSS), native efficacy is confirmed by hand-testing.
+ */
+@layer base {
+  Text {
+    font-family: 'Plus Jakarta Sans';
+  }
+  /* Web only (RNW renders Text as a div, so the rule above is inert there —
+   * `body` carries the default family for the Tauri/web surface; native
+   * efficacy of the `Text` rule is confirmed by hand-testing). */
+  body {
+    font-family: 'Plus Jakarta Sans';
+  }
+}

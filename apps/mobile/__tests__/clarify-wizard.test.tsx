@@ -3,48 +3,22 @@
  *
  * The step machine itself is unit-tested in lib/clarify-flow.test.ts; here
  * we render the component with the db mocked at the package boundary and
- * cover: step walking, the required-field interception (Chinese copy),
- * the do-now immediate path, the reclarify Q2 entry, and the submit
- * success/failure → done/error rendering.
+ * cover: step walking (question wording untouched — R3), the required-field
+ * interception (Chinese copy), the do-now immediate path, the reclarify Q2
+ * entry, the submit success/failure → done/error rendering, and the
+ * Paper Serenity rework (design §3.4): the progress line (步骤 n/m), the
+ * "GTD 决策摘要" card (answered highlighted / unanswered muted, reclarify
+ * hides q1/q1b), the preview step (no db write until 确认保存; 上一步修改
+ * restores the form with fields preserved; non-preview forms submit
+ * directly), and the context multi-select (chips → preview, reclarify
+ * prefill).
  */
 jest.mock('@nextdo/db', () => {
   return {
     applyClarify: jest.fn(),
     reclarifyAction: jest.fn(),
-    listInboxItems: jest.fn(async () => [
-      {
-        id: 'inbox-1',
-        createdAt: '2026-09-22T02:00:00.000Z',
-        updatedAt: '2026-09-22T02:00:00.000Z',
-        deletedAt: null,
-        title: '订下周去杭州的高铁票',
-        capturedAt: '2026-09-22T02:00:00.000Z',
-      },
-    ]),
-    listNextActions: jest.fn(async () => [
-      {
-        id: 'act-1',
-        createdAt: '2026-09-22T02:00:00.000Z',
-        updatedAt: '2026-09-22T02:00:00.000Z',
-        deletedAt: null,
-        title: '写季度总结',
-        projectId: 'proj-1',
-        contextIds: [],
-        estMinutes: 30,
-        value: 3,
-        category: null,
-        dueDate: null,
-        deadline: null,
-        dependsOnId: null,
-        windowStart: null,
-        windowEnd: null,
-        windowDays: null,
-        consecutiveSkips: 3,
-        status: 'open',
-        sourceInboxId: null,
-        replacesActionId: null,
-      },
-    ]),
+    listInboxItems: jest.fn(),
+    listNextActions: jest.fn(),
     listCalendarActions: jest.fn(async () => []),
     wrapDb: () => ({}),
   };
@@ -69,6 +43,9 @@ jest.mock('@powersync/react', () => {
 // out by the wizard). proj-1 is act-1's current project (reclarify marker).
 jest.mock('@/hooks/use-projects', () => ({ useProjects: jest.fn() }));
 
+// The context multi-select's data (design §3.2.6).
+jest.mock('@/hooks/use-contexts', () => ({ useContexts: jest.fn() }));
+
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), push: jest.fn(), navigate: jest.fn(), setParams: jest.fn() },
   useLocalSearchParams: () => ({}),
@@ -76,14 +53,51 @@ jest.mock('expo-router', () => ({
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { ValidationNextdoError } from '@nextdo/core';
-import { applyClarify, reclarifyAction } from '@nextdo/db';
+import { applyClarify, listInboxItems, listNextActions, reclarifyAction } from '@nextdo/db';
 import { router } from 'expo-router';
 import { useProjects } from '@/hooks/use-projects';
+import { useContexts } from '@/hooks/use-contexts';
+import { formatLocalDateTime } from '@/lib/format';
 import { ClarifyWizard, WizardBody } from '../components/clarify-wizard';
 
 const mockedApplyClarify = applyClarify as jest.Mock;
 const mockedReclarifyAction = reclarifyAction as jest.Mock;
+const mockedListInboxItems = listInboxItems as jest.Mock;
+const mockedListNextActions = listNextActions as jest.Mock;
 const mockedUseProjects = useProjects as jest.Mock;
+const mockedUseContexts = useContexts as jest.Mock;
+
+const INBOX_ITEM = {
+  id: 'inbox-1',
+  createdAt: '2026-09-22T02:00:00.000Z',
+  updatedAt: '2026-09-22T02:00:00.000Z',
+  deletedAt: null,
+  title: '订下周去杭州的高铁票',
+  capturedAt: '2026-09-22T02:00:00.000Z',
+};
+
+const NEXT_ACTION = {
+  id: 'act-1',
+  createdAt: '2026-09-22T02:00:00.000Z',
+  updatedAt: '2026-09-22T02:00:00.000Z',
+  deletedAt: null,
+  title: '写季度总结',
+  projectId: 'proj-1',
+  contextIds: [] as string[],
+  estMinutes: 30,
+  value: 3,
+  category: null,
+  dueDate: null,
+  deadline: null,
+  dependsOnId: null,
+  windowStart: null,
+  windowEnd: null,
+  windowDays: null,
+  consecutiveSkips: 3,
+  status: 'open',
+  sourceInboxId: null,
+  replacesActionId: null,
+};
 
 const ACTIVE_PROJECT = {
   id: 'proj-1',
@@ -105,9 +119,18 @@ const ON_HOLD_PROJECT = {
   hasOpenAction: false,
 };
 
+const CONTEXTS = [
+  { id: 'ctx-computer', createdAt: '2026-09-22T02:00:00.000Z', updatedAt: '2026-09-22T02:00:00.000Z', deletedAt: null, name: 'computer' },
+  { id: 'ctx-phone', createdAt: '2026-09-22T02:00:00.000Z', updatedAt: '2026-09-22T02:00:00.000Z', deletedAt: null, name: 'phone' },
+  { id: 'ctx-home', createdAt: '2026-09-22T02:00:00.000Z', updatedAt: '2026-09-22T02:00:00.000Z', deletedAt: null, name: 'home' },
+];
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockedUseProjects.mockReturnValue({ data: [ACTIVE_PROJECT, ON_HOLD_PROJECT], error: null });
+  mockedUseContexts.mockReturnValue({ data: CONTEXTS, error: null, add: jest.fn(async () => undefined) });
+  mockedListInboxItems.mockResolvedValue([INBOX_ITEM]);
+  mockedListNextActions.mockResolvedValue([NEXT_ACTION]);
   mockedApplyClarify.mockResolvedValue({ inboxId: 'inbox-1', outcome: { kind: 'next-action', source: 'clarified' }, createdIds: ['a1'] });
   mockedReclarifyAction.mockResolvedValue({ outcome: { kind: 'next-action', source: 'clarified' }, createdIds: ['a2'] });
 });
@@ -119,6 +142,8 @@ function renderWizard(
     actionKind?: 'next' | 'calendar' | null;
     defaultTitle?: string;
     currentProjectId?: string | null;
+    capturedAt?: string | null;
+    initialContextIds?: string[];
   } = {},
 ) {
   return render(
@@ -128,18 +153,33 @@ function renderWizard(
       actionKind={props.actionKind ?? null}
       defaultTitle={props.defaultTitle ?? '订下周去杭州的高铁票'}
       currentProjectId={props.currentProjectId ?? null}
+      capturedAt={props.capturedAt ?? null}
+      initialContextIds={props.initialContextIds ?? []}
     />,
   );
 }
 
+/** q2 → q2b → q3 → q4 → q5 → the action form (both modes re-enter at q2). */
+function walkToActionForm() {
+  fireEvent.press(screen.getByText('否，一步能完成'));
+  fireEvent.press(screen.getByText('不属于项目'));
+  expect(screen.getAllByText('大约 2 分钟内能完成吗？').length).toBeGreaterThan(0);
+  fireEvent.press(screen.getByText('否'));
+  expect(screen.getAllByText('应该由你完成吗？').length).toBeGreaterThan(0);
+  fireEvent.press(screen.getByText('是，我的事'));
+  expect(screen.getAllByText('必须在固定日期/时间执行吗？').length).toBeGreaterThan(0);
+  fireEvent.press(screen.getByText('否，普通行动'));
+  expect(screen.getByText('记成一个行动')).toBeTruthy();
+}
+
 describe('WizardBody — step walking (clarify)', () => {
-  it('walks q1 → q2 → the project form and submits applyClarify', async () => {
+  it('walks q1 → q2 → the project form, previews, then submits applyClarify', async () => {
     mockedApplyClarify.mockResolvedValue({ inboxId: 'inbox-1', outcome: { kind: 'project' }, createdIds: ['p1', 'a1'] });
     renderWizard();
-    expect(screen.getByText('可以变成下一步行动吗？')).toBeTruthy();
+    expect(screen.getAllByText('可以变成下一步行动吗？').length).toBeGreaterThan(0);
 
     fireEvent.press(screen.getByText('可以，是行动'));
-    expect(screen.getByText('需要多个步骤才能完成吗？')).toBeTruthy();
+    expect(screen.getAllByText('需要多个步骤才能完成吗？').length).toBeGreaterThan(0);
 
     fireEvent.press(screen.getByText('是，拆成项目'));
     expect(screen.getByText('项目名')).toBeTruthy();
@@ -157,8 +197,13 @@ describe('WizardBody — step walking (clarify)', () => {
     expect(mockedApplyClarify).not.toHaveBeenCalled();
 
     fireEvent.press(screen.getByLabelText('10 分钟'));
+    // D5: PREVIEW_FORMS (project) confirm through the preview step — the
+    // first 保存 must NOT write the db.
     fireEvent.press(screen.getByText('保存'));
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+    expect(mockedApplyClarify).not.toHaveBeenCalled();
 
+    fireEvent.press(screen.getByText('确认保存'));
     await waitFor(() => expect(mockedApplyClarify).toHaveBeenCalledTimes(1));
     const call = mockedApplyClarify.mock.calls[0][1];
     expect(call.inboxId).toBe('inbox-1');
@@ -188,9 +233,9 @@ describe('WizardBody — step walking (clarify)', () => {
     fireEvent.press(screen.getByText('否，一步能完成'));
     // q2 (no) now leads to Q2b — opt out of a project to reach Q3.
     fireEvent.press(screen.getByText('不属于项目'));
-    expect(screen.getByText('大约 2 分钟内能完成吗？')).toBeTruthy();
+    expect(screen.getAllByText('大约 2 分钟内能完成吗？').length).toBeGreaterThan(0);
     fireEvent.press(screen.getByText('是，2 分钟内'));
-    expect(screen.getByText('现在就做掉吗？')).toBeTruthy();
+    expect(screen.getAllByText('现在就做掉吗？').length).toBeGreaterThan(0);
     fireEvent.press(screen.getByText('是，现在就做完'));
 
     await waitFor(() => expect(mockedApplyClarify).toHaveBeenCalledTimes(1));
@@ -213,15 +258,17 @@ describe('WizardBody — step walking (clarify)', () => {
     fireEvent.press(screen.getByText('否，一步能完成'));
     // q2 (no) now leads to Q2b — opt out of a project to reach Q3.
     fireEvent.press(screen.getByText('不属于项目'));
-    expect(screen.getByText('大约 2 分钟内能完成吗？')).toBeTruthy();
+    expect(screen.getAllByText('大约 2 分钟内能完成吗？').length).toBeGreaterThan(0);
     fireEvent.press(screen.getByText('否'));
-    expect(screen.getByText('应该由你完成吗？')).toBeTruthy();
+    expect(screen.getAllByText('应该由你完成吗？').length).toBeGreaterThan(0);
     fireEvent.press(screen.getByText('是，我的事'));
-    expect(screen.getByText('必须在固定日期/时间执行吗？')).toBeTruthy();
+    expect(screen.getAllByText('必须在固定日期/时间执行吗？').length).toBeGreaterThan(0);
     fireEvent.press(screen.getByText('否，普通行动'));
     // action form: est prefill is null → pick one, then submit.
     fireEvent.press(screen.getByLabelText('10 分钟'));
     fireEvent.press(screen.getByText('保存'));
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+    fireEvent.press(screen.getByText('确认保存'));
 
     await waitFor(() => expect(screen.getByText('这个行动不存在了（可能已被删除）')).toBeTruthy());
     expect(screen.queryByText(/已整理为/)).toBeNull();
@@ -230,29 +277,15 @@ describe('WizardBody — step walking (clarify)', () => {
 
 describe('WizardBody — reclarify entry', () => {
   it('re-enters at q2 (no q1) and submits reclarifyAction', async () => {
-    render(
-      <WizardBody
-        mode="reclarify"
-        id="act-1"
-        actionKind="next"
-        defaultTitle="写季度总结"
-        currentProjectId="proj-1"
-      />,
-    );
+    renderWizard({ mode: 'reclarify', id: 'act-1', actionKind: 'next', defaultTitle: '写季度总结', currentProjectId: 'proj-1' });
     expect(screen.queryByText('可以变成下一步行动吗？')).toBeNull();
-    expect(screen.getByText('需要多个步骤才能完成吗？')).toBeTruthy();
+    expect(screen.getAllByText('需要多个步骤才能完成吗？').length).toBeGreaterThan(0);
 
-    fireEvent.press(screen.getByText('否，一步能完成'));
-    // q2 (no) now leads to Q2b — opt out of a project to reach Q3.
-    fireEvent.press(screen.getByText('不属于项目'));
-    expect(screen.getByText('大约 2 分钟内能完成吗？')).toBeTruthy();
-    fireEvent.press(screen.getByText('否'));
-    expect(screen.getByText('应该由你完成吗？')).toBeTruthy();
-    fireEvent.press(screen.getByText('是，我的事'));
-    expect(screen.getByText('必须在固定日期/时间执行吗？')).toBeTruthy();
-    fireEvent.press(screen.getByText('否，普通行动'));
+    walkToActionForm();
     fireEvent.press(screen.getByLabelText('20 分钟'));
     fireEvent.press(screen.getByText('保存'));
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+    fireEvent.press(screen.getByText('确认保存'));
 
     await waitFor(() => expect(mockedReclarifyAction).toHaveBeenCalledTimes(1));
     const call = mockedReclarifyAction.mock.calls[0][1];
@@ -269,20 +302,221 @@ describe('WizardBody — reclarify entry', () => {
   });
 });
 
-describe('ClarifyWizard — title loading', () => {
-  it('loads the inbox item title, then shows the wizard', async () => {
-    render(<ClarifyWizard mode="clarify" id="inbox-1" />);
-    await waitFor(() => expect(screen.getByText('可以变成下一步行动吗？')).toBeTruthy());
+describe('WizardBody — progress line + GTD 决策摘要 (design §3.4)', () => {
+  it('clarify: 步骤 1/7 at q1, 步骤 2/7 after answering q1', () => {
+    renderWizard();
+    expect(screen.getByText('步骤 1/7')).toBeTruthy();
+    fireEvent.press(screen.getByText('可以，是行动'));
+    expect(screen.getByText('步骤 2/7')).toBeTruthy();
   });
 
-  it('reclarify loads the existing action title into the forms', async () => {
-    render(<ClarifyWizard mode="reclarify" id="act-1" actionKind="next" />);
-    await waitFor(() => expect(screen.getByText('需要多个步骤才能完成吗？')).toBeTruthy());
+  it('reclarify entry: 步骤 1/6', () => {
+    renderWizard({ mode: 'reclarify', id: 'act-1', actionKind: 'next', currentProjectId: 'proj-1' });
+    expect(screen.getByText('步骤 1/6')).toBeTruthy();
+  });
+
+  it('the form step reaches 步骤 7/7 on the full clarify chain', () => {
+    renderWizard();
+    fireEvent.press(screen.getByText('可以，是行动'));
+    walkToActionForm();
+    expect(screen.getByText('步骤 7/7')).toBeTruthy();
+  });
+
+  it('decision summary: answered rows show the answer; unanswered rows stay listed', () => {
+    renderWizard();
+    // Unanswered rows are listed from the start (q1…q5 chain, 8 rows).
+    expect(screen.getByText('GTD 决策摘要')).toBeTruthy();
+    expect(screen.getByText('那它更接近哪一类？')).toBeTruthy();
+    expect(screen.getByText('必须在固定日期/时间执行吗？')).toBeTruthy();
+
+    // Answering q1 highlights the row with the tapped button text.
+    fireEvent.press(screen.getByText('可以，是行动'));
+    expect(screen.getByText('可以，是行动')).toBeTruthy();
+  });
+
+  it('reclarify decision summary: q1/q1b rows are not shown', () => {
+    renderWizard({ mode: 'reclarify', id: 'act-1', actionKind: 'next', currentProjectId: 'proj-1' });
+    expect(screen.getByText('GTD 决策摘要')).toBeTruthy();
+    expect(screen.queryByText('可以变成下一步行动吗？')).toBeNull();
+    expect(screen.queryByText('那它更接近哪一类？')).toBeNull();
+    expect(screen.getAllByText('需要多个步骤才能完成吗？').length).toBeGreaterThan(0);
+  });
+});
+
+describe('WizardBody — preview step (design §3.4)', () => {
+  it('action form: 保存 → preview (no db write) → 确认保存 → one submit → done', async () => {
+    renderWizard();
+    fireEvent.press(screen.getByText('可以，是行动'));
+    walkToActionForm();
+    fireEvent.press(screen.getByLabelText('10 分钟'));
+    fireEvent.press(screen.getByText('保存'));
+
+    // The preview card replaces the form; the progress line shows 决策摘要预览.
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+    expect(screen.getByText('决策摘要预览')).toBeTruthy();
+    expect(screen.getByText('100%')).toBeTruthy();
+    expect(screen.getByText('确认保存')).toBeTruthy();
+    expect(screen.getByText('上一步修改')).toBeTruthy();
+    expect(mockedApplyClarify).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByText('确认保存'));
+    await waitFor(() => expect(mockedApplyClarify).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText('已整理为「下一步行动」')).toBeTruthy());
+    expect(mockedApplyClarify).toHaveBeenCalledTimes(1);
+  });
+
+  it('上一步修改 restores the form with the fields preserved', async () => {
+    renderWizard();
+    fireEvent.press(screen.getByText('可以，是行动'));
+    walkToActionForm();
+    fireEvent.press(screen.getByLabelText('10 分钟'));
+    fireEvent.changeText(screen.getByDisplayValue('订下周去杭州的高铁票'), '改过的行动标题');
+    fireEvent.press(screen.getByText('保存'));
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('上一步修改'));
+    // Back on the form — the edits survived the round trip.
+    expect(screen.getByText('记成一个行动')).toBeTruthy();
+    expect(screen.getByDisplayValue('改过的行动标题')).toBeTruthy();
+    expect(screen.getByLabelText('10 分钟').props.accessibilityState.selected).toBe(true);
+    expect(mockedApplyClarify).not.toHaveBeenCalled();
+
+    // Re-confirming submits the (updated) form exactly once.
+    fireEvent.press(screen.getByText('保存'));
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+    fireEvent.press(screen.getByText('确认保存'));
+    await waitFor(() => expect(mockedApplyClarify).toHaveBeenCalledTimes(1));
+    expect(mockedApplyClarify.mock.calls[0][1].target).toMatchObject({ title: '改过的行动标题' });
+  });
+
+  it('reference form: 保存 submits directly (no preview)', async () => {
+    mockedApplyClarify.mockResolvedValue({ inboxId: 'inbox-1', outcome: { kind: 'reference' }, createdIds: [] });
+    renderWizard();
+    fireEvent.press(screen.getByText('不行'));
+    fireEvent.press(screen.getByText('资料（留个参考）'));
+    expect(screen.getByPlaceholderText('https://…')).toBeTruthy();
+    fireEvent.changeText(screen.getByPlaceholderText('https://…'), 'https://example.com');
+    fireEvent.press(screen.getByText('保存'));
+
+    expect(screen.queryByText('确认保存')).toBeNull();
+    await waitFor(() => expect(mockedApplyClarify).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText('已整理为「资料」')).toBeTruthy());
+  });
+
+  it('trash form: 确认删除 submits directly (no preview)', async () => {
+    renderWizard();
+    fireEvent.press(screen.getByText('不行'));
+    fireEvent.press(screen.getByText('删除'));
+    expect(screen.getByText('删除这条捕获？')).toBeTruthy();
+    fireEvent.press(screen.getByText('确认删除'));
+
+    expect(screen.queryByText('确认保存')).toBeNull();
+    await waitFor(() => expect(mockedApplyClarify).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('WizardBody — context multi-select (design §3.4)', () => {
+  it('action form: two toggled chips appear in the preview and the submission', async () => {
+    renderWizard();
+    fireEvent.press(screen.getByText('可以，是行动'));
+    walkToActionForm();
+    expect(screen.getByText('在哪里做？（可多选，不选 = 随处可执行）')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('选择情境：computer'));
+    fireEvent.press(screen.getByLabelText('选择情境：phone'));
+    fireEvent.press(screen.getByLabelText('10 分钟'));
+    // Nothing selected yet → 随处可执行; with two chips → the two names.
+    fireEvent.press(screen.getByText('保存'));
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+    expect(screen.getByText('computer')).toBeTruthy();
+    expect(screen.getByText('phone')).toBeTruthy();
+    expect(screen.queryByText('随处可执行')).toBeNull();
+    expect(screen.queryByText('home')).toBeNull();
+    expect(mockedApplyClarify).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByText('确认保存'));
+    await waitFor(() => expect(mockedApplyClarify).toHaveBeenCalledTimes(1));
+    expect(mockedApplyClarify.mock.calls[0][1].target).toMatchObject({ contextIds: ['ctx-computer', 'ctx-phone'] });
+  });
+
+  it('no chips selected: the preview shows 随处可执行', async () => {
+    renderWizard();
+    fireEvent.press(screen.getByText('可以，是行动'));
+    walkToActionForm();
+    fireEvent.press(screen.getByLabelText('10 分钟'));
+    fireEvent.press(screen.getByText('保存'));
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+    expect(screen.getByText('随处可执行')).toBeTruthy();
+  });
+});
+
+describe('WizardBody — calendar form (design §15: date/time pickers, no typed ISO)', () => {
+  it('q5-yes → pickers fill 开始日期/开始时间; the preview shows 开始; submit carries the composed ISO', async () => {
+    mockedApplyClarify.mockResolvedValue({
+      inboxId: 'inbox-1',
+      outcome: { kind: 'calendar-action' },
+      createdIds: ['c1'],
+    });
+    renderWizard();
+    fireEvent.press(screen.getByText('可以，是行动'));
     fireEvent.press(screen.getByText('否，一步能完成'));
     fireEvent.press(screen.getByText('不属于项目'));
     fireEvent.press(screen.getByText('否'));
     fireEvent.press(screen.getByText('是，我的事'));
-    fireEvent.press(screen.getByText('否，普通行动'));
+    fireEvent.press(screen.getByText('是，固定时间'));
+    expect(screen.getByText('固定时间行动')).toBeTruthy();
+
+    // The free-text ISO inputs are gone — the fields are picker buttons.
+    expect(screen.queryByPlaceholderText('2026-09-30')).toBeNull();
+    expect(screen.queryByPlaceholderText('09:30')).toBeNull();
+
+    // 开始日期: open the picker and pick {this year}-09-30 with explicit
+    // chips (the picker's defaults come from the app clock — run-day
+    // dependent — so every cell is tapped on purpose).
+    const year = new Date().getFullYear();
+    fireEvent.press(screen.getByLabelText('选择开始日期'));
+    fireEvent.press(screen.getByLabelText(`年 ${year}`));
+    fireEvent.press(screen.getByLabelText('月 9'));
+    fireEvent.press(screen.getByLabelText('日 30'));
+    fireEvent.press(screen.getByText('确定'));
+    expect(screen.getByText(`${year}-09-30`)).toBeTruthy();
+
+    // 开始时间: pick 09:30.
+    fireEvent.press(screen.getByLabelText('选择开始时间'));
+    fireEvent.press(screen.getByLabelText('小时 09'));
+    fireEvent.press(screen.getByLabelText('分钟 30'));
+    fireEvent.press(screen.getByText('确定'));
+    expect(screen.getByText('09:30')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('10 分钟'));
+    fireEvent.press(screen.getByText('保存'));
+
+    // The preview shows the composed 开始 line, formatted exactly like the
+    // app renders it (device-local — locale-dependent, matched via the
+    // same helper).
+    const startsAt = new Date(year, 8, 30, 9, 30).toISOString();
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+    expect(screen.getByText(formatLocalDateTime(startsAt))).toBeTruthy();
+
+    fireEvent.press(screen.getByText('确认保存'));
+    await waitFor(() => expect(mockedApplyClarify).toHaveBeenCalledTimes(1));
+    const call = mockedApplyClarify.mock.calls[0][1];
+    expect(call.answers.fixedTime).toBe(true);
+    expect(call.target.startsAt).toBe(startsAt);
+    expect(call.target.estMinutes).toBe(10);
+  });
+});
+
+describe('ClarifyWizard — title loading', () => {
+  it('loads the inbox item title, then shows the wizard', async () => {
+    render(<ClarifyWizard mode="clarify" id="inbox-1" />);
+    await waitFor(() => expect(screen.getAllByText('可以变成下一步行动吗？').length).toBeGreaterThan(0));
+  });
+
+  it('reclarify loads the existing action title into the forms', async () => {
+    render(<ClarifyWizard mode="reclarify" id="act-1" actionKind="next" />);
+    await waitFor(() => expect(screen.getAllByText('需要多个步骤才能完成吗？').length).toBeGreaterThan(0));
+    walkToActionForm();
     const titleInput = screen.getByDisplayValue('写季度总结');
     expect(titleInput).toBeTruthy();
   });
@@ -300,6 +534,27 @@ describe('ClarifyWizard — title loading', () => {
     );
     expect(screen.queryByText('加载中…')).toBeNull();
   });
+
+  it('reclarify: the existing action contextIds prefill the form chips', async () => {
+    mockedListNextActions.mockResolvedValue([{ ...NEXT_ACTION, contextIds: ['ctx-computer', 'ctx-phone'] }]);
+    render(<ClarifyWizard mode="reclarify" id="act-1" actionKind="next" />);
+    await waitFor(() => expect(screen.getAllByText('需要多个步骤才能完成吗？').length).toBeGreaterThan(0));
+    walkToActionForm();
+
+    expect(screen.getByLabelText('选择情境：computer').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByLabelText('选择情境：phone').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByLabelText('选择情境：home').props.accessibilityState.selected).toBe(false);
+
+    fireEvent.press(screen.getByLabelText('20 分钟'));
+    fireEvent.press(screen.getByText('保存'));
+    expect(screen.getByText('computer')).toBeTruthy();
+    expect(screen.getByText('phone')).toBeTruthy();
+    fireEvent.press(screen.getByText('确认保存'));
+    await waitFor(() => expect(mockedReclarifyAction).toHaveBeenCalledTimes(1));
+    expect(mockedReclarifyAction.mock.calls[0][1].target).toMatchObject({
+      contextIds: ['ctx-computer', 'ctx-phone'],
+    });
+  });
 });
 
 describe('WizardBody — q2b project ownership', () => {
@@ -308,7 +563,7 @@ describe('WizardBody — q2b project ownership', () => {
     if (mode === 'clarify') fireEvent.press(screen.getByText('可以，是行动'));
     // Re-clarify re-enters at Q2 — there is no Q1.
     fireEvent.press(screen.getByText('否，一步能完成'));
-    expect(screen.getByText('它属于哪个项目？')).toBeTruthy();
+    expect(screen.getAllByText('它属于哪个项目？').length).toBeGreaterThan(0);
   }
 
   it('lists only ACTIVE projects (value shown); on-hold is filtered out', () => {
@@ -325,10 +580,14 @@ describe('WizardBody — q2b project ownership', () => {
     // The action form shows the fixed attachment (read-only) and skips Q3–Q5.
     expect(screen.getByText('所属项目：毕业论文实验')).toBeTruthy();
     expect(screen.getByText('记成一个行动')).toBeTruthy();
-    expect(screen.queryByText('大约 2 分钟内能完成吗？')).toBeNull();
+    // The attach skips Q3–Q5: the question card is gone (the button is the
+    // signal — the title also appears in the summary card).
+    expect(screen.queryByText('是，2 分钟内')).toBeNull();
 
     fireEvent.press(screen.getByLabelText('10 分钟'));
     fireEvent.press(screen.getByText('保存'));
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+    fireEvent.press(screen.getByText('确认保存'));
 
     await waitFor(() => expect(mockedApplyClarify).toHaveBeenCalledTimes(1));
     const call = mockedApplyClarify.mock.calls[0][1];
@@ -358,7 +617,9 @@ describe('WizardBody — done step (explicit exits, no auto-back)', () => {
     fireEvent.press(screen.getByText('可以，是行动'));
     fireEvent.press(screen.getByText('否，一步能完成'));
     fireEvent.press(screen.getByText('不属于项目'));
+    expect(screen.getAllByText('大约 2 分钟内能完成吗？').length).toBeGreaterThan(0);
     fireEvent.press(screen.getByText('是，2 分钟内'));
+    expect(screen.getAllByText('现在就做掉吗？').length).toBeGreaterThan(0);
     fireEvent.press(screen.getByText('是，现在就做完'));
     await waitFor(() => expect(screen.getByText('已整理为「当场完成」')).toBeTruthy());
   }
@@ -381,7 +642,9 @@ describe('WizardBody — done step (explicit exits, no auto-back)', () => {
     renderWizard({ mode: 'reclarify', id: 'act-1', actionKind: 'next', currentProjectId: 'proj-1' });
     fireEvent.press(screen.getByText('否，一步能完成'));
     fireEvent.press(screen.getByText('不属于项目'));
+    expect(screen.getAllByText('大约 2 分钟内能完成吗？').length).toBeGreaterThan(0);
     fireEvent.press(screen.getByText('是，2 分钟内'));
+    expect(screen.getAllByText('现在就做掉吗？').length).toBeGreaterThan(0);
     fireEvent.press(screen.getByText('是，现在就做完'));
     await waitFor(() => expect(screen.getByText('已整理为「当场完成」')).toBeTruthy());
     fireEvent.press(screen.getByText('完成'));

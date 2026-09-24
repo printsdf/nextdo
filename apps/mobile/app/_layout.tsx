@@ -14,18 +14,36 @@
  * - The single v1 stream is subscribed explicitly once after init (the
  *   service declares it `auto_subscribe: true`; the stream name stays in
  *   `packages/db`).
+ * - Font gate (design §1.3): Epilogue + Plus Jakarta Sans load before the
+ *   stack renders; until then a canvas placeholder stands in (no white
+ *   flash, no `expo-splash-screen` dependency).
  */
 import '../global.css';
 
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { Stack } from 'expo-router';
+import { Text, View } from 'react-native';
+import { useFonts } from 'expo-font';
+import {
+  Epilogue_500Medium,
+  Epilogue_600SemiBold,
+  Epilogue_700Bold,
+} from '@expo-google-fonts/epilogue';
+import {
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+} from '@expo-google-fonts/plus-jakarta-sans';
 import { PowerSyncContext } from '@powersync/react';
 import {
   createPowerSyncConnector,
   createPowerSyncDatabase,
   getOwnerToken,
+  seedDefaultContexts,
   subscribeAppStream,
   subscribeToOwnerTokenChange,
+  wrapDb,
 } from '@nextdo/db';
 import { logger } from '@nextdo/core';
 import { POWERSYNC_WEB_WORKER_PATH, getBackendConfig } from '@/lib/env';
@@ -88,6 +106,15 @@ function PowerSyncProvider({ children }: { children: ReactNode }) {
         logger.warn('stream subscription failed', toError(error));
       }
       if (disposed) return;
+      // Default contexts for a FRESH database (design §6): seeds the five
+      // spec contexts once, no-op otherwise (a user who deleted them all is
+      // not re-seeded). Non-fatal — a failure must never block startup;
+      // the user can still create contexts in the UI.
+      try {
+        await seedDefaultContexts(wrapDb(powersync), new Date());
+      } catch (error) {
+        logger.warn('context seeding failed', toError(error));
+      }
       // Drive the connection from the current token, then follow sign-in /
       // sign-out events for the life of the app.
       void setSyncFromAuth();
@@ -109,6 +136,46 @@ function PowerSyncProvider({ children }: { children: ReactNode }) {
 }
 
 export default function RootLayout() {
+  // Paper Serenity type (design §1.3): Epilogue for display, Plus Jakarta
+  // Sans for body. Each weight is its own map key (the platform registers one
+  // face per key — web @font-face / Android Typeface), plus the real family
+  // names as entries so `fontFamily: 'Epilogue' | 'Plus Jakarta Sans'`
+  // (tailwind `display` / `sans`) resolves on every platform: iOS matches the
+  // fonts' internal family directly, web/android resolve the key.
+  const [epilogueLoaded, epilogueError] = useFonts({
+    Epilogue: Epilogue_600SemiBold,
+    Epilogue_500Medium,
+    Epilogue_600SemiBold,
+    Epilogue_700Bold,
+  });
+  const [jakartaLoaded, jakartaError] = useFonts({
+    'Plus Jakarta Sans': PlusJakartaSans_400Regular,
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+  });
+
+  // A failed font load must not brick the app on the placeholder — log it and
+  // fall back to the system fonts.
+  useEffect(() => {
+    if (epilogueError !== null) logger.error('Epilogue font load failed', epilogueError);
+    if (jakartaError !== null) logger.error('Plus Jakarta Sans font load failed', jakartaError);
+  }, [epilogueError, jakartaError]);
+
+  // Font gate: no `<Stack>` (and no app content) until both families are
+  // loaded — the placeholder (canvas background + centered label) is what
+  // prevents a white flash; no native splash-screen module needed. A failed
+  // load (error !== null) releases the gate: the app runs on system fonts.
+  const fontsReady =
+    (epilogueLoaded || epilogueError !== null) && (jakartaLoaded || jakartaError !== null);
+  if (!fontsReady) {
+    return (
+      <View className="flex-1 items-center justify-center bg-canvas dark:bg-canvas-dark">
+        <Text className="text-base text-muted dark:text-muted-dark">加载中…</Text>
+      </View>
+    );
+  }
   return (
     <PowerSyncProvider>
       <Stack screenOptions={{ headerShown: false }} />

@@ -294,3 +294,29 @@ Fix PowerSync v2 'Not signed in' sync-loop spam by letting the app own connect/d
 
 - 分支 `feature/capture-clarify-flow` 待合并（base: `feature/app-ui-ios-redesign`）
 - 可选：`CalendarAction` 支持 `projectId`（v1 互斥，当前固定时间与项目归属不可并存）
+
+
+## Session 7: Stitch UI 重做收尾：hero 验证 + chips 去计数 + 归档
+<!-- trellis-session: v=2 fp=8038e71277f827aa -->
+
+**Date**: 2026-09-24
+**Task**: Stitch UI 重做收尾：hero 验证 + chips 去计数 + 归档
+**Branch**: `feature/stitch-ui-redesign`
+
+### Summary
+
+web 冒烟复核（空态 + hero 态截图，8091 旧导出已按当前树重新 export）；用户拍板：任意=空场景维持 spec、情境过滤 chips 去掉计数（now.tsx + 3 处测试断言 + design/implement 工件同步）；spec 三处更新（domain-model 种子事实、ContextChip/ProgressBar 组件、useProjectCards 时间敏感 watch 先例）；5 个工作提交 + 归档 + 本 journal。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `39533ae` | feat(ui): Paper Serenity tokens, Tag restyle, ContextChip and ProgressBar |
+| `c541df7` | feat(db): project card watch query, context seeding, isStalled export |
+| `50095c7` | feat(mobile): restyle Inbox/Clarify/Projects/Now on Paper Serenity baseline |
+| `f4b8f0c` | docs(spec): record context seeding, ContextChip/ProgressBar, time-sensitive watch precedent |
+| `f2b6e66` | docs(trellis): add stitch-ui-redesign task artifacts and design baseline |
+
+### Status
+
+[OK] **Completed**

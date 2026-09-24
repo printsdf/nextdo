@@ -110,6 +110,7 @@ jest.mock('@nextdo/db', () => {
     }),
     subscribeAppStream: async () => undefined,
     wrapDb: () => ({}),
+    seedDefaultContexts: async () => 0,
     reviewRecordsWatchQuery: jest.fn(() => ({
       compile: () => ({ sql: 'select 1', parameters: [] }),
       execute: async () => [],

@@ -147,7 +147,15 @@ External material (Proposal §4.3: v1 = links only). `title`, `url?`, `note?`.
 
 ### Context
 Named execution environments (Proposal §6.1). Seeded defaults: `home`, `office`,
-`computer`, `phone`, `outside`; user can add. The user's current environments are a
+`computer`, `phone`, `outside`; user can add. Seeding implementation:
+`seedDefaultContexts(db, now)` (`packages/db/src/queries/contexts.ts`) — inserts
+the five defaults (id = `ulid(now)`) only when **no non-deleted context row
+exists**; otherwise a no-op returning 0 (a user who deletes all five is not
+re-seeded — user intent is respected). Idempotent. Called once at app start,
+after PowerSync init/stream (`apps/mobile/app/_layout.tsx` `start()`,
+non-fatal try/catch). Seed rows are ordinary user data — they ride the
+existing upload/sync path (no schema change).
+The user's current environments are a
 UI-layer declaration (mobile: **manual selection** — location-assisted context is
 post-MVP; desktop: `computer` + user selection) and are passed to the engine as
 `EngineContext.contextIds` — not stored per action beyond the action's own

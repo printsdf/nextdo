@@ -1,15 +1,25 @@
 /**
- * Component tests — the Projects tab + project detail route (PRD R6,
- * design.md §4.4): the list with derived coverage tags, the inline
- * new-project form (required-field gate), the detail's per-project open
- * action rows (client-side projectId filter), and the mutation wiring
- * (complete / add-action carry the right args). The coverage tag FLIP is
- * a db-layer property (watched query re-derives `hasOpenAction` — covered
- * by the packages/db tests); the live flip is walked in the web session.
+ * Component tests — the Projects tab + project detail route (design
+ * §4.2): the project cards with derived stats (progress, deadline chip,
+ * the current next-action sub-card, the missing-next warning + CTA, the
+ * 14-day stall tag), the filter chips (进行中 / 无下一步 / 已归档, counts
+ * derived live), the inline new-project form (required-field gate), and
+ * the detail's per-project open action rows (client-side projectId filter,
+ * read-only context chips) + the mutation wiring.
+ *
+ * The PowerSync layer is mocked at the package boundary (same shell mocks
+ * as tabs.smoke.test.tsx): `useQuery` returns `dataRef.cards` for the
+ * tab's watched `projectCardsWatchQuery`, so the fixtures are
+ * ProjectCard-shaped rows (the detail screen consumes the same rows via
+ * `projectsWatchQuery` and reads `hasOpenAction`). The time-sensitive
+ * stall flag is derived against the REAL app clock, so the progress
+ * fixtures are relative to Date.now() (same determinism pattern as the
+ * Inbox 24h test).
  */
-const dataRef: { projects: unknown[]; nextActions: unknown[] } = {
-  projects: [],
+const dataRef: { cards: unknown[]; nextActions: unknown[]; contexts: unknown[] } = {
+  cards: [],
   nextActions: [],
+  contexts: [],
 };
 
 jest.mock('@nextdo/db', () => {
@@ -33,9 +43,22 @@ jest.mock('@nextdo/db', () => {
     }),
     subscribeAppStream: async () => undefined,
     wrapDb: () => ({}),
+    seedDefaultContexts: async () => 0,
     isReactNativeRuntime: () => false,
     projectsWatchQuery: compilable,
+    projectCardsWatchQuery: compilable,
+    // Pure stall predicate — a mirror of the real 14-day definition
+    // (lastProgressAt ?? createdAt ≥ 14 days; corrupt → false). The mock
+    // must not drag the whole db package into the component test.
+    isStalled: (last: string | null, created: string | null, now: Date) => {
+      const anchor = last ?? created;
+      if (anchor === null) return false;
+      const ms = new Date(anchor).getTime();
+      if (Number.isNaN(ms)) return false;
+      return now.getTime() - ms >= 14 * 24 * 60 * 60 * 1000;
+    },
     listNextActions: async () => dataRef.nextActions,
+    listContexts: async () => dataRef.contexts,
     addProject: jest.fn(async () => undefined),
     addNextAction: jest.fn(async () => undefined),
     completeAction: jest.fn(async () => undefined),
@@ -55,7 +78,7 @@ jest.mock('@powersync/react', () => {
     PowerSyncContext: React.createContext(powersync),
     usePowerSync: () => powersync,
     useQuery: () => ({
-      data: dataRef.projects,
+      data: dataRef.cards,
       error: undefined,
       isLoading: false,
       isFetching: false,
@@ -67,27 +90,21 @@ jest.mock('@powersync/react', () => {
 
 import { fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
 import { addNextAction, addProject, completeAction } from '@nextdo/db';
+import { formatDueLabel } from '@/lib/format';
 
 const mockedAddProject = addProject as jest.Mock;
 const mockedAddNextAction = addNextAction as jest.Mock;
 const mockedCompleteAction = completeAction as jest.Mock;
 
-const PROJECT = {
-  id: 'p-1',
-  createdAt: '2026-09-20T01:00:00.000Z',
-  updatedAt: '2026-09-20T01:00:00.000Z',
-  deletedAt: null,
-  title: '论文实验',
-  outcome: '跑出 baseline 结果',
-  value: 4,
-  status: 'active' as const,
-};
+const DAY = 24 * 60 * 60 * 1000;
+const daysAgo = (n: number) => new Date(Date.now() - n * DAY).toISOString();
+const daysFromNow = (n: number) => new Date(Date.now() + n * DAY).toISOString();
 
 function action(overrides: Record<string, unknown>): Record<string, unknown> {
   return {
     id: 'a-1',
-    createdAt: '2026-09-20T02:00:00.000Z',
-    updatedAt: '2026-09-20T02:00:00.000Z',
+    createdAt: daysAgo(3),
+    updatedAt: daysAgo(3),
     deletedAt: null,
     title: '运行 baseline A',
     projectId: 'p-1',
@@ -111,43 +128,180 @@ function action(overrides: Record<string, unknown>): Record<string, unknown> {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  dataRef.projects = [
-    { ...PROJECT, hasOpenAction: true },
+  dataRef.contexts = [
     {
-      id: 'p-2',
-      createdAt: '2026-09-21T01:00:00.000Z',
-      updatedAt: '2026-09-21T01:00:00.000Z',
+      id: 'c-1',
+      createdAt: daysAgo(30),
+      updatedAt: daysAgo(30),
       deletedAt: null,
-      title: '学 Rust',
-      outcome: '写一个小 CLI',
+      name: '电脑',
+    },
+  ];
+  // ProjectCard-shaped rows (the tab's watch query); the same rows feed the
+  // detail screen's useProjects (it reads `hasOpenAction` off them).
+  dataRef.cards = [
+    {
+      // healthy active project: 1 open + 3 done, progress 5 days ago
+      id: 'p-1',
+      createdAt: daysAgo(10),
+      updatedAt: daysAgo(10),
+      deletedAt: null,
+      title: '论文实验',
+      outcome: '跑出 baseline 结果',
+      value: 4,
+      status: 'active',
+      hasOpenAction: true,
+      openCount: 1,
+      completedCount: 3,
+      earliestOpenDeadline: null,
+      lastProgressAt: daysAgo(5),
+      nextAction: {
+        id: 'a-1',
+        title: '运行 baseline A',
+        contextIds: ['c-1'],
+        deadline: daysFromNow(3),
+        estMinutes: 40,
+      },
+    },
+    {
+      // active + quiet: open actions exist, no progress for 30 days → stalled
+      id: 'p-2',
+      createdAt: daysAgo(60),
+      updatedAt: daysAgo(60),
+      deletedAt: null,
+      title: '停滞的项目',
+      outcome: '整理服务器',
       value: 2,
-      status: 'on-hold' as const,
+      status: 'active',
+      hasOpenAction: true,
+      openCount: 2,
+      completedCount: 1,
+      earliestOpenDeadline: null,
+      lastProgressAt: daysAgo(30),
+      nextAction: {
+        id: 'a-9',
+        title: '停滞项目的行动',
+        contextIds: [],
+        deadline: null,
+        estMinutes: 30,
+      },
+    },
+    {
+      // active with NO open actions → the missing-next warning
+      id: 'p-3',
+      createdAt: daysAgo(20),
+      updatedAt: daysAgo(20),
+      deletedAt: null,
+      title: '缺下一步的项目',
+      outcome: '迁完数据',
+      value: 3,
+      status: 'active',
       hasOpenAction: false,
+      openCount: 0,
+      completedCount: 1,
+      earliestOpenDeadline: null,
+      lastProgressAt: daysAgo(25),
+      nextAction: null,
+    },
+    {
+      // archived (on-hold) → only visible under the 已归档 filter
+      id: 'p-4',
+      createdAt: daysAgo(40),
+      updatedAt: daysAgo(40),
+      deletedAt: null,
+      title: '搁置的项目',
+      outcome: '写小 CLI',
+      value: 2,
+      status: 'on-hold',
+      hasOpenAction: false,
+      openCount: 0,
+      completedCount: 0,
+      earliestOpenDeadline: null,
+      lastProgressAt: null,
+      nextAction: null,
     },
   ];
   dataRef.nextActions = [
-    action({}),
+    action({ contextIds: ['c-1'] }),
     action({ id: 'a-2', title: '没有项目的行动', projectId: null }),
     action({ id: 'a-3', title: '已完成的行动', status: 'done' }),
   ];
 });
 
 describe('Projects tab', () => {
-  it('lists projects with status + coverage tags (Chinese)', async () => {
+  it('renders the header, subtitle, active count and the three filter chips with counts', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/projects' });
 
     await waitFor(() => expect(screen.getByText('论文实验')).toBeTruthy());
-    expect(screen.getByText('学 Rust')).toBeTruthy();
-    expect(screen.getByText('有进行中的行动')).toBeTruthy();
-    expect(screen.getByText('缺少行动')).toBeTruthy();
-    expect(screen.getByText('进行中')).toBeTruthy();
-    expect(screen.getByText('搁置')).toBeTruthy();
+    expect(
+      screen.getByText('需要多个行动才能完成的具体结果。每个进行中的项目都应有一个明确的下一步。'),
+    ).toBeTruthy();
+    // Header count chip (n 进行中) — 3 active projects.
+    expect(screen.getByText('3 进行中')).toBeTruthy();
+    // Filter chips: 进行中 3 / 无下一步 1 (p-3) / 已归档 1 (p-4).
+    expect(screen.getByText('进行中 3')).toBeTruthy();
+    expect(screen.getByText('无下一步 1')).toBeTruthy();
+    expect(screen.getByText('已归档 1')).toBeTruthy();
+    // The archived project is out of the default (进行中) list.
+    expect(screen.queryByText('搁置的项目')).toBeNull();
+  });
+
+  it('lists the project card with progress, the next-action sub-card and the deadline chip', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/projects' });
+
+    await waitFor(() => expect(screen.getByText('论文实验')).toBeTruthy());
+    // p-1: 3 done of 4 total.
+    expect(screen.getByText('3/4 行动')).toBeTruthy();
+    // The current next-action sub-card — p-1 AND p-2 both have one.
+    expect(screen.getAllByText('▶ 当前下一步行动')).toHaveLength(2);
+    expect(screen.getByText('运行 baseline A')).toBeTruthy();
+    expect(screen.getByText('电脑')).toBeTruthy();
+    // The next-action sub-card's deadline chip (3 days out → M月D日, no
+    // 截止 prefix — that one belongs to the card-level chip).
+    expect(screen.getByText(formatDueLabel(daysFromNow(3), new Date()))).toBeTruthy();
+  });
+
+  it('the filter chips switch between 进行中 / 无下一步 / 已归档', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/projects' });
+
+    await waitFor(() => expect(screen.getByText('论文实验')).toBeTruthy());
+    // Default = 进行中: the missing-next project is in, the archived one out.
+    expect(screen.getByText('缺下一步的项目')).toBeTruthy();
+    expect(screen.queryByText('搁置的项目')).toBeNull();
+
+    fireEvent.press(screen.getByText('无下一步 1'));
+    await waitFor(() => expect(screen.queryByText('论文实验')).toBeNull());
+    expect(screen.getByText('缺下一步的项目')).toBeTruthy();
+    expect(screen.queryByText('停滞的项目')).toBeNull();
+
+    fireEvent.press(screen.getByText('已归档 1'));
+    await waitFor(() => expect(screen.getByText('搁置的项目')).toBeTruthy());
+    expect(screen.queryByText('缺下一步的项目')).toBeNull();
+  });
+
+  it('projects without open actions show the missing-next warning; its CTA opens the detail', async () => {
+    const view = renderRouter('app', { initialUrl: '/(tabs)/projects' });
+
+    await waitFor(() => expect(screen.getByText('缺下一步的项目')).toBeTruthy());
+    // Exactly one warning in the default view (p-3; the archived p-4 is out).
+    expect(screen.getAllByText(/缺少下一步/)).toHaveLength(1);
+    fireEvent.press(screen.getByText('澄清下一步'));
+
+    await waitFor(() => expect(view.getPathname()).toBe('/projects/p-3'));
+  });
+
+  it('stalled projects carry the 14 天无进展 tag; fresh ones do not', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/projects' });
+
+    await waitFor(() => expect(screen.getByText('停滞的项目')).toBeTruthy());
+    // p-2 (progress 30 days ago) is stalled; p-1 (5 days) is not — one tag.
+    expect(screen.getAllByText('14 天无进展')).toHaveLength(1);
   });
 
   it('the new-project form gates on title + outcome, then calls addProject', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/projects' });
-    await waitFor(() => expect(screen.getByText('＋ 新项目')).toBeTruthy());
-    fireEvent.press(screen.getByText('＋ 新项目'));
+    await waitFor(() => expect(screen.getByText('＋ 新建项目（明确具体成果）')).toBeTruthy());
+    fireEvent.press(screen.getByText('＋ 新建项目（明确具体成果）'));
 
     expect(screen.getByPlaceholderText('项目标题')).toBeTruthy();
     // Empty form: pressing 创建 does nothing.
@@ -183,6 +337,14 @@ describe('Project detail', () => {
     expect(screen.getByText('完成')).toBeTruthy();
     expect(screen.getByText('稍后')).toBeTruthy();
     expect(screen.getByText('删除')).toBeTruthy();
+  });
+
+  it('action rows show the read-only context chips (names resolved from contexts)', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+
+    await waitFor(() => expect(screen.getByText('运行 baseline A')).toBeTruthy());
+    // a-1 carries context c-1 (电脑) → the row renders the read-only chip.
+    expect(screen.getByText('电脑')).toBeTruthy();
   });
 
   it('pressing 完成 calls completeAction with the next kind + action id', async () => {

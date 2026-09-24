@@ -27,12 +27,25 @@ export type WizardMode = 'clarify' | 'reclarify';
 
 export type FormKind = 'reference' | 'someday' | 'trash' | 'project' | 'waiting' | 'calendar' | 'action';
 
+/** The question ids of the Clarify decision table (the answered-history
+ *  and the "GTD 决策摘要" card key off these). */
+export type QuestionId = 'q1' | 'q1b' | 'q2' | 'q2b' | 'q3' | 'q3b' | 'q4' | 'q5';
+
+/** One answered question (design §3.1) — the "GTD 决策摘要" card's data:
+ *  the question title + the button text the user actually tapped. */
+export interface AnsweredQuestion {
+  id: QuestionId;
+  question: string;
+  answer: string;
+}
+
 /**
  * Every form field the wizard may collect (design.md §4.3 "表单字段").
  * `''` = unset for optional text/date fields; `estMinutes: null` = not
  * chosen yet. Dates are device-local `YYYY-MM-DD`, the calendar time is
  * `HH:mm` (composed into an ISO datetime at submission — see
- * `composeLocalDateTimeIso`).
+ * `composeLocalDateTimeIso`). `contextIds` = the selected execution
+ * contexts (`[]` = 随处可执行; re-clarify prefills the existing action's).
  */
 export interface FormFields {
   title: string;
@@ -49,6 +62,7 @@ export interface FormFields {
   deadline: string;
   startsAtDate: string;
   startsAtTime: string;
+  contextIds: string[];
 }
 
 export interface WizardResult {
@@ -61,6 +75,14 @@ interface WizardBase {
   /** The InboxItem title (re-clarify: the existing action's title) — the
    *  default for every editable title field. */
   defaultTitle: string;
+  /** The existing action's context ids (re-clarify prefill; clarify: `[]`)
+   *  — copied into every form's `contextIds` field (design §3.1). */
+  initialContextIds: string[];
+  /** Forward steps taken — the progress line's numerator source
+   *  (n = min(depth + 1, PROGRESS_MAX[mode])). */
+  depth: number;
+  /** The answers given so far, in order (the decision-summary card). */
+  answered: AnsweredQuestion[];
 }
 
 export type WizardState = WizardBase &
@@ -87,6 +109,19 @@ export type WizardState = WizardBase &
         projectId?: string;
         projectTitle?: string;
       }
+    | {
+        step: 'preview';
+        form: FormKind;
+        fields: FormFields;
+        twoMinute: boolean;
+        projectId?: string;
+        projectTitle?: string;
+        /** The validated submission being confirmed (design §3.1 D5) —
+         *  built ONCE at the form step; the screen submits THIS object on
+         *  "确认保存" (never re-builds). Pure data (core/db plain
+         *  interfaces) — no side effects in state. */
+        submission: Submission;
+      }
     | { step: 'done'; result: WizardResult }
   );
 
@@ -112,9 +147,56 @@ export type WizardAction =
   | { type: 'answer-q3b'; completedOnTheSpot: false }
   | { type: 'answer-q4'; myResponsibility: boolean }
   | { type: 'answer-q5'; fixedTime: boolean }
-  | { type: 'field'; field: keyof FormFields; value: string | number | null }
+  | { type: 'field'; field: Exclude<keyof FormFields, 'contextIds'>; value: string | number | null }
+  | { type: 'field'; field: 'contextIds'; value: string[] }
+  /** Enter the preview step (design §3.1 D5) — ONLY the form step accepts
+   *  it (every other step returns the state unchanged). The submission
+   *  travels in the payload (the screen builds it after `validateForm`
+   *  passes); the preview step does NOT write the DB. */
+  | { type: 'preview'; submission: Submission }
+  /** Leave the preview step back to the form step (fields preserved;
+   *  depth/answered unchanged — the preview is the form's confirmation
+   *  phase, not a step of its own). */
+  | { type: 'back-to-form' }
   | { type: 'form-error'; error: string | null }
   | { type: 'done'; result: WizardResult };
+
+// ---------------------------------------------------------------------------
+// Progress + the preview path (design §3.1 / PRD D5)
+// ---------------------------------------------------------------------------
+
+/** The longest question path per mode, INCLUDING the form step (the
+ *  preview step does not count). Display: n = min(depth + 1, m). */
+export const PROGRESS_MAX: Record<WizardMode, number> = { clarify: 7, reclarify: 6 };
+
+/** The forms whose "保存" goes through the preview step (design §3.2) —
+ *  the screen dispatches `{ type: 'preview' }` for these and submits
+ *  directly for the rest (reference / someday / trash keep today's
+ *  behavior). */
+export const PREVIEW_FORMS: readonly FormKind[] = ['action', 'project', 'calendar', 'waiting'];
+
+/** The question titles — the same wording the wizard's QuestionCard
+ *  renders (components/clarify-wizard.tsx); the answered history and the
+ *  "GTD 决策摘要" card reuse them (design §3.1). */
+export const QUESTION_TITLES: Record<QuestionId, string> = {
+  q1: '可以变成下一步行动吗？',
+  q1b: '那它更接近哪一类？',
+  q2: '需要多个步骤才能完成吗？',
+  q2b: '它属于哪个项目？',
+  q3: '大约 2 分钟内能完成吗？',
+  q3b: '现在就做掉吗？',
+  q4: '应该由你完成吗？',
+  q5: '必须在固定日期/时间执行吗？',
+};
+
+/** The do-now answer (q3b "是，现在就做完") — recorded when `done` is
+ *  dispatched straight from the q3b step (the YES button never parks in a
+ *  form, so its answer lands with the terminal dispatch). */
+const DO_NOW_ANSWER: AnsweredQuestion = {
+  id: 'q3b',
+  question: QUESTION_TITLES.q3b,
+  answer: '是，现在就做完',
+};
 
 function emptyFields(defaultTitle: string): FormFields {
   return {
@@ -132,12 +214,25 @@ function emptyFields(defaultTitle: string): FormFields {
     deadline: '',
     startsAtDate: '',
     startsAtTime: '',
+    contextIds: [],
   };
 }
 
-/** Entry state: clarify starts at Q1, re-clarify re-enters at Q2. */
-export function createWizardState(mode: WizardMode, defaultTitle: string): WizardState {
-  const base: WizardBase = { mode, defaultTitle };
+/** Entry state: clarify starts at Q1, re-clarify re-enters at Q2.
+ *  `initialContextIds` prefills every form's context multi-select
+ *  (re-clarify: the existing action's contextIds). */
+export function createWizardState(
+  mode: WizardMode,
+  defaultTitle: string,
+  initialContextIds: string[] = [],
+): WizardState {
+  const base: WizardBase = {
+    mode,
+    defaultTitle,
+    initialContextIds: [...initialContextIds],
+    depth: 0,
+    answered: [],
+  };
   return mode === 'clarify' ? { ...base, step: 'q1' } : { ...base, step: 'q2' };
 }
 
@@ -149,6 +244,8 @@ function toForm(
   attach?: { projectId: string; projectValue: Value; projectTitle: string },
 ): WizardState {
   const fields = emptyFields(state.defaultTitle);
+  // Re-clarify prefill: the existing action's contexts (design §3.1).
+  fields.contextIds = [...state.initialContextIds];
   if (estDefault !== null) fields.estMinutes = estDefault;
   // Q2b attach: the value defaults to the project's value (still editable).
   if (attach !== undefined) fields.value = attach.projectValue;
@@ -167,35 +264,70 @@ function toForm(
   };
 }
 
+/** The base fields after a forward move (design §3.1): depth + 1 and the
+ *  user's answer recorded (the question title + the button text they
+ *  tapped). The caller supplies the destination step. */
+function advanced(state: WizardBase, id: QuestionId, answer: string): WizardBase {
+  return {
+    mode: state.mode,
+    defaultTitle: state.defaultTitle,
+    initialContextIds: state.initialContextIds,
+    depth: state.depth + 1,
+    answered: [...state.answered, { id, question: QUESTION_TITLES[id], answer }],
+  };
+}
+
 export function clarifyReducer(state: WizardState, action: WizardAction): WizardState {
   // Terminal — no further navigation within the wizard.
   if (state.step === 'done') return state;
-  // 'done' can be dispatched from ANY step (the form steps, and the do-now
-  // path straight from q3b) — the screen submits the db transaction first.
+  // 'done' can be dispatched from ANY step (the form steps, the preview
+  // step, and the do-now path straight from q3b) — the screen submits the
+  // db transaction first.
   if (action.type === 'done') {
-    return { mode: state.mode, defaultTitle: state.defaultTitle, step: 'done', result: action.result };
+    const isDoNow = state.step === 'q3b';
+    return {
+      mode: state.mode,
+      defaultTitle: state.defaultTitle,
+      initialContextIds: state.initialContextIds,
+      depth: state.depth + (isDoNow ? 1 : 0),
+      // The do-now YES button never parks in a form — its answer lands
+      // here (design §3.1).
+      answered: isDoNow ? [...state.answered, DO_NOW_ANSWER] : state.answered,
+      step: 'done',
+      result: action.result,
+    };
   }
   switch (state.step) {
     case 'q1':
       if (action.type === 'answer-q1') {
-        return action.actionable ? { ...state, step: 'q2' } : { ...state, step: 'q1b' };
+        const next = advanced(state, 'q1', action.actionable ? '可以，是行动' : '不行');
+        return action.actionable ? { ...next, step: 'q2' } : { ...next, step: 'q1b' };
       }
       return state;
     case 'q1b':
       if (action.type === 'answer-q1b') {
-        return toForm(state, action.kind, false, null);
+        const answer =
+          action.kind === 'reference' ? '资料（留个参考）' : action.kind === 'someday' ? '有空再说' : '删除';
+        return toForm(advanced(state, 'q1b', answer), action.kind, false, null);
       }
       return state;
     case 'q2':
       if (action.type === 'answer-q2') {
-        return action.multipleSteps ? toForm(state, 'project', false, null) : { ...state, step: 'q2b' };
+        const next = advanced(state, 'q2', action.multipleSteps ? '是，拆成项目' : '否，一步能完成');
+        return action.multipleSteps ? toForm(next, 'project', false, null) : { ...next, step: 'q2b' };
       }
       return state;
     case 'q2b':
       if (action.type === 'answer-q2b') {
-        if (action.choice === 'none') return { ...state, step: 'q3' };
-        if (action.choice === 'new-project') return toForm(state, 'project', false, null);
-        return toForm(state, 'action', false, null, {
+        if (action.choice === 'none') {
+          return { ...advanced(state, 'q2b', '不属于项目'), step: 'q3' };
+        }
+        if (action.choice === 'new-project') {
+          return toForm(advanced(state, 'q2b', '新建项目'), 'project', false, null);
+        }
+        // attach: the answer is the tapped project's title (the row text
+        // is "{title}（价值 n）").
+        return toForm(advanced(state, 'q2b', action.projectTitle), 'action', false, null, {
           projectId: action.projectId,
           projectValue: action.projectValue,
           projectTitle: action.projectTitle,
@@ -204,7 +336,8 @@ export function clarifyReducer(state: WizardState, action: WizardAction): Wizard
       return state;
     case 'q3':
       if (action.type === 'answer-q3') {
-        return action.twoMinutes ? { ...state, step: 'q3b' } : { ...state, step: 'q4' };
+        const next = advanced(state, 'q3', action.twoMinutes ? '是，2 分钟内' : '否');
+        return action.twoMinutes ? { ...next, step: 'q3b' } : { ...next, step: 'q4' };
       }
       return state;
     case 'q3b':
@@ -212,31 +345,79 @@ export function clarifyReducer(state: WizardState, action: WizardAction): Wizard
         // Two-minute, not done on the spot → an action form, est prefilled
         // with the spec default (2 min); value stays the fixed default (the
         // submission omits it — core keeps 3 / the re-clarify old value).
-        return toForm(state, 'action', true, 2);
+        return toForm(advanced(state, 'q3b', '否，记成行动'), 'action', true, 2);
       }
       return state;
     case 'q4':
       if (action.type === 'answer-q4') {
-        return action.myResponsibility ? { ...state, step: 'q5' } : toForm(state, 'waiting', false, null);
+        const next = advanced(state, 'q4', action.myResponsibility ? '是，我的事' : '否，在等别人');
+        return action.myResponsibility ? { ...next, step: 'q5' } : toForm(next, 'waiting', false, null);
       }
       return state;
     case 'q5':
       if (action.type === 'answer-q5') {
-        return action.fixedTime ? toForm(state, 'calendar', false, null) : toForm(state, 'action', false, null);
+        const next = advanced(state, 'q5', action.fixedTime ? '是，固定时间' : '否，普通行动');
+        return action.fixedTime ? toForm(next, 'calendar', false, null) : toForm(next, 'action', false, null);
       }
       return state;
     case 'form':
       switch (action.type) {
         case 'field': {
           const fields = { ...state.fields };
-          (fields as Record<string, string | number | null>)[action.field] = action.value;
+          if (action.field === 'contextIds') {
+            fields.contextIds = [...action.value];
+          } else {
+            (
+              fields as Record<Exclude<keyof FormFields, 'contextIds'>, string | number | null>
+            )[action.field] = action.value;
+          }
           return { ...state, fields, error: null };
         }
+        case 'preview':
+          // The preview is the form's confirmation phase (design §3.1):
+          // carry the form data + the payload's submission. depth/answered
+          // unchanged — the preview does not advance the step counter.
+          return {
+            mode: state.mode,
+            defaultTitle: state.defaultTitle,
+            initialContextIds: state.initialContextIds,
+            depth: state.depth,
+            answered: state.answered,
+            step: 'preview',
+            form: state.form,
+            fields: state.fields,
+            twoMinute: state.twoMinute,
+            ...(state.projectId !== undefined
+              ? { projectId: state.projectId, projectTitle: state.projectTitle }
+              : {}),
+            submission: action.submission,
+          };
         case 'form-error':
           return { ...state, error: action.error };
         default:
           return state;
       }
+    case 'preview':
+      if (action.type === 'back-to-form') {
+        // Restore the form step — fields preserved, depth/answered
+        // unchanged (the preview is not a step of its own).
+        return {
+          mode: state.mode,
+          defaultTitle: state.defaultTitle,
+          initialContextIds: state.initialContextIds,
+          depth: state.depth,
+          answered: state.answered,
+          step: 'form',
+          form: state.form,
+          fields: state.fields,
+          error: null,
+          twoMinute: state.twoMinute,
+          ...(state.projectId !== undefined
+            ? { projectId: state.projectId, projectTitle: state.projectTitle }
+            : {}),
+        };
+      }
+      return state;
   }
 }
 
@@ -414,6 +595,7 @@ export function buildFormSubmission(
         projectValue: fields.projectValue,
         actionTitle: fields.actionTitle.trim(),
         estMinutes: fields.estMinutes as number,
+        contextIds: fields.contextIds,
       };
       const projectOutcome = fields.projectOutcome.trim();
       if (mode === 'clarify') {
@@ -457,6 +639,7 @@ export function buildFormSubmission(
         estMinutes: fields.estMinutes as number,
         value: fields.value,
         deadline: fields.deadline !== '' ? (endOfLocalDayIso(fields.deadline) ?? undefined) : undefined,
+        contextIds: fields.contextIds,
       };
       if (mode === 'clarify') {
         return {
@@ -480,6 +663,7 @@ export function buildFormSubmission(
         // value. Clarified path: the user-set value.
         ...(twoMinute ? {} : { value: fields.value }),
         deadline: fields.deadline !== '' ? (endOfLocalDayIso(fields.deadline) ?? undefined) : undefined,
+        contextIds: fields.contextIds,
       };
       if (mode === 'clarify') {
         return {

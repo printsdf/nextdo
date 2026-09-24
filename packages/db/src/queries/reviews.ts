@@ -229,10 +229,13 @@ export async function buildDailyReviewSnapshot(
  * completed is only stalled once it has EXISTED for ≥ `STALL_DAYS` days (a
  * brand-new project is not yet "stalled" — the fixtures' weekly snapshot
  * keeps a never-worked, recently-created project out of `stalledProjects`).
+ *
+ * Exported so the Projects screen can derive the same flag from its watch
+ * rows + the app clock (design §4.1 — the watch mapper does not tick).
  */
-const STALL_DAYS = 14;
+export const STALL_DAYS = 14;
 
-function isStalled(
+export function isStalled(
   lastProgressAt: string | null,
   createdAt: string | null,
   now: Date,

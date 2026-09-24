@@ -29,11 +29,14 @@ jest.mock('@nextdo/db', () => {
     }),
     subscribeAppStream: async () => undefined,
     wrapDb: () => ({}),
+    seedDefaultContexts: async () => 0,
     isReactNativeRuntime: () => false,
     queryEnginePool: async () => ({ actions: [], calendar: [], projects: [] }),
     poolTriggerWatchQuery: compilable,
     inboxItemsWatchQuery: compilable,
     projectsWatchQuery: compilable,
+    projectCardsWatchQuery: compilable,
+    isStalled: () => false,
     reviewRecordsWatchQuery: compilable,
     skipAction: async () => undefined,
     completeAction: async () => undefined,
@@ -82,7 +85,7 @@ import { act, renderRouter, screen } from 'expo-router/testing-library';
 const TABS = [
   { url: '/(tabs)/now', emptyState: '执行池是空的' },
   { url: '/(tabs)/inbox', emptyState: '收件箱是空的' },
-  { url: '/(tabs)/projects', emptyState: '还没有项目' },
+  { url: '/(tabs)/projects', emptyState: '还没有进行中的项目' },
   { url: '/(tabs)/review', emptyState: '还没有回顾记录' },
 ];
 

@@ -9,11 +9,13 @@
  * action list is query-style via `useProjectActions` (client-side
  * projectId filter, design.md §8). Project STATUS is not editable here —
  * status decisions live in the weekly review (PRD R7, design.md §4.4).
+ * Action rows carry the read-only context chips (design §4.2 — the PRD
+ * acceptance "项目详情行内 chips").
  */
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Button, Card, EmptyState, Tag, type TagTone } from '@nextdo/ui';
+import { Button, Card, ContextChip, EmptyState, Tag, type TagTone } from '@nextdo/ui';
 import type { ProjectStatus, Value } from '@nextdo/core';
 import { useProjects } from '@/hooks/use-projects';
 import { useProjectActions } from '@/hooks/use-project-actions';
@@ -22,6 +24,7 @@ import { useCompleteAction } from '@/hooks/use-complete-action';
 import { useSnoozeAction } from '@/hooks/use-snooze-action';
 import { useTrashAction } from '@/hooks/use-trash-action';
 import { useAppClock } from '@/hooks/use-app-clock';
+import { useContexts } from '@/hooks/use-contexts';
 import { errorMessage } from '@/lib/error-messages';
 import { PROJECT_STATUS_LABELS } from '@/lib/status-labels';
 import { endOfLocalDayIso } from '@/lib/clarify-flow';
@@ -166,6 +169,7 @@ export default function ProjectDetailScreen() {
 
   const { data: projects, error: projectsError } = useProjects();
   const { data: actions, error: actionsError, reload } = useProjectActions(projectId);
+  const { data: contexts } = useContexts();
   const { error: addError } = useAddNextAction();
   const { complete, error: completeError } = useCompleteAction();
   const { snooze, error: snoozeError } = useSnoozeAction();
@@ -189,6 +193,9 @@ export default function ProjectDetailScreen() {
 
   const project = projects.find((entry) => entry.id === projectId);
   const mutationError = addError ?? completeError ?? snoozeError ?? trashError;
+  // Action-row context ids → display names (unknown ids fall back to the id).
+  const contextName = (id: string) =>
+    contexts?.find((entry) => entry.id === id)?.name ?? id;
 
   return (
     <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
@@ -253,6 +260,13 @@ export default function ProjectDetailScreen() {
                       <Tag label={`截止 ${formatLocalDate(action.deadline)}`} tone="warning" />
                     ) : null}
                   </View>
+                  {action.contextIds.length > 0 ? (
+                    <View className="flex-row flex-wrap gap-1.5">
+                      {action.contextIds.map((id) => (
+                        <ContextChip key={id} name={contextName(id)} />
+                      ))}
+                    </View>
+                  ) : null}
                   <View className="flex-row gap-2">
                     <Button
                       label="完成"

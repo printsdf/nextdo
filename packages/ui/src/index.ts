@@ -6,7 +6,8 @@
  * project/conventions.md §Exports).
  *
  * Component list is exactly what the mobile shell uses (design.md §5 — no
- * speculative components): Button, Card, Tag, EmptyState.
+ * speculative components): Button, Card, Tag, EmptyState, ContextChip,
+ * ProgressBar.
  */
 export { cn } from './lib/cn';
 export { Button } from './components/button';
@@ -17,6 +18,10 @@ export { Tag } from './components/tag';
 export type { TagProps, TagTone } from './components/tag';
 export { EmptyState } from './components/empty-state';
 export type { EmptyStateProps } from './components/empty-state';
+export { ContextChip, contextTone } from './components/context-chip';
+export type { ContextChipProps } from './components/context-chip';
+export { ProgressBar } from './components/progress-bar';
+export type { ProgressBarProps } from './components/progress-bar';
 export { colors, radii, spacing, typography } from './tokens';
 export type {
   ColorToken,

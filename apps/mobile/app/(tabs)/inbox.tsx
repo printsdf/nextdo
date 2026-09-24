@@ -1,44 +1,60 @@
 /**
- * The Inbox tab (design.md §4.2 — PRD R1): low-friction capture + list.
+ * The Inbox tab (design §2 — Paper Serenity rework): low-friction capture +
+ * list. "清空大脑" — the buffer, not a to-do list.
  *
- * - capture: one TextInput, Enter or [记录] saves immediately (no
- *   classification, no required fields — Proposal §5.1);
+ * - capture: one TextInput in the capture card, Enter or [记录并澄清] saves
+ *   immediately (no classification, no required fields);
  * - quick capture modal: automatically displayed on launch for zero-friction
- *   thought dump;
- * - R1 handoff: EVERY capture path (modal + inline bar) funnels through
+ *   thought dump (skin only — behavior untouched);
+ * - R1 handoff: EVERY capture path (modal + inline card) funnels through
  *   `handoffToClarify` — the modal closes and the Clarify wizard opens for
  *   the new item immediately (记一条问一条); "再记一条" from the wizard
  *   returns here via the one-shot `recapture=1` route param;
- * - list: oldest first; a row opens the Clarify wizard; the row's trash
- *   button confirms inline (one tap to arm, one tap to delete).
+ * - list: oldest first; a row's title opens the Clarify wizard (R3) and the
+ *   row's 处理 → button does the same; the trash button confirms inline
+ *   (one tap to arm, one tap to delete);
+ * - rows older than 24h carry the warning-colored 优先澄清 meta (the text
+ *   itself is the signal — color is never the only one, component-
+ *   guidelines);
+ * - a static "GTD 澄清心法" card closes the screen.
  *
  * Presentational only: data arrives from `useInboxItems`, mutations go
- * through the mutation hooks (component-guidelines).
+ * through the mutation hooks (component-guidelines). All row time math runs
+ * against the single app clock (hook-guidelines Rule 4).
  */
 import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Button, Card, EmptyState } from '@nextdo/ui';
+import { Button, Card, EmptyState, Tag } from '@nextdo/ui';
 import { useInboxItems } from '@/hooks/use-inbox-items';
 import { useAddInboxItem } from '@/hooks/use-add-inbox-item';
 import { useTrashInboxItem } from '@/hooks/use-trash-inbox-item';
-import { formatLocalDate } from '@/lib/format';
+import { useAppClock } from '@/hooks/use-app-clock';
+import { formatRelativeTime } from '@/lib/format';
 import { errorMessage } from '@/lib/error-messages';
 import { QuickCaptureModal } from '@/components/quick-capture-modal';
 import type { InboxItem } from '@nextdo/core';
 
 const INPUT_CLASS =
-  'flex-1 rounded-2xl border border-border/80 bg-surface p-3 text-base text-ink placeholder:text-muted shadow-sm focus:border-accent dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
+  'rounded-md border border-border/80 bg-surface p-3 text-base text-ink placeholder:text-muted shadow-sm focus:border-accent dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
 
-/** One inbox row: tap the title → clarify; trash arms, then confirms. */
+/** Captures older than this get the warning "优先澄清" meta (design §2). */
+const PRIORITY_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/** One inbox row: tap the title → clarify; 处理 → does the same; trash
+ *  arms, then confirms. */
 function InboxRow({
   item,
+  now,
   onTrash,
 }: {
   item: InboxItem;
+  now: Date;
   onTrash: (id: string) => void;
 }) {
   const [armed, setArmed] = useState(false);
+  const needsPriority =
+    now.getTime() - new Date(item.capturedAt).getTime() > PRIORITY_AFTER_MS;
 
   return (
     <Card className="p-3.5">
@@ -49,13 +65,26 @@ function InboxRow({
           accessibilityLabel={`明晰：${item.title}`}
           onPress={() => router.push(`/clarify/${item.id}`)}
         >
-          <Text className="text-base font-medium text-ink dark:text-ink-dark">
+          <Text className="font-sans text-base font-medium text-ink dark:text-ink-dark">
             {item.title}
           </Text>
-          <Text className="mt-1 text-xs text-muted dark:text-muted-dark">
-            捕获于 {formatLocalDate(item.capturedAt)}
-          </Text>
+          <View className="mt-1 flex-row items-center gap-1">
+            <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+              {formatRelativeTime(item.capturedAt, now)}
+            </Text>
+            {needsPriority ? (
+              <Text className="font-sans text-xs font-medium text-warning dark:text-warning-dark">
+                · 优先澄清
+              </Text>
+            ) : null}
+          </View>
         </Pressable>
+        <Button
+          size="sm"
+          label="处理 →"
+          variant="tinted"
+          onPress={() => router.push(`/clarify/${item.id}`)}
+        />
         {armed ? (
           <Button
             size="sm"
@@ -83,12 +112,13 @@ export default function InboxScreen() {
   const { data, error } = useInboxItems();
   const { add, error: captureError } = useAddInboxItem();
   const { trash, error: trashError } = useTrashInboxItem();
+  const now = useAppClock();
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [showQuickCapture, setShowQuickCapture] = useState(true);
 
   // R1: the SINGLE handoff for both capture paths (modal onCaptured +
-  // inline bar) — close the modal (if open) and open the Clarify wizard
+  // inline card) — close the modal (if open) and open the Clarify wizard
   // for the freshly captured item.
   const handoffToClarify = useCallback((item: InboxItem) => {
     setShowQuickCapture(false);
@@ -124,52 +154,79 @@ export default function InboxScreen() {
 
   return (
     <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
-      {/* iOS Large Title Header */}
-      <Text className="mb-4 text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">
-        收件箱
+      {/* Header block (design §2) */}
+      <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
+        清空大脑
+      </Text>
+      <Text className="mt-1 font-sans text-sm text-muted dark:text-muted-dark">
+        先记下来，不用现在想清楚。
       </Text>
 
-      {/* Inline Quick Capture Bar */}
-      <View className="mb-4 flex-row items-center gap-2.5">
+      {/* Capture card */}
+      <Card className="mt-4 gap-3 p-3.5">
         <TextInput
           className={INPUT_CLASS}
           value={draft}
           onChangeText={setDraft}
-          placeholder="记下任何事…（回车保存）"
+          placeholder="有什么事情占据着你现在的注意力？"
           onSubmitEditing={() => void capture()}
           blurOnSubmit={false}
         />
-        <Button
-          label="记录"
-          variant="primary"
-          onPress={() => void capture()}
-          disabled={draft.trim() === '' || saving}
-        />
-      </View>
+        <View className="flex-row items-center gap-2.5">
+          <Text className="flex-1 font-sans text-xs text-muted dark:text-muted-dark">
+            支持自然输入，待会儿逐个澄清
+          </Text>
+          <Button
+            label="记录并澄清"
+            variant="primary"
+            onPress={() => void capture()}
+            disabled={draft.trim() === '' || saving}
+          />
+        </View>
+      </Card>
 
       {mutationError !== null ? (
-        <Text className="mb-2 text-sm text-danger">
-          {errorMessage(mutationError)}
-        </Text>
+        <Text className="mt-3 font-sans text-sm text-danger">{errorMessage(mutationError)}</Text>
       ) : null}
 
       {error !== null ? (
-        <EmptyState title="加载收件箱失败" hint={errorMessage(error)} />
-      ) : data.length === 0 ? (
-        <EmptyState
-          title="收件箱是空的"
-          hint="在上方输入并保存，这里会按捕获时间列出你记下的一切。"
-        />
+        <View className="mt-3">
+          <EmptyState title="加载收件箱失败" hint={errorMessage(error)} />
+        </View>
       ) : (
-        <FlatList
-          data={data}
-          keyExtractor={(item) => item.id}
-          contentContainerClassName="gap-2.5"
-          renderItem={({ item }) => (
-            <InboxRow item={item} onTrash={(id) => void trash(id)} />
+        <>
+          {/* Count row */}
+          <View className="mb-3 mt-3.5 flex-row items-center gap-2">
+            <Tag label="待处理" count={data.length} />
+          </View>
+
+          {data.length === 0 ? (
+            <EmptyState
+              title="收件箱是空的"
+              hint="在上方输入并保存，这里会按捕获时间列出你记下的一切。"
+            />
+          ) : (
+            <FlatList
+              data={data}
+              keyExtractor={(item) => item.id}
+              contentContainerClassName="gap-2.5"
+              renderItem={({ item }) => (
+                <InboxRow item={item} now={now} onTrash={(id) => void trash(id)} />
+              )}
+            />
           )}
-        />
+        </>
       )}
+
+      {/* Static GTD 澄清心法 card (design §2) */}
+      <Card className="mt-3.5 p-3.5">
+        <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
+          GTD 澄清心法
+        </Text>
+        <Text className="mt-1.5 font-sans text-xs leading-5 text-muted dark:text-muted-dark">
+          收集箱不是待办清单，它是大脑的缓冲区。两分钟内能完成的事立即去做，复杂的转化为项目与下一步。
+        </Text>
+      </Card>
 
       {/* On-launch & triggerable quick capture modal (R1: onCaptured hands
        *  the saved item to the Clarify wizard) */}
