@@ -3,8 +3,8 @@
  * (spec: domain/domain-model.md "Project" — "Coverage is always derived,
  * never stored").
  */
-import { toIso, ulid, type Project, type Value } from '@nextdo/core';
-import { completeAction } from '../queries/actions';
+import { toIso, ulid, type NextAction, type Project, type Value } from '@nextdo/core';
+import { addNextAction, completeAction } from '../queries/actions';
 import {
   addProject,
   getProjectCoverage,
@@ -13,10 +13,13 @@ import {
   trashProject,
   updateProject,
 } from '../queries/projects';
+import { STALL_DAYS, isStalled } from '../queries/reviews';
+import { projectCardsWatchQuery } from '../queries/watch-queries';
 import { openTestDb, type TestDb } from './query-helpers';
 import { FIXTURE_IDS, FIXTURE_NOW } from './fixtures';
 
 const P = FIXTURE_IDS.projects;
+const DAY_MS = 86_400_000;
 
 let env: TestDb | null = null;
 afterEach(async () => {
@@ -181,5 +184,173 @@ describe('coverage (derived, never stored)', () => {
     } finally {
       await close();
     }
+  });
+});
+
+describe('projectCardsWatchQuery (design §4.1)', () => {
+  function makeAction(overrides: Partial<NextAction> = {}): NextAction {
+    return {
+      id: ulid(FIXTURE_NOW),
+      createdAt: toIso(FIXTURE_NOW),
+      updatedAt: toIso(FIXTURE_NOW),
+      deletedAt: null,
+      title: '行动',
+      contextIds: [],
+      estMinutes: 30,
+      value: 3,
+      consecutiveSkips: 0,
+      status: 'open',
+      ...overrides,
+    };
+  }
+
+  it('empty project: zero counts, null deadlines/progress/next-action', async () => {
+    const { db, close } = await open();
+    try {
+      const project = makeProject();
+      await addProject(db, project);
+      const [card] = await projectCardsWatchQuery(db).execute();
+      expect(card).toEqual({
+        ...project,
+        openCount: 0,
+        completedCount: 0,
+        earliestOpenDeadline: null,
+        lastProgressAt: null,
+        nextAction: null,
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  it('progress 1/4: 1 completed + 3 open; earliest deadline is the min over OPEN actions only', async () => {
+    const { db, close } = await open();
+    try {
+      const project = makeProject();
+      await addProject(db, project);
+      const doneDeadline = toIso(new Date(FIXTURE_NOW.getTime() + DAY_MS));
+      const d1 = toIso(new Date(FIXTURE_NOW.getTime() + 5 * DAY_MS));
+      const d2 = toIso(new Date(FIXTURE_NOW.getTime() + 2 * DAY_MS));
+      const completed = makeAction({ projectId: project.id, title: '已完成', deadline: doneDeadline });
+      await addNextAction(db, completed);
+      await addNextAction(db, makeAction({ projectId: project.id, title: '晚截止', deadline: d1 }));
+      await addNextAction(db, makeAction({ projectId: project.id, title: '早截止', deadline: d2 }));
+      await addNextAction(db, makeAction({ projectId: project.id, title: '无截止' }));
+      await completeAction(db, { actionKind: 'next', actionId: completed.id, now: FIXTURE_NOW });
+
+      const [card] = await projectCardsWatchQuery(db).execute();
+      expect(card?.openCount).toBe(3);
+      expect(card?.completedCount).toBe(1);
+      // the completed action holds an EARLIER deadline — it must not count.
+      expect(card?.earliestOpenDeadline).toBe(d2);
+    } finally {
+      await close();
+    }
+  });
+
+  it('next-action ordering: deadline-null last, then deadline, then created_at', async () => {
+    const { db, close } = await open();
+    try {
+      const project = makeProject();
+      await addProject(db, project);
+      const deadline = toIso(new Date(FIXTURE_NOW.getTime() + 3 * DAY_MS));
+      const x = makeAction({
+        projectId: project.id,
+        title: 'X 无截止（最早创建）',
+        createdAt: toIso(new Date(FIXTURE_NOW.getTime() - 3 * DAY_MS)),
+      });
+      const y = makeAction({
+        projectId: project.id,
+        title: 'Y 有截止',
+        deadline,
+        estMinutes: 45,
+        contextIds: [FIXTURE_IDS.contexts.computer],
+        createdAt: toIso(new Date(FIXTURE_NOW.getTime() - 2 * DAY_MS)),
+      });
+      const z = makeAction({
+        projectId: project.id,
+        title: 'Z 同截止（更晚创建）',
+        deadline,
+        createdAt: toIso(new Date(FIXTURE_NOW.getTime() - DAY_MS)),
+      });
+      await addNextAction(db, x);
+      await addNextAction(db, y);
+      await addNextAction(db, z);
+
+      const [card] = await projectCardsWatchQuery(db).execute();
+      expect(card?.nextAction).toEqual({
+        id: y.id,
+        title: 'Y 有截止',
+        contextIds: [FIXTURE_IDS.contexts.computer],
+        deadline,
+        estMinutes: 45,
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  it('no open actions → openCount 0 + nextAction null (all done)', async () => {
+    const { db, close } = await open();
+    try {
+      const project = makeProject();
+      await addProject(db, project);
+      const action = makeAction({ projectId: project.id });
+      await addNextAction(db, action);
+      await completeAction(db, { actionKind: 'next', actionId: action.id, now: FIXTURE_NOW });
+
+      const [card] = await projectCardsWatchQuery(db).execute();
+      expect(card?.openCount).toBe(0);
+      expect(card?.completedCount).toBe(1);
+      expect(card?.earliestOpenDeadline).toBeNull();
+      expect(card?.nextAction).toBeNull();
+      expect(card?.lastProgressAt).toBe(toIso(FIXTURE_NOW));
+    } finally {
+      await close();
+    }
+  });
+
+  it('lastProgressAt is the MAX completion over the project actions (null when never done)', async () => {
+    const { db, close } = await open();
+    try {
+      const project = makeProject();
+      await addProject(db, project);
+      const a = makeAction({ projectId: project.id, title: '甲' });
+      const b = makeAction({ projectId: project.id, title: '乙' });
+      const other = makeAction({ title: '丙（不属于该项目）' });
+      await addNextAction(db, a);
+      await addNextAction(db, b);
+      await addNextAction(db, other);
+      // A different project's later completion must not leak in.
+      const otherProject = makeProject();
+      await addProject(db, otherProject);
+      const otherAction = makeAction({ projectId: otherProject.id, title: '丁' });
+      await addNextAction(db, otherAction);
+
+      const later = new Date(FIXTURE_NOW.getTime() + 2 * DAY_MS);
+      await completeAction(db, { actionKind: 'next', actionId: a.id, now: FIXTURE_NOW });
+      await completeAction(db, { actionKind: 'next', actionId: b.id, now: later });
+      await completeAction(db, { actionKind: 'next', actionId: otherAction.id, now: later });
+
+      const cards = await projectCardsWatchQuery(db).execute();
+      const card = cards.find((entry) => entry.id === project.id);
+      expect(card?.lastProgressAt).toBe(toIso(later));
+      expect(card?.completedCount).toBe(2);
+    } finally {
+      await close();
+    }
+  });
+
+  it('isStalled: the 14-day boundary (13 天不卡 / 14 天卡；从未完成按 createdAt 起算)', () => {
+    const ago = (days: number): string => toIso(new Date(FIXTURE_NOW.getTime() - days * DAY_MS));
+    expect(STALL_DAYS).toBe(14);
+    expect(isStalled(ago(13), null, FIXTURE_NOW)).toBe(false);
+    expect(isStalled(ago(14), null, FIXTURE_NOW)).toBe(true);
+    expect(isStalled(null, ago(13), FIXTURE_NOW)).toBe(false);
+    expect(isStalled(null, ago(14), FIXTURE_NOW)).toBe(true);
+    expect(isStalled(null, null, FIXTURE_NOW)).toBe(false);
+    // corrupt timestamps never stall.
+    expect(isStalled('not-a-date', null, FIXTURE_NOW)).toBe(false);
+    expect(isStalled(null, 'not-a-date', FIXTURE_NOW)).toBe(false);
   });
 });

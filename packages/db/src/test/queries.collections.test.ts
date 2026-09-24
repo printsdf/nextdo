@@ -21,7 +21,7 @@ import {
   trashCalendarAction,
   updateCalendarAction,
 } from '../queries/calendar';
-import { addContext, listContexts, trashContext, updateContext } from '../queries/contexts';
+import { addContext, listContexts, seedDefaultContexts, trashContext, updateContext } from '../queries/contexts';
 import {
   addReferenceItem,
   listReferenceItems,
@@ -296,6 +296,62 @@ describe('Context', () => {
       await expect(
         trashContext(db, { id: FIXTURE_IDS.contexts.home, now: FIXTURE_NOW }),
       ).rejects.toMatchObject({ code: 'context.not-found' });
+    } finally {
+      await close();
+    }
+  });
+
+  it('seed: a fresh database gets the five spec defaults (now timestamps, ULID ids)', async () => {
+    const { db, close } = await open();
+    try {
+      expect(await seedDefaultContexts(db, FIXTURE_NOW)).toBe(5);
+      const names = (await listContexts(db)).map((context) => context.name).sort();
+      expect(names).toEqual(['computer', 'home', 'office', 'outside', 'phone']);
+      for (const context of await listContexts(db)) {
+        expect(context.createdAt).toBe(toIso(FIXTURE_NOW));
+        expect(context.updatedAt).toBe(toIso(FIXTURE_NOW));
+        expect(context.deletedAt).toBeNull();
+        expect(context.id).toHaveLength(26);
+      }
+    } finally {
+      await close();
+    }
+  });
+
+  it('seed: a second call is a no-op (idempotent — still 5 rows)', async () => {
+    const { db, close } = await open();
+    try {
+      expect(await seedDefaultContexts(db, FIXTURE_NOW)).toBe(5);
+      expect(await seedDefaultContexts(db, FIXTURE_NOW)).toBe(0);
+      expect(await listContexts(db)).toHaveLength(5);
+    } finally {
+      await close();
+    }
+  });
+
+  it('seed: existing user contexts → no-op (row count unchanged)', async () => {
+    const { db, close } = await open();
+    try {
+      await addContext(db, { ...base(), name: 'library' });
+      expect(await seedDefaultContexts(db, FIXTURE_NOW)).toBe(0);
+      expect(await listContexts(db)).toHaveLength(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it('seed: a user who deleted ALL contexts is not re-seeded', async () => {
+    const { db, close } = await open();
+    try {
+      expect(await seedDefaultContexts(db, FIXTURE_NOW)).toBe(5);
+      for (const context of await listContexts(db)) {
+        await trashContext(db, { id: context.id, now: FIXTURE_NOW });
+      }
+      expect(await listContexts(db)).toHaveLength(0);
+      // Soft-deleted rows still count as "existing" — the user's intent
+      // (an empty context set) is respected (design §6).
+      expect(await seedDefaultContexts(db, FIXTURE_NOW)).toBe(0);
+      expect(await listContexts(db)).toHaveLength(0);
     } finally {
       await close();
     }

@@ -28,7 +28,7 @@ export type { EnginePool } from './queries/pool';
 export { skipAction } from './queries/actions';
 export { listInboxItems } from './queries/inbox';
 export { listProjects, projectActionCoverage } from './queries/projects';
-export { listReviewRecords } from './queries/reviews';
+export { listReviewRecords, STALL_DAYS, isStalled } from './queries/reviews';
 // Inbox capture + the Clarify / re-clarify transactions (task 09-22-app-ui-screens).
 export {
   addInboxItem,
@@ -57,7 +57,7 @@ export { addProject, trashProject, updateProject } from './queries/projects';
 export { listWaitingForItems } from './queries/waiting';
 export { listSomedayMaybeItems, trashSomedayMaybeItem } from './queries/someday';
 export { listCalendarActions } from './queries/calendar';
-export { addContext, listContexts } from './queries/contexts';
+export { addContext, listContexts, seedDefaultContexts } from './queries/contexts';
 // Habit lists (Now screen habit strip).
 export { listHabits, listHabitDays } from './queries/habits';
 // Focus-session transactions + read (focus screen, re-entry recovery).
@@ -80,9 +80,10 @@ export {
 export {
   inboxItemsWatchQuery,
   poolTriggerWatchQuery,
+  projectCardsWatchQuery,
   projectsWatchQuery,
   reviewRecordsWatchQuery,
 } from './queries/watch-queries';
-export type { ProjectWithCoverage } from './queries/watch-queries';
+export type { ProjectCard, ProjectWithCoverage } from './queries/watch-queries';
 export { wrapDb } from './kysely';
 export type { ActionKind, NextdoDb } from './types';

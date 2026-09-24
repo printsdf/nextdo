@@ -5,9 +5,12 @@
  * declaration (EngineContext.contextIds), not stored here beyond each
  * action's own contextIds.
  */
-import { StorageNextdoError, assertValidContext, toIso, type Context } from '@nextdo/core';
+import { StorageNextdoError, assertValidContext, toIso, ulid, type Context } from '@nextdo/core';
 import { contextFromRow, contextToRow } from '../schema';
 import type { NextdoDb } from '../types';
+
+/** The spec's seeded defaults (domain-model.md "Context"), in display order. */
+const DEFAULT_CONTEXT_NAMES = ['home', 'office', 'computer', 'phone', 'outside'] as const;
 
 async function loadRow(db: NextdoDb, id: string) {
   const row = await db.selectFrom('contexts').selectAll().where('id', '=', id).executeTakeFirst();
@@ -55,4 +58,37 @@ export async function trashContext(db: NextdoDb, args: { id: string; now: Date }
     .set({ deleted_at: nowIso, updated_at: nowIso })
     .where('id', '=', args.id)
     .execute();
+}
+
+/**
+ * Seed the default contexts on a FRESH database (design §6): when the
+ * `contexts` table holds NO rows at all — live or soft-deleted — insert
+ * the five spec defaults (ulid(now) ids, now timestamps) and return the
+ * inserted count. ANY existing row is a no-op (returns 0): a user who
+ * deleted all the seeds is not re-seeded (their intent is respected —
+ * their soft-deleted rows still count as "existing"), and existing user
+ * contexts are untouched. Idempotent — the app root layout calls it on
+ * every launch (database-guidelines: the root layout is the documented
+ * exception that imports `@nextdo/db`).
+ */
+export async function seedDefaultContexts(db: NextdoDb, now: Date): Promise<number> {
+  const anyRow = await db
+    .selectFrom('contexts')
+    .select('id')
+    .executeTakeFirst();
+  if (anyRow !== undefined) {
+    return 0;
+  }
+  const nowIso = toIso(now);
+  for (const name of DEFAULT_CONTEXT_NAMES) {
+    const context: Context = {
+      id: ulid(now),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      deletedAt: null,
+      name,
+    };
+    await db.insertInto('contexts').values({ id: context.id, ...contextToRow(context) }).execute();
+  }
+  return DEFAULT_CONTEXT_NAMES.length;
 }
