@@ -10,8 +10,8 @@ export interface CardProps {
 }
 
 /**
- * Surface card — iOS Inset Grouped style.
- * Uses surface background and rounded-2xl with subtle separator border.
+ * Surface card — Paper Serenity Level 1: pure paper white on the canvas with
+ * a 1px warm micro-border (tonal layering over heavy shadows).
  */
 export function Card({ children, className }: CardProps) {
   return (

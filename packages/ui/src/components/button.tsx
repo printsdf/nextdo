@@ -28,9 +28,13 @@ const VARIANT_TEXT_CLASSES: Record<NonNullable<ButtonProps['variant']>, string> 
 };
 
 const SIZE_CLASSES: Record<NonNullable<ButtonProps['size']>, string> = {
-  sm: 'h-9 px-3 rounded-lg',
-  md: 'h-11 px-4 rounded-xl',
-  lg: 'h-13 px-6 rounded-2xl',
+  // DESIGN 8px button tier (Paper Serenity): sm/md → rounded-md (8px),
+  // lg → rounded-lg (12px).
+  sm: 'h-9 px-3 rounded-md',
+  md: 'h-11 px-4 rounded-md',
+  // lg: 56px hero CTA — `h-13` is not in the default scale (class would be
+  // silently dropped, leaving the button content-height < 44pt).
+  lg: 'h-14 px-6 rounded-lg',
 };
 
 const SIZE_TEXT_CLASSES: Record<NonNullable<ButtonProps['size']>, string> = {
@@ -40,8 +44,9 @@ const SIZE_TEXT_CLASSES: Record<NonNullable<ButtonProps['size']>, string> = {
 };
 
 /**
- * Tappable action button (iOS style). Touch target ≥ 44pt (tokens.spacing.touch),
- * labelled for accessibility (component-guidelines).
+ * Tappable action button (Paper Serenity: terracotta primary, 8px/12px
+ * radius tiers). Touch target ≥ 44pt (tokens.spacing.touch), labelled for
+ * accessibility (component-guidelines).
  */
 export function Button({
   label,
