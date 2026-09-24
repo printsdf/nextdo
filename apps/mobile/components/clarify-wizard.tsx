@@ -1,16 +1,36 @@
 /**
- * The Clarify / Re-clarify wizard (design.md §4.3) — shared by
- * `app/clarify/[inboxId].tsx` (Q1–Q5, full table) and `app/reclarify/[id].tsx`
- * (re-enters at Q2).
+ * The Clarify / Re-clarify wizard (design §3.2 — Paper Serenity rework) —
+ * shared by `app/clarify/[inboxId].tsx` (Q1–Q5, full table) and
+ * `app/reclarify/[id].tsx` (re-enters at Q2).
+ *
+ * Layout, top to bottom (no AI suggestion card — R4):
+ * 1. header row: status Tag (正在澄清 / 重新明晰) + the back button;
+ * 2. item title card: `defaultTitle` (display type) + the meta line
+ *    (clarify: 收录于 {date} · 收集箱; reclarify: 已有行动);
+ * 3. progress line: 步骤 n/m + ProgressBar + pct (n = min(depth+1,
+ *    PROGRESS_MAX[mode]); the preview step shows 决策摘要预览 at 100% — it
+ *    is the form's confirmation phase, not a step of its own);
+ * 4. the current question card (question wording / button text / order
+ *    untouched — R3);
+ * 5. the persistent "GTD 决策摘要" card (below the question card): the
+ *    mode's question chain, answered rows highlighted with the tapped
+ *    answer, unanswered rows muted (branches not taken stay muted);
+ * 6. the outcome form card (the context multi-select on action / calendar
+ *    / project forms; 保存 goes through the preview step for PREVIEW_FORMS
+ *    and submits directly for the rest — reference / someday / trash keep
+ *    today's behavior);
+ * 7. the preview step (决策摘要预览 · 归位就绪): 确认保存 submits the
+ *    already-built submission (done step after), 上一步修改 restores the
+ *    form with fields preserved.
  *
  * Layering:
  * - the step machine + validation + submission builders are PURE and live
  *   in `lib/clarify-flow.ts` (unit-tested there);
- * - `ClarifyWizard` loads the target's title from the db and hands it to
- *   `WizardBody`;
+ * - `ClarifyWizard` loads the target's title (and, for re-clarify, the
+ *   existing contexts) from the db and hands them to `WizardBody`;
  * - `WizardBody` owns the `useReducer` and the ONE db transaction per
- *   submission (`applyClarify` / `reclarifyAction`); errors surface through
- *   `lib/error-messages` (Chinese), never raw.
+ *   submission (`applyClarify` / `reclarifyAction`); errors surface
+ *   through `lib/error-messages` (Chinese), never raw.
  *
  * Presentational otherwise: no engine logic, no stored engine output
  * (component-guidelines).
@@ -18,7 +38,8 @@
 import { useMemo, useReducer, useState, type Dispatch, type ReactNode } from 'react';
 import { router } from 'expo-router';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import { Button, Card, cn } from '@nextdo/ui';
+import { Button, Card, ContextChip, ProgressBar, Tag, cn } from '@nextdo/ui';
+import { DateTimePicker } from '@/components/datetime-picker';
 import {
   applyClarify,
   reclarifyAction,
@@ -26,21 +47,30 @@ import {
   type ActionKind,
 } from '@nextdo/db';
 import { usePowerSync } from '@powersync/react';
-import type { Project, Value } from '@nextdo/core';
+import type { Context, Project, Value } from '@nextdo/core';
 import { useAppClock } from '@/hooks/use-app-clock';
 import { useInboxItem } from '@/hooks/use-inbox-item';
 import { useActionTitle } from '@/hooks/use-action-title';
+import { useContexts } from '@/hooks/use-contexts';
 import { useProjects } from '@/hooks/use-projects';
 import { errorMessage } from '@/lib/error-messages';
+import { formatDueLabel, formatLocalDate, formatLocalDateTime } from '@/lib/format';
 import {
   buildDoNowSubmission,
   buildFormSubmission,
   clarifyReducer,
+  composeLocalDateTimeIso,
   createWizardState,
+  endOfLocalDayIso,
   outcomeLabel,
   validateForm,
+  PREVIEW_FORMS,
+  PROGRESS_MAX,
+  QUESTION_TITLES,
+  type AnsweredQuestion,
   type FormKind,
   type FormFields,
+  type QuestionId,
   type Submission,
   type WizardAction,
   type WizardMode,
@@ -52,6 +82,11 @@ const INPUT_CLASS =
 
 const EST_CHIPS = [5, 10, 20, 30, 60, 120];
 const VALUE_CHIPS: Value[] = [1, 2, 3, 4, 5];
+
+/** The question chains of the "GTD 决策摘要" card (design §3.2): clarify
+ *  shows all 8 rows; re-clarify re-enters at Q2 (q1/q1b never appear). */
+const CLARIFY_CHAIN: readonly QuestionId[] = ['q1', 'q1b', 'q2', 'q2b', 'q3', 'q3b', 'q4', 'q5'];
+const RECLARIFY_CHAIN: readonly QuestionId[] = ['q2', 'q2b', 'q3', 'q3b', 'q4', 'q5'];
 
 /** The quick-pick minute estimates (design.md §4.3) + a custom box. */
 function EstPicker({ value, onSelect }: { value: number | null; onSelect: (minutes: number) => void }) {
@@ -102,7 +137,16 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
           : 'border border-border bg-surface text-ink dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark',
       )}
     >
-      <Text className="text-sm">{label}</Text>
+      <Text
+        className={cn(
+          'font-sans text-sm',
+          active
+            ? 'text-on-accent dark:text-on-accent-dark'
+            : 'text-ink dark:text-ink-dark',
+        )}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -110,11 +154,83 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
 function Field({ label, optional, children }: { label: string; optional?: boolean; children: ReactNode }) {
   return (
     <View className="gap-1">
-      <Text className="text-sm font-medium text-ink dark:text-ink-dark">
+      <Text className="font-sans text-sm font-medium text-ink dark:text-ink-dark">
         {label}
         {optional ? <Text className="text-muted dark:text-muted-dark">（可选）</Text> : null}
       </Text>
       {children}
+    </View>
+  );
+}
+
+/**
+ * A date/time field (user feedback round 2 — design §15): the value is
+ * picked with the DateTimePicker modal, NEVER hand-typed. The stored string
+ * shapes stay 'YYYY-MM-DD' / 'HH:mm' (the clarify-flow contract is
+ * untouched). `onClear` is offered only for optional fields.
+ */
+function DateTimeField({
+  value,
+  mode,
+  label,
+  placeholder,
+  now,
+  onClear,
+  onChange,
+}: {
+  value: string;
+  mode: 'date' | 'time';
+  /** The field's name — the picker's modal title + the a11y labels. */
+  label: string;
+  placeholder: string;
+  now: Date;
+  onClear?: () => void;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View className="gap-1.5">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`选择${label}`}
+        onPress={() => setOpen(true)}
+        className={cn(INPUT_CLASS, 'flex-row items-center justify-between gap-2')}
+      >
+        <Text
+          className={cn(
+            'font-sans text-base',
+            value === ''
+              ? 'text-muted dark:text-muted-dark'
+              : 'text-ink dark:text-ink-dark',
+          )}
+        >
+          {value === '' ? placeholder : value}
+        </Text>
+        <Text className="font-sans text-xs text-muted dark:text-muted-dark">点击选择</Text>
+      </Pressable>
+      {onClear !== undefined && value !== '' ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`清除${label}`}
+          onPress={onClear}
+          className="self-start px-1 py-0.5"
+        >
+          <Text className="font-sans text-xs text-muted dark:text-muted-dark">清除</Text>
+        </Pressable>
+      ) : null}
+      {open ? (
+        <DateTimePicker
+          mode={mode}
+          title={label}
+          value={value}
+          now={now}
+          onConfirm={(picked) => {
+            onChange(picked);
+            setOpen(false);
+          }}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -134,9 +250,23 @@ export interface WizardBodyProps {
   /** Reclarify only: the existing action's project (null = standalone) —
    *  marks the Q2b "current" project. */
   currentProjectId: string | null;
+  /** Clarify only: the inbox item's capturedAt (the title card's meta
+   *  line) — null renders "收集箱" without a date. */
+  capturedAt: string | null;
+  /** The initial context selection of every form — reclarify passes the
+   *  existing action's contextIds; clarify passes []. */
+  initialContextIds: string[];
 }
 
-export function WizardBody({ mode, id, actionKind, defaultTitle, currentProjectId }: WizardBodyProps) {
+export function WizardBody({
+  mode,
+  id,
+  actionKind,
+  defaultTitle,
+  currentProjectId,
+  capturedAt,
+  initialContextIds,
+}: WizardBodyProps) {
   const powersync = usePowerSync();
   const db = useMemo(() => wrapDb(powersync), [powersync]);
   const now = useAppClock();
@@ -146,7 +276,16 @@ export function WizardBody({ mode, id, actionKind, defaultTitle, currentProjectI
   const { data: allProjects } = useProjects();
   const activeProjects = allProjects.filter((project) => project.status === 'active');
 
-  const [state, dispatch] = useReducer(clarifyReducer, undefined, () => createWizardState(mode, defaultTitle));
+  // The context multi-select's data (seeded contexts + user-created).
+  const { data: contexts } = useContexts();
+  const contextNames = useMemo(
+    () => new Map((contexts ?? []).map((context) => [context.id, context.name] as const)),
+    [contexts],
+  );
+
+  const [state, dispatch] = useReducer(clarifyReducer, undefined, () =>
+    createWizardState(mode, defaultTitle, initialContextIds),
+  );
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -190,28 +329,49 @@ export function WizardBody({ mode, id, actionKind, defaultTitle, currentProjectI
       dispatch({ type: 'form-error', error: problem });
       return;
     }
-    void submit(buildFormSubmission(mode, form, fields, twoMinute, projectId));
+    // D5: PREVIEW_FORMS confirm through the preview step (the submission is
+    // built once and stored in state — NO db write yet); the remaining
+    // forms (reference / someday / trash) submit directly, behavior
+    // unchanged.
+    const submission = buildFormSubmission(mode, form, fields, twoMinute, projectId);
+    if (PREVIEW_FORMS.includes(form)) {
+      dispatch({ type: 'preview', submission });
+      return;
+    }
+    void submit(submission);
   }
 
-  function setField(field: keyof FormFields, value: string | number | null) {
+  function setField(field: Exclude<keyof FormFields, 'contextIds'>, value: string | number | null) {
     dispatch({ type: 'field', field, value });
   }
 
+  function setContextIds(value: string[]) {
+    dispatch({ type: 'field', field: 'contextIds', value });
+  }
+
+  const isPreview = state.step === 'preview';
+  const progressMax = PROGRESS_MAX[mode];
+  const stepNumber = Math.min(state.depth + 1, progressMax);
+  const progressPct = isPreview ? 100 : Math.round((stepNumber / progressMax) * 100);
+  const metaLine =
+    mode === 'reclarify'
+      ? '已有行动'
+      : capturedAt !== null
+        ? `收录于 ${formatLocalDate(capturedAt)} · 收集箱`
+        : '收集箱';
   const errorText = state.step === 'form' ? state.error : null;
 
   return (
     <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
-      <View className="mb-4 flex-row items-center justify-between">
+      {/* 1. header row: the back button + the status tag */}
+      <View className="mb-3.5 flex-row items-center justify-between">
         <Button label="← 返回" variant="ghost" onPress={() => router.back()} />
-        <Text className="text-lg font-semibold text-ink dark:text-ink-dark">
-          {mode === 'clarify' ? '明晰' : '重新明晰'}
-        </Text>
-        <View className="w-16" />
+        <Tag label={mode === 'clarify' ? '正在澄清' : '重新明晰'} tone="accent" dot />
       </View>
 
       {state.step === 'done' ? (
         <Card className="items-center gap-3 py-8">
-          <Text className="text-base font-medium text-ink dark:text-ink-dark">
+          <Text className="font-sans text-base font-medium text-ink dark:text-ink-dark">
             已整理为「{outcomeLabel(state.result.outcome)}」
           </Text>
           {/* Explicit exits (R1): loop back to capture, or return to the
@@ -226,47 +386,163 @@ export function WizardBody({ mode, id, actionKind, defaultTitle, currentProjectI
           <Button label="完成" variant="secondary" onPress={() => router.back()} />
         </Card>
       ) : (
-        <Card>
-          {(state.step === 'q1' || state.step === 'q2' || state.step === 'q2b' || state.step === 'q3' || state.step === 'q4' || state.step === 'q5' || state.step === 'q3b') && (
-            <QuestionCard
-              state={state}
-              dispatch={dispatch}
-              onDoNow={handleDoNow}
-              disabled={submitting}
-              projects={activeProjects}
-              currentProjectId={currentProjectId}
-            />
-          )}
-          {state.step === 'q1b' && (
-            <View className="gap-4">
-              <Question title="那它更接近哪一类？" />
-              <Button label="资料（留个参考）" variant="secondary" onPress={() => dispatch({ type: 'answer-q1b', kind: 'reference' })} />
-              <Button label="有空再说" variant="secondary" onPress={() => dispatch({ type: 'answer-q1b', kind: 'someday' })} />
-              <Button label="删除" variant="secondary" onPress={() => dispatch({ type: 'answer-q1b', kind: 'trash' })} />
+        <View className="gap-3.5">
+          {/* 2. item title card */}
+          <Card className="p-3.5">
+            <Text
+              className="font-display text-2xl font-bold tracking-tight text-ink dark:text-ink-dark"
+              numberOfLines={2}
+            >
+              {state.defaultTitle}
+            </Text>
+            <Text className="mt-1 font-sans text-xs text-muted dark:text-muted-dark">{metaLine}</Text>
+          </Card>
+
+          {/* 3. progress line */}
+          <Card className="gap-2 p-3.5">
+            <View className="flex-row items-center justify-between">
+              <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
+                {isPreview ? '决策摘要预览' : `步骤 ${stepNumber}/${progressMax}`}
+              </Text>
+              <Text className="font-sans text-xs text-muted dark:text-muted-dark">{progressPct}%</Text>
             </View>
-          )}
-          {state.step === 'form' && (
-            <FormCard
-              state={state}
-              onField={setField}
-              onSubmit={() => handleFormSubmit(state.form, state.fields, state.twoMinute, state.projectId)}
-              disabled={submitting}
-            />
-          )}
-          {errorText !== null ? (
-            <Text className="mt-3 text-sm text-danger">{errorText}</Text>
-          ) : null}
-          {submitError !== null ? (
-            <Text className="mt-3 text-sm text-danger">{submitError}</Text>
-          ) : null}
-        </Card>
+            <ProgressBar value={progressPct / 100} />
+          </Card>
+
+          {/* 4/6/7. the current question / form / preview card */}
+          <Card>
+            {(state.step === 'q1' ||
+              state.step === 'q2' ||
+              state.step === 'q2b' ||
+              state.step === 'q3' ||
+              state.step === 'q4' ||
+              state.step === 'q5' ||
+              state.step === 'q3b') && (
+              <QuestionCard
+                state={state}
+                dispatch={dispatch}
+                onDoNow={handleDoNow}
+                disabled={submitting}
+                projects={activeProjects}
+                currentProjectId={currentProjectId}
+              />
+            )}
+            {state.step === 'q1b' && (
+              <View className="gap-4">
+                <Question title="那它更接近哪一类？" />
+                <Button label="资料（留个参考）" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q1b', kind: 'reference' })} disabled={submitting} />
+                <Button label="有空再说" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q1b', kind: 'someday' })} disabled={submitting} />
+                <Button label="删除" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q1b', kind: 'trash' })} disabled={submitting} />
+              </View>
+            )}
+            {state.step === 'form' && (
+              <FormCard
+                state={state}
+                contexts={contexts ?? []}
+                now={now}
+                onField={setField}
+                onContextIds={setContextIds}
+                onSubmit={() => handleFormSubmit(state.form, state.fields, state.twoMinute, state.projectId)}
+                disabled={submitting}
+              />
+            )}
+            {state.step === 'preview' && (
+              <PreviewCard
+                state={state}
+                contextNames={contextNames}
+                now={now}
+                disabled={submitting}
+                onConfirm={() => void submit(state.submission)}
+                onBack={() => dispatch({ type: 'back-to-form' })}
+              />
+            )}
+            {errorText !== null ? (
+              <Text className="mt-3 font-sans text-sm text-danger">{errorText}</Text>
+            ) : null}
+            {submitError !== null ? (
+              <Text className="mt-3 font-sans text-sm text-danger">{submitError}</Text>
+            ) : null}
+          </Card>
+
+          {/* 5. "GTD 决策摘要" — persistent, below the question card */}
+          <DecisionSummaryCard mode={state.mode} answered={state.answered} />
+        </View>
       )}
     </View>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Question steps (one question per screen, two big buttons)
+// The "GTD 决策摘要" card (design §3.2.5) — the mode's question chain with
+// the answers given so far (answered: highlighted + the answer text;
+// unanswered: muted — branches not taken stay muted, as in the mockup).
+// ---------------------------------------------------------------------------
+
+function DecisionSummaryCard({
+  mode,
+  answered,
+}: {
+  mode: WizardMode;
+  answered: AnsweredQuestion[];
+}) {
+  const chain = mode === 'clarify' ? CLARIFY_CHAIN : RECLARIFY_CHAIN;
+  return (
+    <Card className="p-3.5">
+      <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
+        GTD 决策摘要
+      </Text>
+      <View className="mt-2.5 gap-2">
+        {chain.map((questionId, index) => {
+          const entry = answered.find((candidate) => candidate.id === questionId);
+          const answeredNow = entry !== undefined;
+          return (
+            <View key={questionId} className="flex-row items-center gap-2.5">
+              <View
+                className={cn(
+                  'h-6 w-6 items-center justify-center rounded-full',
+                  answeredNow
+                    ? 'bg-accent/15 dark:bg-accent-dark/20'
+                    : 'bg-border/60 dark:bg-border-dark',
+                )}
+              >
+                <Text
+                  className={cn(
+                    'font-sans text-xs font-semibold',
+                    answeredNow ? 'text-accent dark:text-accent-dark' : 'text-muted dark:text-muted-dark',
+                  )}
+                >
+                  {index + 1}
+                </Text>
+              </View>
+              <Text
+                className={cn(
+                  'flex-1 font-sans text-xs',
+                  answeredNow
+                    ? 'font-medium text-ink dark:text-ink-dark'
+                    : 'text-muted dark:text-muted-dark',
+                )}
+              >
+                {QUESTION_TITLES[questionId]}
+              </Text>
+              {answeredNow ? (
+                <Text
+                  className="font-sans text-xs font-medium text-accent dark:text-accent-dark"
+                  numberOfLines={1}
+                >
+                  {entry.answer}
+                </Text>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Question steps (one question per screen, big buttons — wording untouched,
+// R3)
 // ---------------------------------------------------------------------------
 
 interface QuestionCardProps {
@@ -284,8 +560,12 @@ interface QuestionCardProps {
 function Question({ title, sub }: { title: string; sub?: string }) {
   return (
     <View className="mb-4 gap-1">
-      <Text className="text-base font-medium text-ink dark:text-ink-dark">{title}</Text>
-      {sub !== undefined ? <Text className="text-sm text-muted dark:text-muted-dark">{sub}</Text> : null}
+      <Text className="font-sans text-lg font-semibold tracking-tight text-ink dark:text-ink-dark">
+        {title}
+      </Text>
+      {sub !== undefined ? (
+        <Text className="font-sans text-sm text-muted dark:text-muted-dark">{sub}</Text>
+      ) : null}
     </View>
   );
 }
@@ -296,16 +576,16 @@ function QuestionCard({ state, dispatch, onDoNow, disabled, projects, currentPro
       return (
         <View className="gap-4">
           <Question title="可以变成下一步行动吗？" sub="这件事能由你做成一件具体的事吗？" />
-          <Button label="可以，是行动" onPress={() => dispatch({ type: 'answer-q1', actionable: true })} disabled={disabled} />
-          <Button label="不行" variant="secondary" onPress={() => dispatch({ type: 'answer-q1', actionable: false })} disabled={disabled} />
+          <Button label="可以，是行动" size="lg" onPress={() => dispatch({ type: 'answer-q1', actionable: true })} disabled={disabled} />
+          <Button label="不行" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q1', actionable: false })} disabled={disabled} />
         </View>
       );
     case 'q2':
       return (
         <View className="gap-4">
           <Question title="需要多个步骤才能完成吗？" />
-          <Button label="是，拆成项目" onPress={() => dispatch({ type: 'answer-q2', multipleSteps: true })} disabled={disabled} />
-          <Button label="否，一步能完成" variant="secondary" onPress={() => dispatch({ type: 'answer-q2', multipleSteps: false })} disabled={disabled} />
+          <Button label="是，拆成项目" size="lg" onPress={() => dispatch({ type: 'answer-q2', multipleSteps: true })} disabled={disabled} />
+          <Button label="否，一步能完成" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q2', multipleSteps: false })} disabled={disabled} />
         </View>
       );
     case 'q2b':
@@ -327,72 +607,90 @@ function QuestionCard({ state, dispatch, onDoNow, disabled, projects, currentPro
                 })
               }
               disabled={disabled}
-              className="rounded-md border border-border bg-surface p-3 dark:border-border-dark dark:bg-surface-dark"
+              className="rounded-lg border border-border bg-surface p-3.5 dark:border-border-dark dark:bg-surface-dark"
             >
               <View className="flex-row items-center gap-2">
-                <Text className="flex-1 text-base text-ink dark:text-ink-dark">
+                <Text className="flex-1 font-sans text-base text-ink dark:text-ink-dark">
                   {project.title}（价值 {project.value}）
                 </Text>
                 {currentProjectId === project.id ? (
-                  <Text className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent dark:bg-accent-dark/20 dark:text-accent-dark">
+                  <Text className="rounded-full bg-accent/15 px-2 py-0.5 font-sans text-xs font-medium text-accent dark:bg-accent-dark/20 dark:text-accent-dark">
                     当前
                   </Text>
                 ) : null}
               </View>
             </Pressable>
           ))}
-          <Button label="新建项目" variant="secondary" onPress={() => dispatch({ type: 'answer-q2b', choice: 'new-project' })} disabled={disabled} />
-          <Button label="不属于项目" variant="secondary" onPress={() => dispatch({ type: 'answer-q2b', choice: 'none' })} disabled={disabled} />
+          <Button label="新建项目" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q2b', choice: 'new-project' })} disabled={disabled} />
+          <Button label="不属于项目" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q2b', choice: 'none' })} disabled={disabled} />
         </View>
       );
     case 'q3':
       return (
         <View className="gap-4">
           <Question title="大约 2 分钟内能完成吗？" />
-          <Button label="是，2 分钟内" onPress={() => dispatch({ type: 'answer-q3', twoMinutes: true })} disabled={disabled} />
-          <Button label="否" variant="secondary" onPress={() => dispatch({ type: 'answer-q3', twoMinutes: false })} disabled={disabled} />
+          <Button label="是，2 分钟内" size="lg" onPress={() => dispatch({ type: 'answer-q3', twoMinutes: true })} disabled={disabled} />
+          <Button label="否" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q3', twoMinutes: false })} disabled={disabled} />
         </View>
       );
     case 'q3b':
       return (
         <View className="gap-4">
           <Question title="现在就做掉吗？" sub="做完直接记为完成，不再排队。" />
-          <Button label="是，现在就做完" onPress={onDoNow} disabled={disabled} />
-          <Button label="否，记成行动" variant="secondary" onPress={() => dispatch({ type: 'answer-q3b', completedOnTheSpot: false })} disabled={disabled} />
+          <Button label="是，现在就做完" size="lg" onPress={onDoNow} disabled={disabled} />
+          <Button label="否，记成行动" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q3b', completedOnTheSpot: false })} disabled={disabled} />
         </View>
       );
     case 'q4':
       return (
         <View className="gap-4">
           <Question title="应该由你完成吗？" />
-          <Button label="是，我的事" onPress={() => dispatch({ type: 'answer-q4', myResponsibility: true })} disabled={disabled} />
-          <Button label="否，在等别人" variant="secondary" onPress={() => dispatch({ type: 'answer-q4', myResponsibility: false })} disabled={disabled} />
+          <Button label="是，我的事" size="lg" onPress={() => dispatch({ type: 'answer-q4', myResponsibility: true })} disabled={disabled} />
+          <Button label="否，在等别人" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q4', myResponsibility: false })} disabled={disabled} />
         </View>
       );
     case 'q5':
       return (
         <View className="gap-4">
           <Question title="必须在固定日期/时间执行吗？" />
-          <Button label="是，固定时间" onPress={() => dispatch({ type: 'answer-q5', fixedTime: true })} disabled={disabled} />
-          <Button label="否，普通行动" variant="secondary" onPress={() => dispatch({ type: 'answer-q5', fixedTime: false })} disabled={disabled} />
+          <Button label="是，固定时间" size="lg" onPress={() => dispatch({ type: 'answer-q5', fixedTime: true })} disabled={disabled} />
+          <Button label="否，普通行动" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q5', fixedTime: false })} disabled={disabled} />
         </View>
       );
   }
 }
 
 // ---------------------------------------------------------------------------
-// The outcome forms (design.md §4.3 表单字段)
+// The outcome forms (design.md §4.3 表单字段; the context multi-select per
+// design §3.2.6)
 // ---------------------------------------------------------------------------
 
 interface FormCardProps {
   state: Extract<WizardState, { step: 'form' }>;
-  onField: (field: keyof FormFields, value: string | number | null) => void;
+  /** The selectable contexts (seeded + user-created), by display name. */
+  contexts: Context[];
+  /** The single app clock (seeds the date/time pickers). */
+  now: Date;
+  /** Scalar fields only — the context multi-select dispatches its own
+   *  `field: 'contextIds'` string[] action via `onContextIds`. */
+  onField: (field: Exclude<keyof FormFields, 'contextIds'>, value: string | number | null) => void;
+  onContextIds: (value: string[]) => void;
   onSubmit: () => void;
   disabled: boolean;
 }
 
-function FormCard({ state, onField, onSubmit, disabled }: FormCardProps) {
+/** The forms that offer the context multi-select (design §3.2.6). */
+const CONTEXT_FORMS: readonly FormKind[] = ['action', 'calendar', 'project'];
+
+function FormCard({ state, contexts, now, onField, onContextIds, onSubmit, disabled }: FormCardProps) {
   const { form, fields } = state;
+
+  function toggleContext(contextId: string) {
+    const next = fields.contextIds.includes(contextId)
+      ? fields.contextIds.filter((entry) => entry !== contextId)
+      : [...fields.contextIds, contextId];
+    onContextIds(next);
+  }
 
   const body = (() => {
     switch (form) {
@@ -475,13 +773,15 @@ function FormCard({ state, onField, onSubmit, disabled }: FormCardProps) {
                 placeholder="例：等设计同学反馈"
               />
             </Field>
-            <Field label="期望日期（YYYY-MM-DD）" optional>
-              <TextInput
-                className={INPUT_CLASS}
+            <Field label="期望日期" optional>
+              <DateTimeField
                 value={fields.expectedBy}
-                onChangeText={(v) => onField('expectedBy', v)}
-                placeholder="2026-09-30"
-                autoCapitalize="none"
+                mode="date"
+                label="期望日期"
+                placeholder="YYYY-MM-DD"
+                now={now}
+                onClear={() => onField('expectedBy', '')}
+                onChange={(v) => onField('expectedBy', v)}
               />
             </Field>
           </View>
@@ -493,22 +793,24 @@ function FormCard({ state, onField, onSubmit, disabled }: FormCardProps) {
             <Field label="标题">
               <TextInput className={INPUT_CLASS} value={fields.title} onChangeText={(v) => onField('title', v)} />
             </Field>
-            <Field label="开始日期（YYYY-MM-DD）">
-              <TextInput
-                className={INPUT_CLASS}
+            <Field label="开始日期">
+              <DateTimeField
                 value={fields.startsAtDate}
-                onChangeText={(v) => onField('startsAtDate', v)}
-                placeholder="2026-09-30"
-                autoCapitalize="none"
+                mode="date"
+                label="开始日期"
+                placeholder="YYYY-MM-DD"
+                now={now}
+                onChange={(v) => onField('startsAtDate', v)}
               />
             </Field>
-            <Field label="开始时间（HH:mm）">
-              <TextInput
-                className={INPUT_CLASS}
+            <Field label="开始时间">
+              <DateTimeField
                 value={fields.startsAtTime}
-                onChangeText={(v) => onField('startsAtTime', v)}
-                placeholder="09:30"
-                autoCapitalize="none"
+                mode="time"
+                label="开始时间"
+                placeholder="HH:mm"
+                now={now}
+                onChange={(v) => onField('startsAtTime', v)}
               />
             </Field>
             <Field label="预估时长（分钟）">
@@ -517,13 +819,15 @@ function FormCard({ state, onField, onSubmit, disabled }: FormCardProps) {
             <Field label="价值（1–5）">
               <ValuePicker value={fields.value} onSelect={(v) => onField('value', v)} />
             </Field>
-            <Field label="截止（YYYY-MM-DD）" optional>
-              <TextInput
-                className={INPUT_CLASS}
+            <Field label="截止" optional>
+              <DateTimeField
                 value={fields.deadline}
-                onChangeText={(v) => onField('deadline', v)}
-                placeholder="2026-10-01"
-                autoCapitalize="none"
+                mode="date"
+                label="截止"
+                placeholder="YYYY-MM-DD"
+                now={now}
+                onClear={() => onField('deadline', '')}
+                onChange={(v) => onField('deadline', v)}
               />
             </Field>
           </View>
@@ -534,7 +838,7 @@ function FormCard({ state, onField, onSubmit, disabled }: FormCardProps) {
             {state.projectId !== undefined ? (
               // Q2b attach: the project is fixed for this submission —
               // changing it means going back to Q2b (not in-form).
-              <Text className="rounded-md bg-canvas p-2.5 text-sm text-muted dark:bg-canvas-dark dark:text-muted-dark">
+              <Text className="rounded-md bg-canvas p-2.5 font-sans text-sm text-muted dark:bg-canvas-dark dark:text-muted-dark">
                 所属项目：{state.projectTitle ?? ''}
               </Text>
             ) : null}
@@ -553,13 +857,15 @@ function FormCard({ state, onField, onSubmit, disabled }: FormCardProps) {
                 <ValuePicker value={fields.value} onSelect={(v) => onField('value', v)} />
               </Field>
             ) : null}
-            <Field label="截止（YYYY-MM-DD）" optional>
-              <TextInput
-                className={INPUT_CLASS}
+            <Field label="截止" optional>
+              <DateTimeField
                 value={fields.deadline}
-                onChangeText={(v) => onField('deadline', v)}
-                placeholder="2026-10-01"
-                autoCapitalize="none"
+                mode="date"
+                label="截止"
+                placeholder="YYYY-MM-DD"
+                now={now}
+                onClear={() => onField('deadline', '')}
+                onChange={(v) => onField('deadline', v)}
               />
             </Field>
           </View>
@@ -570,11 +876,106 @@ function FormCard({ state, onField, onSubmit, disabled }: FormCardProps) {
   return (
     <View className="gap-4">
       {body}
+      {CONTEXT_FORMS.includes(form) ? (
+        <Field label="在哪里做？（可多选，不选 = 随处可执行）">
+          <View className="flex-row flex-wrap gap-2">
+            {contexts.map((context) => (
+              <ContextChip
+                key={context.id}
+                name={context.name}
+                active={fields.contextIds.includes(context.id)}
+                onPress={() => toggleContext(context.id)}
+              />
+            ))}
+          </View>
+        </Field>
+      ) : null}
       <Button
         label={form === 'trash' ? '确认删除' : '保存'}
         onPress={onSubmit}
         disabled={disabled}
       />
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The preview step (design §3.2.7) — the confirmation phase of the
+// PREVIEW_FORMS: the submission was built at the form step (no db write);
+// 确认保存 submits it, 上一步修改 restores the form (fields preserved).
+// ---------------------------------------------------------------------------
+
+function PreviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View className="flex-row items-start justify-between gap-2">
+      <Text className="w-16 shrink-0 font-sans text-xs text-muted dark:text-muted-dark">{label}</Text>
+      <Text className="flex-1 text-right font-sans text-xs font-medium text-ink dark:text-ink-dark">
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+interface PreviewCardProps {
+  state: Extract<WizardState, { step: 'preview' }>;
+  /** context id → display name (for the read-only chips). */
+  contextNames: Map<string, string>;
+  now: Date;
+  disabled: boolean;
+  onConfirm: () => void;
+  onBack: () => void;
+}
+
+function PreviewCard({ state, contextNames, now, disabled, onConfirm, onBack }: PreviewCardProps) {
+  const { form, fields, twoMinute } = state;
+  const deadlineIso = fields.deadline !== '' ? endOfLocalDayIso(fields.deadline) : null;
+  const startsAtIso =
+    form === 'calendar' ? composeLocalDateTimeIso(fields.startsAtDate, fields.startsAtTime) : null;
+  const contextNamesSelected = fields.contextIds
+    .map((contextId) => contextNames.get(contextId))
+    .filter((name): name is string => name !== undefined);
+  const projectTitle = state.projectTitle ?? (form === 'project' ? fields.projectTitle : null);
+  const value = form === 'project' ? fields.projectValue : fields.value;
+
+  return (
+    <View className="gap-4">
+      <Question title="决策摘要预览 · 归位就绪" />
+      <View className="gap-2.5 rounded-xl bg-canvas p-3 dark:bg-canvas-dark">
+        {projectTitle !== null ? <PreviewRow label="所属项目" value={projectTitle} /> : null}
+        <PreviewRow label="标题" value={form === 'action' || form === 'project' ? fields.actionTitle : fields.title} />
+        <View className="flex-row items-center justify-between gap-2">
+          <Text className="w-16 shrink-0 font-sans text-xs text-muted dark:text-muted-dark">执行情境</Text>
+          {contextNamesSelected.length === 0 ? (
+            <Text className="flex-1 text-right font-sans text-xs font-medium text-ink dark:text-ink-dark">
+              随处可执行
+            </Text>
+          ) : (
+            <View className="flex-1 flex-row flex-wrap justify-end gap-1.5">
+              {contextNamesSelected.map((name) => (
+                <ContextChip key={name} name={name} />
+              ))}
+            </View>
+          )}
+        </View>
+        {fields.estMinutes !== null ? (
+          <PreviewRow label="预计耗时" value={`${fields.estMinutes} 分钟`} />
+        ) : null}
+        {form === 'calendar' ||
+        form === 'project' ||
+        (form === 'action' && !twoMinute) ? (
+          <PreviewRow label="价值" value={String(value)} />
+        ) : null}
+        {startsAtIso !== null ? (
+          <PreviewRow label="开始" value={formatLocalDateTime(startsAtIso)} />
+        ) : null}
+        {deadlineIso !== null ? (
+          <PreviewRow label="截止" value={formatDueLabel(deadlineIso, now)} />
+        ) : null}
+      </View>
+      <View className="gap-2.5">
+        <Button label="确认保存" onPress={onConfirm} disabled={disabled} />
+        <Button label="上一步修改" variant="secondary" onPress={onBack} disabled={disabled} />
+      </View>
     </View>
   );
 }
@@ -600,7 +1001,7 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
     return (
       <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
         <Card className="items-center gap-3 py-8">
-          <Text className="text-base text-ink dark:text-ink-dark">缺少参数，无法打开</Text>
+          <Text className="font-sans text-base text-ink dark:text-ink-dark">缺少参数，无法打开</Text>
           <Button label="返回" variant="secondary" onPress={() => router.back()} />
         </Card>
       </View>
@@ -615,7 +1016,7 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
     return (
       <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
         <Card className="items-center gap-3 py-8">
-          <Text className="text-base text-ink dark:text-ink-dark">
+          <Text className="font-sans text-base text-ink dark:text-ink-dark">
             这个行动不能重新明晰（习惯请编辑习惯本身）
           </Text>
           <Button label="返回" variant="secondary" onPress={() => router.back()} />
@@ -632,7 +1033,7 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
     return (
       <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
         <Card className="items-center gap-3 py-8">
-          <Text className="text-base text-ink dark:text-ink-dark">{errorMessage(error)}</Text>
+          <Text className="font-sans text-base text-ink dark:text-ink-dark">{errorMessage(error)}</Text>
           <Button label="返回" variant="secondary" onPress={() => router.back()} />
         </Card>
       </View>
@@ -643,7 +1044,7 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
     return (
       <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
         <Card className="items-center py-8">
-          <Text className="text-base text-ink dark:text-ink-dark">加载中…</Text>
+          <Text className="font-sans text-base text-ink dark:text-ink-dark">加载中…</Text>
         </Card>
       </View>
     );
@@ -653,7 +1054,7 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
     return (
       <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
         <Card className="items-center gap-3 py-8">
-          <Text className="text-base text-ink dark:text-ink-dark">
+          <Text className="font-sans text-base text-ink dark:text-ink-dark">
             {isReclarify ? '这个行动不存在了' : '这条收件箱记录不存在了'}
           </Text>
           <Button label="返回" variant="secondary" onPress={() => router.back()} />
@@ -670,6 +1071,8 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
       actionKind={actionKind}
       defaultTitle={title}
       currentProjectId={isReclarify ? action.projectId : null}
+      capturedAt={isReclarify ? null : (inbox.item?.capturedAt ?? null)}
+      initialContextIds={isReclarify ? action.contextIds : []}
     />
   );
 }

@@ -1,15 +1,22 @@
 /**
- * Inbox screen tests — the R1 capture → Clarify handoff
- * (design.md §6: 记一条问一条).
+ * Inbox screen tests — the R1 capture → Clarify handoff (design §2: 记一条问一条)
+ * + the Paper Serenity row rework.
  *
- * Both capture paths (quick-capture modal + inline bar) must funnel through
- * the same handoff: save → the modal closes → the Clarify wizard opens for
- * the new item; and the one-shot `recapture=1` route param (from the
- * wizard's "再记一条") reopens the modal and clears itself.
+ * Both capture paths (quick-capture modal + inline capture card) must funnel
+ * through the same handoff: save → the modal closes → the Clarify wizard
+ * opens for the new item; and the one-shot `recapture=1` route param (from
+ * the wizard's "再记一条") reopens the modal and clears itself.
+ *
+ * Row rework (design §2): relative capture time from the app clock, the
+ * warning-colored "优先澄清" meta for captures older than 24h (the text
+ * itself is the signal), and the "处理 →" button (same navigation as the
+ * row title).
  *
  * The PowerSync layer is mocked at the package boundary (same shell mocks
  * as tabs.smoke.test.tsx); `addInboxItem` returns the item so the mutation
- * hook resolves to it (PRD R1).
+ * hook resolves to it (PRD R1). List rows come from the static
+ * `mockQueryResult.data` (set per test BEFORE render — `useQuery` returns
+ * the same object reference).
  */
 jest.mock('@nextdo/db', () => {
   const compilable = () => ({
@@ -32,6 +39,7 @@ jest.mock('@nextdo/db', () => {
     }),
     subscribeAppStream: async () => undefined,
     wrapDb: () => ({}),
+    seedDefaultContexts: async () => 0,
     isReactNativeRuntime: () => false,
     queryEnginePool: async () => ({ actions: [], calendar: [], projects: [] }),
     poolTriggerWatchQuery: compilable,
@@ -55,6 +63,23 @@ jest.mock('@nextdo/db', () => {
   };
 });
 
+// The static watch-query result — the inbox list renders from
+// `mockQueryResult.data` (the `@powersync/react` mock's `useQuery` returns
+// this same object reference). Set it BEFORE renderRouter.
+const mockQueryResult: {
+  data: InboxItem[];
+  isLoading: boolean;
+  isFetching: boolean;
+  error: undefined;
+  refresh: () => Promise<void>;
+} = {
+  data: [],
+  isLoading: false,
+  isFetching: false,
+  error: undefined,
+  refresh: async () => undefined,
+};
+
 jest.mock('@powersync/react', () => {
   const React = jest.requireActual('react');
   const powersync = {
@@ -62,18 +87,10 @@ jest.mock('@powersync/react', () => {
     connect: () => Promise.resolve(undefined),
     close: async () => undefined,
   };
-  // Stable identity across renders (see tabs.smoke.test.tsx).
-  const queryResult = {
-    data: [],
-    isLoading: false,
-    isFetching: false,
-    error: undefined,
-    refresh: async () => undefined,
-  };
   return {
     PowerSyncContext: React.createContext(powersync),
     usePowerSync: () => powersync,
-    useQuery: () => queryResult,
+    useQuery: () => mockQueryResult,
     useStatus: () => ({ status: 'synced', isSynced: true }),
   };
 });
@@ -82,23 +99,32 @@ import { act, fireEvent, renderRouter, screen, waitFor } from 'expo-router/testi
 import { router } from 'expo-router';
 import { Modal } from 'react-native';
 import { addInboxItem } from '@nextdo/db';
+import type { InboxItem } from '@nextdo/core';
 
 const mockedAddInboxItem = addInboxItem as jest.Mock;
 
+const HOUR_MS = 60 * 60 * 1000;
+
+function inboxItem(id: string, title: string, capturedAt: string): InboxItem {
+  return { id, createdAt: capturedAt, updatedAt: capturedAt, deletedAt: null, title, capturedAt };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockQueryResult.data = [];
 });
 
 describe('Inbox screen — R1 capture → Clarify handoff', () => {
-  it('inline bar: save → the Clarify wizard opens for the new item', async () => {
+  it('inline capture card: save → the Clarify wizard opens for the new item', async () => {
     const view = renderRouter('app', { initialUrl: '/(tabs)/inbox' });
     await act(async () => {});
 
-    // The launch modal is open by default — dismiss it to reach the bar.
+    // The launch modal is open by default — dismiss it to reach the card.
     fireEvent.press(screen.getByText('稍后再说'));
 
-    // The inline input (its full placeholder differs from the modal's).
-    const input = screen.getByPlaceholderText('记下任何事…（回车保存）');
+    // The inline capture input (its full placeholder differs from the modal's).
+    const input = screen.getByPlaceholderText('有什么事情占据着你现在的注意力？');
+    expect(screen.getByText('支持自然输入，待会儿逐个澄清')).toBeTruthy();
     fireEvent.changeText(input, '内联捕获');
     fireEvent(input, 'submitEditing');
 
@@ -149,13 +175,63 @@ describe('Inbox screen — R1 capture → Clarify handoff', () => {
     await act(async () => {});
 
     fireEvent.press(screen.getByText('稍后再说'));
-    const input = screen.getByPlaceholderText('记下任何事…（回车保存）');
+    const input = screen.getByPlaceholderText('有什么事情占据着你现在的注意力？');
     fireEvent.changeText(input, '会失败的捕获');
     fireEvent(input, 'submitEditing');
 
     await act(async () => {});
     expect(view.getPathname()).toBe('/inbox');
     // The draft is kept for a retry.
-    expect(screen.getByPlaceholderText('记下任何事…（回车保存）').props.value).toBe('会失败的捕获');
+    expect(screen.getByPlaceholderText('有什么事情占据着你现在的注意力？').props.value).toBe(
+      '会失败的捕获',
+    );
+  });
+});
+
+describe('Inbox screen — Paper Serenity rows (design §2)', () => {
+  // The screen's clock is the fake system time pinned at render — both rows
+  // are built relative to it, so the 24h comparison is deterministic.
+  function renderWithTwoRows() {
+    const t = Date.now();
+    mockQueryResult.data = [
+      inboxItem('inbox-old', '两天前记下的事', new Date(t - 48 * HOUR_MS).toISOString()),
+      inboxItem('inbox-fresh', '刚刚记下的事', new Date(t - 10 * 60 * 1000).toISOString()),
+    ];
+    const view = renderRouter('app', { initialUrl: '/(tabs)/inbox' });
+    fireEvent.press(screen.getByText('稍后再说'));
+    return view;
+  }
+
+  it('shows the 清空大脑 header, the 记录并澄清 CTA and the 待处理 count', async () => {
+    renderWithTwoRows();
+    await act(async () => {});
+    expect(screen.getByText('清空大脑')).toBeTruthy();
+    expect(screen.getByText('先记下来，不用现在想清楚。')).toBeTruthy();
+    expect(screen.getByText('记录并澄清')).toBeTruthy();
+    // The count row is the mockup's 待处理 control: label + a solid count badge.
+    expect(screen.getByText('待处理')).toBeTruthy();
+    expect(screen.getByText('2')).toBeTruthy();
+    expect(screen.getByText('GTD 澄清心法')).toBeTruthy();
+  });
+
+  it('captures older than 24h carry the 优先澄清 meta; fresh ones do not', async () => {
+    renderWithTwoRows();
+    await act(async () => {});
+
+    expect(screen.getByText('两天前记下的事')).toBeTruthy();
+    expect(screen.getByText('刚刚记下的事')).toBeTruthy();
+    // Exactly one row carries the warning meta (the 48h one).
+    expect(screen.getAllByText(/优先澄清/)).toHaveLength(1);
+    // The fresh row's meta is the relative time only (10 分钟前).
+    expect(screen.getByText('10 分钟前')).toBeTruthy();
+  });
+
+  it('the row 处理 → button opens the Clarify wizard for that item', async () => {
+    const view = renderWithTwoRows();
+    await act(async () => {});
+
+    fireEvent.press(screen.getAllByText('处理 →')[1]!);
+
+    await waitFor(() => expect(view.getPathname()).toBe('/clarify/inbox-fresh'));
   });
 });

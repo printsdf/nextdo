@@ -11,6 +11,8 @@
     "test": "jest"
   },
   "dependencies": {
+    "@expo-google-fonts/epilogue": "0.4.2",
+    "@expo-google-fonts/plus-jakarta-sans": "0.4.2",
     "@nextdo/core": "workspace:*",
     "@nextdo/db": "workspace:*",
     "@nextdo/ui": "workspace:*",
@@ -19,6 +21,7 @@
     "@powersync/react-native": "2.2.1",
     "@powersync/web": "2.3.1",
     "expo": "57.0.24",
+    "expo-font": "57.0.4",
     "expo-router": "57.0.22",
     "expo-secure-store": "57.0.4",
     "nativewind": "4.2.7",

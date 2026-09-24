@@ -48,6 +48,7 @@ jest.mock('@nextdo/db', () => {
     }),
     subscribeAppStream: async () => undefined,
     wrapDb: () => ({}),
+    seedDefaultContexts: async () => 0,
     isReactNativeRuntime: () => false,
     listFocusSessions: async (_db: unknown, options?: { actionId?: string }) =>
       mockState.sessions.filter((s) => options?.actionId === undefined || s.actionId === options.actionId),

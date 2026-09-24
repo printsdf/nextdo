@@ -5,6 +5,9 @@
  * every required-field interception (Chinese messages), the do-now
  * immediate path, the two-minute prefill, the re-clarify entry (Q2, no
  * Q1 field), and the projectId three-state in the action submission.
+ * Plus design §3.1: depth/answered progression along the full chains,
+ * the preview round-trip (form → preview → back → preview), and the
+ * contextIds prefill + submission (three form branches × two modes).
  */
 import {
   buildDoNowSubmission,
@@ -15,6 +18,8 @@ import {
   endOfLocalDayIso,
   outcomeLabel,
   validateForm,
+  PREVIEW_FORMS,
+  PROGRESS_MAX,
   type FormFields,
   type WizardState,
 } from './clarify-flow';
@@ -36,6 +41,16 @@ function fill(fields: FormFields, patch: Partial<FormFields>): FormFields {
 
 const hm = (date: Date): string =>
   `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
+/** The q2→…→q5 walk into the plain action form (shared by the
+ *  depth/answered and the context-prefill suites). */
+const TO_ACTION_FORM = [
+  { type: 'answer-q2', multipleSteps: false },
+  { type: 'answer-q2b', choice: 'none' },
+  { type: 'answer-q3', twoMinutes: false },
+  { type: 'answer-q4', myResponsibility: true },
+  { type: 'answer-q5', fixedTime: false },
+] as const;
 
 describe('createWizardState', () => {
   it('clarify starts at q1', () => {
@@ -144,6 +159,7 @@ describe('outcome 4 — project (q2 yes → 项目 + 首个行动)', () => {
       projectValue: 4,
       actionTitle: TITLE,
       estMinutes: 45,
+      contextIds: [],
     });
   });
 });
@@ -210,6 +226,7 @@ describe('buildFormSubmission — the projectId three-state (action form)', () =
       deadline: '',
       startsAtDate: '',
       startsAtTime: '',
+      contextIds: [],
     },
     { estMinutes: 20 },
   );
@@ -444,7 +461,7 @@ describe('reducer mechanics', () => {
     expect(updated.step === 'form' ? updated.error : null).toBeNull();
   });
 
-  it('the done step is terminal', () => {
+  it('the done step is terminal (base fields — depth/answered — are carried over)', () => {
     const form = formState(
       walkTo(createWizardState('clarify', TITLE), { type: 'answer-q1', actionable: false }, {
         type: 'answer-q1b',
@@ -453,7 +470,18 @@ describe('reducer mechanics', () => {
     );
     const result = { outcome: { kind: 'someday' } as const, createdIds: ['id-1'] };
     const done = clarifyReducer(form, { type: 'done', result });
-    expect(done).toEqual({ mode: 'clarify', defaultTitle: TITLE, step: 'done', result });
+    expect(done).toEqual({
+      mode: 'clarify',
+      defaultTitle: TITLE,
+      initialContextIds: [],
+      depth: 2,
+      answered: [
+        { id: 'q1', question: '可以变成下一步行动吗？', answer: '不行' },
+        { id: 'q1b', question: '那它更接近哪一类？', answer: '有空再说' },
+      ],
+      step: 'done',
+      result,
+    });
     expect(clarifyReducer(done, { type: 'answer-q1', actionable: true })).toBe(done);
   });
 });
@@ -474,6 +502,7 @@ describe('validateForm edge cases', () => {
     deadline: '',
     startsAtDate: '',
     startsAtTime: '',
+    contextIds: [],
   };
 
   it('intercepts an empty title on every form', () => {
@@ -521,6 +550,262 @@ describe('date composition helpers', () => {
     expect(composeLocalDateTimeIso('2026-09-25', '25:00')).toBeNull();
     expect(composeLocalDateTimeIso('2026-09-25', '9:5')).toBeNull();
     expect(composeLocalDateTimeIso('2026-09-25', '')).toBeNull();
+  });
+});
+
+describe('depth + answered + preview (design §3.1)', () => {
+  it('creates depth 0 / answered [] / initialContextIds [] (both modes)', () => {
+    for (const mode of ['clarify', 'reclarify'] as const) {
+      const state = createWizardState(mode, TITLE);
+      expect(state.depth).toBe(0);
+      expect(state.answered).toEqual([]);
+      expect(state.initialContextIds).toEqual([]);
+    }
+  });
+
+  it('increments depth and records each answer along q1→q2→q2b→q3→q4→q5→form', () => {
+    let state = createWizardState('clarify', TITLE);
+
+    state = clarifyReducer(state, { type: 'answer-q1', actionable: true });
+    expect(state.step).toBe('q2');
+    expect(state.depth).toBe(1);
+    expect(state.answered).toEqual([
+      { id: 'q1', question: '可以变成下一步行动吗？', answer: '可以，是行动' },
+    ]);
+
+    state = clarifyReducer(state, { type: 'answer-q2', multipleSteps: false });
+    expect(state.step).toBe('q2b');
+    expect(state.depth).toBe(2);
+    expect(state.answered.at(1)).toEqual({
+      id: 'q2',
+      question: '需要多个步骤才能完成吗？',
+      answer: '否，一步能完成',
+    });
+
+    state = clarifyReducer(state, { type: 'answer-q2b', choice: 'none' });
+    expect(state.step).toBe('q3');
+    expect(state.depth).toBe(3);
+    expect(state.answered.at(2)).toEqual({
+      id: 'q2b',
+      question: '它属于哪个项目？',
+      answer: '不属于项目',
+    });
+
+    state = clarifyReducer(state, { type: 'answer-q3', twoMinutes: false });
+    expect(state.step).toBe('q4');
+    state = clarifyReducer(state, { type: 'answer-q4', myResponsibility: true });
+    expect(state.step).toBe('q5');
+    state = clarifyReducer(state, { type: 'answer-q5', fixedTime: false });
+    expect(state.step).toBe('form');
+    expect(state.depth).toBe(6);
+    // The form step is clarify's 7th step (n = depth + 1, PRD D5).
+    expect(state.depth + 1).toBe(PROGRESS_MAX.clarify);
+    expect(state.answered.map((entry) => entry.id)).toEqual(['q1', 'q2', 'q2b', 'q3', 'q4', 'q5']);
+  });
+
+  it('the reclarify chain reaches the form at depth 5 (n = 6 = PROGRESS_MAX.reclarify)', () => {
+    const state = walkTo(createWizardState('reclarify', TITLE), ...TO_ACTION_FORM);
+    expect(state.step).toBe('form');
+    expect(state.depth).toBe(5);
+    expect(state.depth + 1).toBe(PROGRESS_MAX.reclarify);
+    expect(state.answered.map((entry) => entry.id)).toEqual(['q2', 'q2b', 'q3', 'q4', 'q5']);
+  });
+
+  it('records the q1b branch answers (the tapped button text)', () => {
+    const s1 = clarifyReducer(createWizardState('clarify', TITLE), { type: 'answer-q1', actionable: false });
+    expect(s1.step).toBe('q1b');
+    expect(s1.answered).toEqual([{ id: 'q1', question: '可以变成下一步行动吗？', answer: '不行' }]);
+    const s2 = clarifyReducer(s1, { type: 'answer-q1b', kind: 'reference' });
+    expect(s2.step).toBe('form');
+    expect(s2.depth).toBe(2);
+    expect(s2.answered.at(1)).toEqual({
+      id: 'q1b',
+      question: '那它更接近哪一类？',
+      answer: '资料（留个参考）',
+    });
+  });
+
+  it('records the q2b attach answer as the project title', () => {
+    const atQ2b = walkTo(
+      createWizardState('clarify', TITLE),
+      { type: 'answer-q1', actionable: true },
+      { type: 'answer-q2', multipleSteps: false },
+    );
+    const state = clarifyReducer(atQ2b, {
+      type: 'answer-q2b',
+      choice: 'attach',
+      projectId: 'p-1',
+      projectValue: 4,
+      projectTitle: '毕业论文实验',
+    });
+    expect(state.step).toBe('form');
+    expect(state.depth).toBe(3);
+    expect(state.answered.at(2)).toEqual({
+      id: 'q2b',
+      question: '它属于哪个项目？',
+      answer: '毕业论文实验',
+    });
+  });
+
+  it('do-now (q3b direct submit) records its answer at the done dispatch', () => {
+    const atQ3b = walkTo(
+      createWizardState('clarify', TITLE),
+      { type: 'answer-q1', actionable: true },
+      { type: 'answer-q2', multipleSteps: false },
+      { type: 'answer-q2b', choice: 'none' },
+      { type: 'answer-q3', twoMinutes: true },
+    );
+    expect(atQ3b.step).toBe('q3b');
+    expect(atQ3b.depth).toBe(4);
+    const done = clarifyReducer(atQ3b, {
+      type: 'done',
+      result: { outcome: { kind: 'do-now-completed' }, createdIds: ['r1'] },
+    });
+    expect(done.step).toBe('done');
+    expect(done.depth).toBe(5);
+    expect(done.answered.at(-1)).toEqual({
+      id: 'q3b',
+      question: '现在就做掉吗？',
+      answer: '是，现在就做完',
+    });
+  });
+
+  it('preview round-trip: form → preview → back → preview keeps fields; depth/answered unchanged', () => {
+    const atForm = formState(
+      walkTo(
+        createWizardState('clarify', TITLE),
+        { type: 'answer-q1', actionable: true },
+        ...TO_ACTION_FORM,
+      ),
+    );
+    const withEst = clarifyReducer(atForm, { type: 'field', field: 'estMinutes', value: 20 });
+    const filled = formState(withEst);
+    const submission = buildFormSubmission('clarify', 'action', filled.fields, false);
+
+    const preview = clarifyReducer(filled, { type: 'preview', submission });
+    expect(preview.step).toBe('preview');
+    if (preview.step !== 'preview') throw new Error('unreachable');
+    expect(preview.submission).toBe(submission);
+    expect(preview.fields).toBe(filled.fields);
+    expect(preview.depth).toBe(6);
+    expect(preview.answered).toHaveLength(6);
+
+    const back = clarifyReducer(preview, { type: 'back-to-form' });
+    expect(back.step).toBe('form');
+    if (back.step !== 'form') throw new Error('unreachable');
+    expect(back.fields).toBe(filled.fields);
+    expect(back.depth).toBe(6);
+    expect(back.answered).toEqual(preview.answered);
+
+    // A second round-trip is idempotent.
+    const again = clarifyReducer(back, { type: 'preview', submission });
+    expect(again.step).toBe('preview');
+    if (again.step === 'preview') {
+      expect(again.submission).toBe(submission);
+      expect(again.fields).toBe(filled.fields);
+    }
+  });
+
+  it('preview is ignored on non-form steps (state returned unchanged)', () => {
+    const atQ2 = walkTo(createWizardState('clarify', TITLE), { type: 'answer-q1', actionable: true });
+    expect(clarifyReducer(atQ2, { type: 'preview', submission: buildDoNowSubmission('clarify') })).toBe(atQ2);
+  });
+
+  it('PREVIEW_FORMS = action / project / calendar / waiting', () => {
+    expect([...PREVIEW_FORMS]).toEqual(['action', 'project', 'calendar', 'waiting']);
+  });
+});
+
+describe('contextIds in the submission (design §3.1)', () => {
+  const base = (contextIds: string[]): FormFields => ({
+    title: TITLE,
+    url: '',
+    note: '',
+    waitingOn: '导师',
+    expectedBy: '',
+    projectTitle: TITLE,
+    projectOutcome: '跑完 baseline',
+    projectValue: 3,
+    actionTitle: TITLE,
+    estMinutes: 20,
+    value: 3,
+    deadline: '',
+    startsAtDate: '2026-09-25',
+    startsAtTime: '09:00',
+    contextIds,
+  });
+
+  it('action form: contextIds into the target (clarify + reclarify, multi-select)', () => {
+    expect(buildFormSubmission('clarify', 'action', base(['c1', 'c2']), false).target.contextIds).toEqual([
+      'c1',
+      'c2',
+    ]);
+    expect(buildFormSubmission('reclarify', 'action', base(['c1', 'c2']), false).target.contextIds).toEqual([
+      'c1',
+      'c2',
+    ]);
+  });
+
+  it('action form: an empty array is written as-is (随处可执行)', () => {
+    expect(buildFormSubmission('clarify', 'action', base([]), false).target.contextIds).toEqual([]);
+    expect(buildFormSubmission('reclarify', 'action', base([]), false).target.contextIds).toEqual([]);
+  });
+
+  it('calendar form: contextIds into the target (clarify + reclarify)', () => {
+    expect(buildFormSubmission('clarify', 'calendar', base(['c1']), false).target.contextIds).toEqual(['c1']);
+    expect(buildFormSubmission('reclarify', 'calendar', base(['c1']), false).target.contextIds).toEqual(['c1']);
+  });
+
+  it('project form: contextIds into the first action (clarify + reclarify)', () => {
+    expect(buildFormSubmission('clarify', 'project', base(['c1', 'c2']), false).target.contextIds).toEqual([
+      'c1',
+      'c2',
+    ]);
+    expect(buildFormSubmission('reclarify', 'project', base(['c1', 'c2']), false).target.contextIds).toEqual([
+      'c1',
+      'c2',
+    ]);
+  });
+
+  it('reference / someday / trash targets stay context-free (branches unchanged)', () => {
+    const reference = buildFormSubmission('clarify', 'reference', base(['c1']), false);
+    expect('contextIds' in reference.target).toBe(false);
+    const someday = buildFormSubmission('clarify', 'someday', base(['c1']), false);
+    expect('contextIds' in someday.target).toBe(false);
+    const trash = buildFormSubmission('clarify', 'trash', base(['c1']), false);
+    expect('contextIds' in trash.target).toBe(false);
+  });
+});
+
+describe('reclarify context prefill (createWizardState third argument)', () => {
+  const toActionForm = (state: WizardState): WizardState => walkTo(state, ...TO_ACTION_FORM);
+
+  it('prefills the existing action contextIds into the form fields', () => {
+    const state = toActionForm(createWizardState('reclarify', TITLE, ['c-office', 'c-phone']));
+    expect(formState(state).fields.contextIds).toEqual(['c-office', 'c-phone']);
+  });
+
+  it('does not alias the passed-in array', () => {
+    const initial = ['c1'];
+    const state = toActionForm(createWizardState('reclarify', TITLE, initial));
+    initial.push('c2');
+    expect(formState(state).fields.contextIds).toEqual(['c1']);
+  });
+
+  it('defaults to an empty array (clarify entry)', () => {
+    // clarify starts at q1 — answer it first, then walk the q2→form chain
+    // (the reclarify entry re-enters at q2, so it can use `toActionForm`
+    // directly; clarify cannot).
+    const state = walkTo(createWizardState('clarify', TITLE), { type: 'answer-q1', actionable: true }, ...TO_ACTION_FORM);
+    expect(formState(state).fields.contextIds).toEqual([]);
+  });
+
+  it('the field action replaces the context selection and clears a previous error', () => {
+    const atForm = formState(toActionForm(createWizardState('reclarify', TITLE, ['c1'])));
+    const withError = clarifyReducer(atForm, { type: 'form-error', error: '请选择开始日期和时间' });
+    const updated = clarifyReducer(withError, { type: 'field', field: 'contextIds', value: ['c2', 'c3'] });
+    expect(formState(updated).fields.contextIds).toEqual(['c2', 'c3']);
+    expect(formState(updated).error).toBeNull();
   });
 });
 

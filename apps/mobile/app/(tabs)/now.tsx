@@ -1,23 +1,26 @@
 /**
- * The Now tab (design.md §4.1 — PRD R4): the execution screen.
+ * The Now tab (design §5 — Paper Serenity rework, PRD D2 hero-first):
  *
  *   engine-context bar (scene chips from contexts + time chips, persisted
- *   via secure-store) → the ONE recommendation (kind / est / 项目·截止 /
- *   Why this? top-3) → [开始] (prominent primary) / [换一个] + [稍后]
- *   (secondary toolbar) → re-clarify banner (consecutiveSkips ≥ threshold)
- *   → "稍后 N 个可执行事项" (expandable) → today's habit strip.
+ *   via secure-store) → re-clarify banner → STATS ROW (可执行 n/总 ·
+ *   预计耗时 Σ est · 认知负荷 三档) → the ONE recommendation (hero:
+ *   kind / est / 项目·截止 / Why this? top-3 / 开始 / 换一个 / 稍后) →
+ *   CONTEXT FILTER chips (local UI state — list area only, NEVER the
+ *   hero) → the eligible list (always expanded) → today's habit strip.
  *
  * Presentational only: data arrives from `useNow` (+ contexts / habit-days
  * hooks); every mutation goes through a mutation hook (component-
  * guidelines). The 1-second focus tick does NOT live here — the screen
- * runs on the minute app clock (hook-guidelines Rule 4).
+ * runs on the minute app clock (hook-guidelines Rule 4). The engine
+ * context (bar) and the list filter (chips) are two INDEPENDENT state
+ * sets: the filter never touches the recommendation (state-management).
  */
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
-import { Button, Card, EmptyState, Tag } from '@nextdo/ui';
+import { Button, Card, ContextChip, EmptyState, Tag } from '@nextdo/ui';
 import type { CandidateKind } from '@nextdo/core';
-import { useNow, shouldOfferReclarify } from '@/hooks/use-now';
+import { useNow, shouldOfferReclarify, type NowEligible } from '@/hooks/use-now';
 import { useAppClock } from '@/hooks/use-app-clock';
 import { useSkipAction } from '@/hooks/use-skip-action';
 import { useSnoozeAction } from '@/hooks/use-snooze-action';
@@ -28,9 +31,10 @@ import { useHabitDays } from '@/hooks/use-habit-days';
 import { useProjectTitles } from '@/hooks/use-project-titles';
 import { useEngineContextSettings, type EngineContextSettings } from '@/lib/engine-context';
 import { errorMessage } from '@/lib/error-messages';
+import { cognitiveLoadLabel } from '@/lib/cognitive-load';
 import { FILTER_RULE_LABELS, REASON_LABELS } from '@/lib/reason-labels';
 import { KIND_LABELS } from '@/lib/kind-labels';
-import { formatLocalDate, formatLocalDateTime } from '@/lib/format';
+import { formatLocalDate, formatLocalDateTime, formatDueLabel } from '@/lib/format';
 import { SnoozeSheet } from '@/components/snooze-sheet';
 
 const TIME_CHIPS = [15, 30, 60, 120];
@@ -74,7 +78,7 @@ function EngineContextBar({
   return (
     <Card className="gap-3 p-3.5">
       <View>
-        <Text className="mb-2 text-xs font-semibold text-muted dark:text-muted-dark">
+        <Text className="mb-2 font-sans text-xs font-semibold text-muted dark:text-muted-dark">
           当前场景
         </Text>
         <View className="flex-row flex-wrap gap-2">
@@ -108,7 +112,7 @@ function EngineContextBar({
         </View>
       </View>
       <View>
-        <Text className="mb-2 text-xs font-semibold text-muted dark:text-muted-dark">
+        <Text className="mb-2 font-sans text-xs font-semibold text-muted dark:text-muted-dark">
           可用时间（分钟）
         </Text>
         <View className="flex-row flex-wrap items-center gap-2">
@@ -154,8 +158,8 @@ function Chip({
       <Text
         className={
           active
-            ? 'text-xs font-semibold text-on-accent dark:text-on-accent-dark'
-            : 'text-xs font-medium text-ink dark:text-ink-dark'
+            ? 'font-sans text-xs font-semibold text-on-accent dark:text-on-accent-dark'
+            : 'font-sans text-xs font-medium text-ink dark:text-ink-dark'
         }
       >
         {label}
@@ -182,63 +186,63 @@ function CustomMinutesInput({ onApply }: { onApply: (minutes: number) => void })
   );
 }
 
-/** The "稍后 N 个可执行事项" expandable list (design.md §4.1.5). */
-function EligibleList({
-  entries,
+/** One stats cell of the stats row (small muted label + value). */
+function StatsCell({ label, value }: { label: string; value: string }) {
+  return (
+    <View className="flex-1 items-center gap-0.5 px-1 py-2">
+      <Text className="font-sans text-xs text-muted dark:text-muted-dark">{label}</Text>
+      <Text className="font-sans text-base font-semibold text-ink dark:text-ink-dark">{value}</Text>
+    </View>
+  );
+}
+
+/** One always-visible eligible row (design §5): title + project chip +
+ *  read-only context chips + due label + 稍后/删除. */
+function ActionRow({
+  entry,
+  now,
+  projectName,
+  contextName,
   onSnooze,
   onTrash,
 }: {
-  entries: { id: string; kind: CandidateKind; title: string; estMinutes: number }[];
-  onSnooze: (kind: CandidateKind, id: string) => void;
-  onTrash: (kind: CandidateKind, id: string) => void;
+  entry: NowEligible;
+  now: Date;
+  projectName: string | undefined;
+  contextName: (id: string) => string;
+  onSnooze: () => void;
+  onTrash: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const action = entry.action;
   return (
-    <Card className="p-3.5">
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`稍后 ${entries.length} 个可执行事项`}
-        onPress={() => setExpanded((value) => !value)}
-        className="min-h-[44px] flex-row items-center justify-between py-1"
-      >
-        <Text className="text-sm font-medium text-ink dark:text-ink-dark">
-          稍后 {entries.length} 个可执行事项
+    <Card className="gap-2 p-3.5">
+      <View className="flex-row items-start gap-2">
+        <View className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-accent/60 dark:bg-accent-dark/60" />
+        <Text className="flex-1 font-sans text-base font-medium text-ink dark:text-ink-dark">
+          {action.title}
         </Text>
-        <Text className="text-xs font-semibold text-muted dark:text-muted-dark">
-          {expanded ? '收起 ▲' : '展开 ▼'}
-        </Text>
-      </Pressable>
-      {expanded ? (
-        <View className="mt-3 gap-2.5">
-          {entries.map((entry) => (
-            <View
-              key={entry.id}
-              className="flex-row items-center gap-2 rounded-xl bg-canvas p-2.5 dark:bg-canvas-dark"
-            >
-              <View className="flex-1">
-                <Text className="text-sm font-medium text-ink dark:text-ink-dark">
-                  {entry.title}
-                </Text>
-                <Text className="mt-0.5 text-xs text-muted dark:text-muted-dark">
-                  {entry.estMinutes} 分钟
-                </Text>
-              </View>
-              <Button
-                size="sm"
-                label="稍后"
-                variant="ghost"
-                onPress={() => onSnooze(entry.kind, entry.id)}
-              />
-              <Button
-                size="sm"
-                label="删除"
-                variant="ghost"
-                onPress={() => onTrash(entry.kind, entry.id)}
-              />
-            </View>
-          ))}
+      </View>
+      <View className="flex-row flex-wrap items-center gap-1.5">
+        {projectName !== undefined ? <Tag label={projectName} /> : null}
+        {action.contextIds.map((id) => (
+          <ContextChip key={id} name={contextName(id)} />
+        ))}
+        <View className="ml-auto flex-row items-center gap-1">
+          {action.kind === 'calendar' && action.startsAt !== undefined ? (
+            <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+              开始 {formatLocalDateTime(action.startsAt)}
+            </Text>
+          ) : action.deadline !== undefined ? (
+            <Tag label={formatDueLabel(action.deadline, now)} tone="warning" />
+          ) : (
+            <Text className="font-sans text-xs text-muted dark:text-muted-dark">随时</Text>
+          )}
         </View>
-      ) : null}
+      </View>
+      <View className="flex-row justify-end gap-2">
+        <Button size="sm" label="稍后" variant="ghost" onPress={onSnooze} />
+        <Button size="sm" label="删除" variant="ghost" onPress={onTrash} />
+      </View>
     </Card>
   );
 }
@@ -255,12 +259,16 @@ export default function NowScreen() {
   const { complete, error: completeError } = useCompleteAction();
   const { days, habitTitles, error: habitError } = useHabitDays(now);
   const projectTitles = useProjectTitles();
+  const { data: contexts } = useContexts();
   const [snoozeTarget, setSnoozeTarget] = useState<{ kind: CandidateKind; id: string } | null>(null);
   // Rotation (spec: `eligible` backs "换一个"): the ONE displayed action is
   // the first eligible entry not yet skipped in this view cycle. The skip
   // counter is persisted by the skip transaction (banner at ≥ 3); the
   // engine itself is a pure function and never re-ranks on skips.
   const [skippedViewIds, setSkippedViewIds] = useState<string[]>([]);
+  // The LIST-AREA context filter (design §5): independent from the engine
+  // context above — it only trims the list, never the hero recommendation.
+  const [selectedContextIds, setSelectedContextIds] = useState<string[]>([]);
 
   const mutationError = skipError ?? snoozeError ?? trashError ?? completeError ?? habitError;
 
@@ -269,6 +277,27 @@ export default function NowScreen() {
     eligible.find((entry) => !skippedViewIds.includes(entry.action.id)) ??
     eligible[0] ??
     null;
+
+  // Stats row: eligible vs total pool, Σ est minutes, the load band.
+  const totalCount = eligible.length + (data?.filtered.length ?? 0);
+  const totalEst = eligible.reduce((sum, entry) => sum + entry.action.estMinutes, 0);
+
+  // Context-less actions are runnable ANYWHERE: they survive every filter
+  // selection.
+  const visible = eligible.filter(
+    (entry) =>
+      selectedContextIds.length === 0 ||
+      entry.action.contextIds.length === 0 ||
+      entry.action.contextIds.some((id) => selectedContextIds.includes(id)),
+  );
+
+  const toggleFilterContext = (contextId: string) =>
+    setSelectedContextIds((prev) =>
+      prev.includes(contextId) ? prev.filter((id) => id !== contextId) : [...prev, contextId],
+    );
+
+  const contextName = (id: string) =>
+    contexts?.find((entry) => entry.id === id)?.name ?? id;
 
   const handleSkip = () => {
     if (displayed === null) return;
@@ -299,15 +328,17 @@ export default function NowScreen() {
 
   return (
     <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
-      {/* iOS Large Title Header */}
-      <Text className="mb-4 text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">
+      {/* Header */}
+      <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
         现在
       </Text>
 
-      <EngineContextBar settings={settings} update={update} />
+      <View className="mt-4">
+        <EngineContextBar settings={settings} update={update} />
+      </View>
 
       {mutationError !== null ? (
-        <Text className="mt-2 text-sm text-danger">{errorMessage(mutationError)}</Text>
+        <Text className="mt-2 font-sans text-sm text-danger">{errorMessage(mutationError)}</Text>
       ) : null}
 
       <View className="mt-3 gap-3.5">
@@ -317,30 +348,16 @@ export default function NowScreen() {
           <EmptyState title="加载中…" />
         ) : data.poolEmpty ? (
           <EmptyState title="执行池是空的" hint="去收件箱捕获一条，这里会排好你接下来该做的事。" />
-        ) : displayed === null ? (
-          <EmptyState title="没有任何适合当前场景与时间的行动" hint="试试切换上面的场景或时间。">
-            {data.filtered.length > 0 ? (
-              <View className="mt-4 w-full gap-1">
-                <Text className="text-xs font-semibold text-muted dark:text-muted-dark">
-                  被过滤的事项：
-                </Text>
-                {data.filtered.map((entry) => (
-                  <Text key={entry.action.id} className="text-sm text-muted dark:text-muted-dark">
-                    • {entry.action.title} — {FILTER_RULE_LABELS[entry.rule]}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
-          </EmptyState>
         ) : (
           <>
             {/* Habits are not re-clarifiable (db: reclarify.unsupported-kind —
              * habits are edited on the habit itself) — the banner offers the
              * re-clarify wizard only for next/calendar actions. */}
-            {displayed.action.kind !== 'habit' &&
+            {displayed !== null &&
+            displayed.action.kind !== 'habit' &&
             shouldOfferReclarify(displayed.action.consecutiveSkips) ? (
               <Card className="border-warning bg-warning/10 p-3.5">
-                <Text className="text-sm font-medium text-ink dark:text-ink-dark">
+                <Text className="font-sans text-sm font-medium text-ink dark:text-ink-dark">
                   这个任务已连续跳过 {displayed.action.consecutiveSkips} 次 — 重新明确下一步？
                 </Text>
                 <View className="mt-2.5">
@@ -356,92 +373,156 @@ export default function NowScreen() {
               </Card>
             ) : null}
 
-            {/* Recommendation Hero Card */}
-            <Card className="p-4">
-              <View className="mb-2.5 flex-row items-center gap-2">
-                <Tag label={KIND_LABELS[displayed.action.kind]} tone="accent" />
-                {displayed.action.estMinutes > 0 ? (
-                  <Tag label={`${displayed.action.estMinutes} 分钟`} tone="neutral" />
-                ) : null}
-              </View>
-              <Text className="text-xl font-bold tracking-tight text-ink dark:text-ink-dark">
-                {displayed.action.title}
-              </Text>
-              {subtitleParts.length > 0 ? (
-                <Text className="mt-1.5 text-xs text-muted dark:text-muted-dark">
-                  {subtitleParts.join(' · ')}
-                </Text>
-              ) : null}
+            {/* Stats row (design §5) */}
+            <Card className="flex-row items-stretch px-1">
+              <StatsCell label="可执行" value={`${eligible.length}/${totalCount} 项`} />
+              <StatsCell label="预计耗时" value={`${totalEst} 分钟`} />
+              <StatsCell label="认知负荷" value={cognitiveLoadLabel(totalEst)} />
+            </Card>
 
-              {displayed.reasons.length > 0 ? (
-                <View className="mt-3.5 rounded-xl bg-canvas p-3 dark:bg-canvas-dark">
-                  <Text className="mb-1 text-xs font-semibold text-muted dark:text-muted-dark">
-                    为什么是它？
-                  </Text>
-                  <View className="gap-1">
-                    {displayed.reasons.slice(0, 3).map((reason) => (
+            {displayed === null ? (
+              <EmptyState title="没有任何适合当前场景与时间的行动" hint="试试切换上面的场景或时间。">
+                {data.filtered.length > 0 ? (
+                  <View className="mt-4 w-full gap-1">
+                    <Text className="font-sans text-xs font-semibold text-muted dark:text-muted-dark">
+                      被过滤的事项：
+                    </Text>
+                    {data.filtered.map((entry) => (
                       <Text
-                        key={`${reason.type}-${reason.code}`}
-                        className="text-xs text-ink/80 dark:text-ink-dark/80"
+                        key={entry.action.id}
+                        className="font-sans text-sm text-muted dark:text-muted-dark"
                       >
-                        • {REASON_LABELS[reason.code]}
+                        • {entry.action.title} — {FILTER_RULE_LABELS[entry.rule]}
                       </Text>
                     ))}
                   </View>
-                </View>
-              ) : null}
-            </Card>
+                ) : null}
+              </EmptyState>
+            ) : (
+              <>
+                {/* Recommendation Hero Card */}
+                <Card className="p-4">
+                  <View className="mb-2.5 flex-row items-center gap-2">
+                    <Tag label={KIND_LABELS[displayed.action.kind]} tone="accent" />
+                    {displayed.action.estMinutes > 0 ? (
+                      <Tag label={`${displayed.action.estMinutes} 分钟`} tone="neutral" />
+                    ) : null}
+                  </View>
+                  <Text className="font-display text-xl font-bold tracking-tight text-ink dark:text-ink-dark">
+                    {displayed.action.title}
+                  </Text>
+                  {subtitleParts.length > 0 ? (
+                    <Text className="mt-1.5 font-sans text-xs text-muted dark:text-muted-dark">
+                      {subtitleParts.join(' · ')}
+                    </Text>
+                  ) : null}
 
-            {/* Restructured Action Button Hierarchy: Prominent Primary + Spacious Secondary Toolbar */}
-            <View className="gap-2.5">
-              <Button
-                size="lg"
-                label="开始"
-                className="w-full shadow-sm"
-                onPress={() =>
-                  router.push(`/focus/${displayed.action.id}?kind=${displayed.action.kind}`)
-                }
-              />
-              <View className="flex-row gap-3">
-                <View className="flex-1">
+                  {displayed.reasons.length > 0 ? (
+                    <View className="mt-3.5 rounded-xl bg-canvas p-3 dark:bg-canvas-dark">
+                      <Text className="mb-1 font-sans text-xs font-semibold text-muted dark:text-muted-dark">
+                        为什么是它？
+                      </Text>
+                      <View className="gap-1">
+                        {displayed.reasons.slice(0, 3).map((reason) => (
+                          <Text
+                            key={`${reason.type}-${reason.code}`}
+                            className="font-sans text-xs text-ink/80 dark:text-ink-dark/80"
+                          >
+                            • {REASON_LABELS[reason.code]}
+                          </Text>
+                        ))}
+                      </View>
+                    </View>
+                  ) : null}
+                </Card>
+
+                {/* Restructured Action Button Hierarchy: Prominent Primary + Spacious Secondary Toolbar */}
+                <View className="gap-2.5">
                   <Button
-                    label="换一个"
-                    variant="secondary"
-                    className="w-full"
-                    onPress={handleSkip}
-                  />
-                </View>
-                <View className="flex-1">
-                  <Button
-                    label="稍后"
-                    variant="secondary"
-                    className="w-full"
+                    size="lg"
+                    label="开始"
+                    className="w-full shadow-sm"
                     onPress={() =>
-                      setSnoozeTarget({ kind: displayed.action.kind, id: displayed.action.id })
+                      router.push(`/focus/${displayed.action.id}?kind=${displayed.action.kind}`)
                     }
                   />
+                  <View className="flex-row gap-3">
+                    <View className="flex-1">
+                      <Button
+                        label="换一个"
+                        variant="secondary"
+                        className="w-full"
+                        onPress={handleSkip}
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <Button
+                        label="稍后"
+                        variant="secondary"
+                        className="w-full"
+                        onPress={() =>
+                          setSnoozeTarget({ kind: displayed.action.kind, id: displayed.action.id })
+                        }
+                      />
+                    </View>
+                  </View>
                 </View>
-              </View>
-            </View>
+
+                {/* Context filter chips (design §5 — list area only, the
+                 *  hero recommendation above is never filtered). */}
+                <View className="flex-row flex-wrap gap-2">
+                  <Chip
+                    label="全部"
+                    active={selectedContextIds.length === 0}
+                    onPress={() => setSelectedContextIds([])}
+                  />
+                  {(contexts ?? []).map((context) => (
+                    <Chip
+                      key={context.id}
+                      label={context.name}
+                      active={selectedContextIds.includes(context.id)}
+                      onPress={() => toggleFilterContext(context.id)}
+                    />
+                  ))}
+                </View>
+
+                {/* Eligible list (always expanded, design §5) */}
+                {visible.length === 0 ? (
+                  <EmptyState
+                    title="没有匹配当前情境的可执行事项"
+                    hint="换一批情境 chip，或点「全部」看所有可执行事项。"
+                  />
+                ) : (
+                  <View className="gap-2.5">
+                    {visible.map((entry) => (
+                      <ActionRow
+                        key={entry.action.id}
+                        entry={entry}
+                        now={now}
+                        projectName={
+                          entry.action.projectId !== undefined
+                            ? projectTitles[entry.action.projectId]
+                            : undefined
+                        }
+                        contextName={contextName}
+                        onSnooze={() =>
+                          setSnoozeTarget({ kind: entry.action.kind, id: entry.action.id })
+                        }
+                        onTrash={() =>
+                          void trash({ actionKind: entry.action.kind, actionId: entry.action.id })
+                        }
+                      />
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
           </>
         )}
 
-        {data !== null && data.eligible.length > 0 ? (
-          <EligibleList
-            entries={data.eligible.map((entry) => ({
-              id: entry.action.id,
-              kind: entry.action.kind,
-              title: entry.action.title,
-              estMinutes: entry.action.estMinutes,
-            }))}
-            onSnooze={(kind, id) => setSnoozeTarget({ kind, id })}
-            onTrash={(kind, id) => void trash({ actionKind: kind, actionId: id })}
-          />
-        ) : null}
-
         {days !== null && days.length > 0 ? (
           <Card className="p-3.5">
-            <Text className="mb-2 text-xs font-semibold text-muted dark:text-muted-dark">
+            <Text className="mb-2 font-sans text-xs font-semibold text-muted dark:text-muted-dark">
               今天习惯 {days.filter((day) => day.status === 'done').length}/{days.length}
             </Text>
             {openHabitDays.length > 0 ? (
@@ -455,7 +536,7 @@ export default function NowScreen() {
                     className="h-8 items-center justify-center rounded-full border border-border/80 bg-surface px-3.5 shadow-2xs dark:border-border-dark dark:bg-surface-dark"
                     onPress={() => void complete({ actionKind: 'habit', actionId: day.id })}
                   >
-                    <Text className="text-xs font-medium text-ink dark:text-ink-dark">
+                    <Text className="font-sans text-xs font-medium text-ink dark:text-ink-dark">
                       ✓ {habitTitles[day.habitId] ?? '习惯'}
                     </Text>
                   </Pressable>
