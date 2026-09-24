@@ -49,6 +49,42 @@
 - Touch targets ≥ 44×44 pt (use padding or `hitSlop` on compact visual elements, not smaller hit areas).
 - Color is never the only state signal (due/overdue gets an icon or text, not just red).
 
+## Forms (date/time)
+
+- The user never hand-types an ISO string: date/time fields open the
+  `DateTimePicker` modal (`apps/mobile/components/datetime-picker.tsx` —
+  pure RN, identical on all platforms including web). The community native
+  picker (`@react-native-community/datetimepicker`) renders NOTHING on web
+  and must not be introduced — the web build is the desktop surface.
+- Field values stay `'YYYY-MM-DD'` / `'HH:mm'` strings (the clarify-flow
+  contract); the picker's defaults come from the app clock (`now` prop).
+
+## Tag (packages/ui)
+
+- tone → palette (Paper Serenity solid warm fills, no alpha tints for
+  neutral/accent/warning): neutral = `surface-container` + muted;
+  accent = `secondary-fixed` + accent; warning = `tag-earth-3` amber;
+  danger = danger tint.
+- Optional `dot` (live-indicator dot, e.g. the 正在澄清 badge) and `count`
+  (solid circular count badge, e.g. the 待处理 control).
+
+## ContextChip / ProgressBar (packages/ui)
+
+- `ContextChip` (`packages/ui/src/components/context-chip.tsx`): the single
+  owner of the five earth-tone pairs (`tag-earth-N-bg/-text` in
+  `colors.json`). Tone is chosen by the exported pure `contextTone(name)`
+  (djb2 hash % 5) — deterministic, so user-created contexts get a stable
+  color too. The tone class string is applied to the container **and** the
+  `<Text>` (native runtimes do not cascade text styles). Two shapes: no
+  `onPress` = read-only row chip (`accessibilityRole="text"`); with
+  `onPress` = selector chip (role button, `active` adds an accent border,
+  hitSlop gives a 44pt target around the 22px visual pill).
+- `ProgressBar` (`packages/ui/src/components/progress-bar.tsx`): thin (h-1.5)
+  fully-rounded bar — accent fill on a border-color track; `value` is a
+  [0, 1] ratio clamped inside the component; exposes
+  `accessibilityRole="progressbar"` + `accessibilityValue` (width is never
+  the only signal).
+
 ## Forbidden
 
 - `console.*`, `alert()`, direct network calls, direct SQLite access in components.

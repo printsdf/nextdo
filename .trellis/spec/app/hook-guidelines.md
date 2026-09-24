@@ -36,7 +36,13 @@
 2. No hooks that take a component or a ref to a component.
 3. No `useEffect` whose only job is to sync a derived value — compute it in render.
 4. All time-sensitive logic receives `now` (from a single app-level clock hook,
-   `useNow()`, which ticks on a minute interval) — hooks do not call `Date.now()`.
+   `useAppClock()`, which ticks on a minute interval) — hooks do not call `Date.now()`.
+   When a derived value depends on `now` but its data comes from a PowerSync
+   watch (which fires only on row changes, never on clock ticks), keep the
+   derivation as a **pure helper that takes an injected `now`** and re-derive
+   it on the screen from the app clock — precedent: `isProjectStalled(card,
+   now)` in `use-project-cards.ts` (wraps the db-layer `isStalled` predicate;
+   the watch mapper must not tick).
 5. A hook must be safe to call unconditionally (rules of hooks); conditional logic goes
    inside the hook.
 6. PowerSync watch results: `@powersync/react` types `useQuery`'s `error` as
