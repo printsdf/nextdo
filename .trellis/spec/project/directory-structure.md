@@ -30,6 +30,10 @@ nextdo/
 │   │   └── app.json
 │   └── desktop/                  # Tauri v2 shell — loads the Expo Web build
 │       ├── src-tauri/            # Rust side: tauri.conf.json, src/{main,lib}.rs, icons, capabilities
+│       │                         #   release builds serve frontend-dist (bundle.resources)
+│       │                         #   from a loopback tiny_http server 127.0.0.1:52123 —
+│       │                         #   PowerSync's module worker needs a real http origin,
+│       │                         #   not the opaque tauri:// protocol (lib.rs module docs)
 │       └── README.md             # how the web build is wired in
 ├── packages/
 │   ├── core/                     # GTD domain model + Next Action Engine (pure TS, zero runtime deps)

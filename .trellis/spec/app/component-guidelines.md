@@ -59,6 +59,20 @@
 - Field values stay `'YYYY-MM-DD'` / `'HH:mm'` strings (the clarify-flow
   contract); the picker's defaults come from the app clock (`now` prop).
 
+## ConnectGate (auth threshold, `apps/mobile/components/connect-gate.tsx`)
+
+- The full-screen first-launch gate: rendered by the RootLayout while no
+  owner token is stored, or after the startup pre-check rejected a stored
+  token (prod-deploy R3). One input, one button, one inline error.
+- Presentational by contract: NO `packages/db` imports, NO network calls.
+  The RootLayout passes `onConnect`, which runs `fetchCredentialsOnce` +
+  `setOwnerToken` and maps the outcome to user-facing copy (token 不正确 /
+  连不上服务器). The gate never dismisses itself — the RootLayout's
+  owner-token subscription is the single owner of the auth state machine
+  and unmounts the gate on success.
+- `initialError` carries the pre-submit state (e.g. 「token 无效，请重新输入」
+  after a 401 pre-check); submit errors replace it inline, never throw.
+
 ## Tag (packages/ui)
 
 - tone → palette (Paper Serenity solid warm fills, no alpha tints for

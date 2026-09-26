@@ -68,7 +68,6 @@
 ## 桌面运行时修复（2026-09-25，实机验证阶段）
 
 首次 `tauri dev` 实机运行暴露 3 个运行时缺陷（单测/e2e 覆盖不到），已修复：
-
 1. **stronghold salt panic**：`tauri-plugin-stronghold` 写 salt 不建父目录 → 新机器上
    `Failed to write salt: NotFound` panic 掉整个进程。修复：`lib.rs` setup 里先
    `create_dir_all(app_local_data_dir)`。
@@ -86,3 +85,32 @@
 
 验证：cargo check ✓、mobile/db typecheck ✓、eslint ✓、db 190 + mobile 227 测试 ✓、
 实机 tauri dev 无 panic / 无字体错误 / salt 落 `~/Library/Application Support/com.nextdo.desktop/` ✓。
+
+## 桌面运行时修复（2026-09-26，release 构建阶段）
+
+第 4 个运行时缺陷：**release 构建下 PowerSync module worker 被 WebKit 拒绝**。
+PowerSync web 端把 SQLite 引擎跑在 `type: 'module'` web worker 里；WebKit 给
+`tauri://` 自定义协议的是 opaque origin，opaque origin 的 module worker 一律
+被 CORS 拒绝（`tauri dev` 走 http dev server 所以暴露不了，只有 release 的
+`frontendDist` 文件协议触发）。修复（未提交，待实机验证后提交）：
+
+1. **loopback 静态文件服务器**（`lib.rs`，`#[cfg(not(dev))]` 门控）：release
+   构建用 `tiny_http` 在 `127.0.0.1:52123` 提供 bundle（SPA fallback：无扩展名
+   路径回退 `index.html`；`..` 路径段一律 403；仅绑 127.0.0.1；端口被占时
+   500ms×20 重试——覆盖「旧实例还没退干净」的 mac 场景）。
+2. **`tauri.conf.json`**：`frontendDist` 改为 `http://127.0.0.1:52123`（与
+   `FRONTEND_PORT` 常量必须一致——一致才让 Tauri 把页面当 LOCAL origin，
+   IPC + capabilities 不变）；`beforeBuildCommand` 追加把 `mobile/dist` 拷到
+   `src-tauri/frontend-dist`；`bundle.resources` 打包 `frontend-dist`；
+   `app.windows` 清空。
+3. **窗口创建移入 `setup`**（label 必须保持 `main`——capabilities 按 label
+   授权）：服务器要先于窗口加载，config windows 在 setup 之前创建做不到；
+   `WebviewUrl::App("")` 在 dev 解析到 devUrl、release 解析到 frontendDist。
+4. 5 个 release-only 定义（`FRONTEND_PORT`/`FRONTEND_URL`/`start_frontend_server`
+   /`serve_file_request`/`mime_for`）加 `#[cfg(not(dev))]`，dev profile 零警告。
+5. `src-tauri/.gitignore` 忽略生成的 `frontend-dist` 拷贝。
+
+验证：`cargo check`（dev）✓ + `cargo check --release`（编译 release 代码路径）✓
+均零警告；根级门禁全绿（pnpm test 642 ✓ / typecheck ✓ / lint ✓ / e2e 7/7 ✓）。
+**待办：`tauri build` + 跑 release .app 实机验证（用户在 Mac 上，dev 模式
+验证不到该路径）。**

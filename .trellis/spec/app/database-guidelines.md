@@ -156,15 +156,52 @@ UI:
   `powersync.ts`), the connector reads it via `getOwnerToken()`, and
   dev/test injects it via `__setStorageBackendForTests`. No env-var fallback
   anywhere (client env values may end up in the build output).
-  **Known defect** (tracked in task 09-21-monorepo-scaffold,
-  implement.md "Known defects"): `createStrongholdStore()` calls APIs that do
-  not exist on `@tauri-apps/plugin-stronghold@2.3.2`; not caught by tests
-  (Jest runs on Node → in-memory store; the `require` is lazy) but will throw
-  in a real desktop runtime.
+  The stronghold store is written against the 2.3.2 **vault API** (unit-tested
+  with the plugin mocked to the `dist-js/index.d.ts` shapes; the original
+  draft targeted a file-based API that does not exist — fixed in task
+  09-24-prod-deploy-connect R4): `Stronghold.load(path, password)` →
+  `loadClient('nextdo')` (fallback `createClient` on first run) →
+  `getStore().get/insert/remove` + `vault.save()` after every mutation; lazy
+  promises cache the vault/store per app launch and are cleared on failure so
+  a transient error never poisons later reads. Runtime details fixed from real
+  desktop runs (same task):
+  - The snapshot **path** is an ABSOLUTE path returned by the Rust command
+    `stronghold_snapshot_path` (`apps/desktop/src-tauri/src/lib.rs`) — the
+    plugin resolves relative paths against the process cwd, which would drop
+    the vault into the source tree (dev) / the launcher's cwd (release). JS
+    invokes it through `__TAURI_INTERNALS__` — `packages/db` keeps no Tauri
+    dependency.
+  - The Rust `setup` runs `create_dir_all(app data dir)` BEFORE the plugin
+    initializes — the plugin writes its salt without creating the parent
+    dir and panics on a fresh machine.
+  - The snapshot **password** is a fixed constant: the Rust side already
+    initializes the plugin with Argon2 + an app-data-dir salt, so the JS
+    password only unlocks the vault ON THIS MACHINE. v1 is single-user: the
+    security boundary is "encrypted local file" (not cross-user secrecy). A
+    per-machine derived password is post-MVP.
+  - Single-key contract enforced in the store (only `OWNER_TOKEN_KEY`; other
+    keys: `getItem` → null, `setItem` → `StorageNextdoError`).
+  - In-session 401 (token rotation) is **deferred**: the PowerSync v2 SDK
+    swallows `credentials.rejected` and retries internally, so a revoked
+    token is not detectable mid-session. Instead the app pre-validates the
+    stored token on startup with `fetchCredentialsOnce` (401 →
+    `clearOwnerToken()` + the connect gate re-asks; network error → offline
+    mode proceeds).
 - **Web/Tauri assembly**: the JS web client runs SQLite (wasm) inside a **web worker**.
   In this repo the worker + its wasm bundle are checked in as static assets under
   `apps/mobile/public/@powersync/` (`worker.js` + `assets/*.wasm`); the Expo Web
   build serves `public/` as-is, and Tauri loads the exported bundle.
+  **The release desktop build must load the bundle from a real http origin**:
+  WebKit gives the `tauri://` custom protocol an OPAQUE origin, and module
+  workers (`type: 'module'` — PowerSync's) are rejected from opaque origins.
+  Release builds therefore serve `frontend-dist` from a loopback `tiny_http`
+  server (`127.0.0.1:52123`, loopback-only, SPA fallback, path-traversal
+  guard); `tauri.conf.json` `frontendDist` points at it and MUST keep
+  matching the Rust `FRONTEND_PORT` — that match is what makes Tauri treat
+  the page as LOCAL (IPC + capabilities unchanged). The window is created in
+  `setup` (label stays `main` — capabilities grant by label) because the
+  server must be up before the window loads. Dev builds keep the Expo dev
+  server URL. See the module docs in `apps/desktop/src-tauri/src/lib.rs`.
   `apps/mobile/metro.config.js` stubs the *other* platform's PowerSync SDK to an
   empty module (`resolveRequest`) so each bundle only ever contains its own SDK.
 - **Platform adaptation**: `packages/db` is written once; `powersync.ts` selects the
@@ -307,11 +344,6 @@ file and reference it **by path** (strings survive serialization; babel
   `import.meta` (a parse-time SyntaxError under babel-jest's CJS output): the
   tests import the app module, so no file in the jest transform path may use
   `import.meta`.
-- **Tauri stronghold backend defect** (`owner-token.ts`): `createStrongholdStore()`
-  targets an API that does not exist on the installed
-  `@tauri-apps/plugin-stronghold@2.3.2` (Ristretto vault API). Not caught by
-  tests; will throw in a real desktop runtime. Tracked in implement.md
-  "Known defects" — the fix needs a vault-password strategy decision first.
 
 ## Forbidden
 
