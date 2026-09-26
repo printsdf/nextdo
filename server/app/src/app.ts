@@ -16,8 +16,19 @@
  * This module has NO side effects (no env reads, no server start): the
  * entry point (src/index.ts) owns those, so this module stays unit-
  * testable via `app.request()` with an injected pool + clock.
+ *
+ * CORS (prod-deploy task, design R5): the Hono app answers
+ * `access-control-allow-origin: *` for Origin-bearing requests — the
+ * Tauri desktop shell loads the web bundle from a file origin and
+ * fetches cross-origin. `*` is safe here: the owner token travels in
+ * the `Authorization` header, never in cookies, so the wildcard
+ * exposes no credentialed state. The PowerSync Service already sends
+ * `access-control-allow-origin: *` itself — only this backend needed it.
+ * Auth middleware stays AFTER the CORS middleware; the 401 matrix and
+ * endpoint behavior are unchanged.
  */
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { requireOwnerToken } from './auth.js';
 import { mintPowerSyncJwt } from './credentials.js';
 import { withTransaction, type DbPool } from './db.js';
@@ -39,6 +50,19 @@ export interface ServerConfig {
 export function createApp(config: ServerConfig): Hono {
   const now = config.now ?? (() => new Date());
   const app = new Hono();
+
+  // CORS first (before the auth middleware): every response to an
+  // Origin-bearing request — including the 401s — carries the
+  // access-control headers. The desktop webview needs `authorization`
+  // pre-approved for the preflight of /credentials + /upload.
+  app.use(
+    '*',
+    cors({
+      origin: '*',
+      allowHeaders: ['authorization', 'content-type'],
+      allowMethods: ['GET', 'POST', 'OPTIONS'],
+    }),
+  );
 
   app.get(
     '/credentials',

@@ -21,11 +21,11 @@ InboxItem
 │   │   └─ 否                    → Trash (InboxItem soft-deleted, no target row)
 │   └─ YES
 │       ├─ 2. 需要多个步骤吗？(Multiple steps?)
-│       │   ├─ YES → Project + its first NextAction, created ATOMICALLY in the same
-│       │   │       transaction. If the user aborts before both are confirmed,
-│       │   │       neither row exists (all-or-nothing; the InboxItem survives).
-│       │   └─ NO ↓
-│       ├─ 2b. 属于哪个已有项目？(Part of an existing project?)
+│       │   └─ YES / NO both continue to 2b. A multi-step item either
+│       │       attaches to an existing project (as one of its actions) or
+│       │       becomes a NEW project; a single-step item additionally gets
+│       │       the "不属于项目" option (the regular 3–5 chain).
+│       ├─ 2b. 属于哪个项目？(Part of which project?)
 │       │   ├─ <an existing ACTIVE project> → NextAction attached to it:
 │       │   │       `projectId` = the project's id; `value` defaults to the
 │       │   │       project's value (overridable in the action form).
@@ -36,8 +36,11 @@ InboxItem
 │       │   │       (db errors `clarify.project-not-found` /
 │       │   │       `clarify.project-not-active`; validated before the
 │       │   │       transaction — no partial writes).
-│       │   ├─ 新建项目 (New project) → the Project branch above (same form).
-│       │   └─ 不属于项目 (No project) ↓
+│       │   ├─ 新建项目 (New project) → Project + its first NextAction, created
+│       │   │       ATOMICALLY in the same transaction. If the user aborts
+│       │   │       before both are confirmed, neither row exists
+│       │   │       (all-or-nothing; the InboxItem survives).
+│       │   └─ 不属于项目 (No project) ↓ [single-step answers only]
 │       ├─ 3. 约 2 分钟内能完成吗？(Doable in ~2 min?)
 │       │   ├─ YES → DO NOW: the UI executes it immediately.
 │       │   │   • completed on the spot → CompletionRecord(action_kind="do_now",
@@ -148,13 +151,20 @@ External material (Proposal §4.3: v1 = links only). `title`, `url?`, `note?`.
 ### Context
 Named execution environments (Proposal §6.1). Seeded defaults: `home`, `office`,
 `computer`, `phone`, `outside`; user can add. Seeding implementation:
-`seedDefaultContexts(db, now)` (`packages/db/src/queries/contexts.ts`) — inserts
-the five defaults (id = `ulid(now)`) only when **no non-deleted context row
-exists**; otherwise a no-op returning 0 (a user who deletes all five is not
-re-seeded — user intent is respected). Idempotent. Called once at app start,
-after PowerSync init/stream (`apps/mobile/app/_layout.tsx` `start()`,
-non-fatal try/catch). Seed rows are ordinary user data — they ride the
-existing upload/sync path (no schema change).
+`seedDefaultContexts(pool)` (`server/app/src/seed.ts`) — the **single
+authoritative (server-side) writer**: at process start, BEFORE the HTTP server
+accepts `/upload`, it inserts the five defaults (id = `ulid(now)`) only when the
+`contexts` table holds **no row at all (live or soft-deleted)**; otherwise a
+no-op returning 0 (a user who deletes all five is not re-seeded — user intent is
+respected). Idempotent across restarts; non-fatal (a seed failure never blocks
+boot). **Why server-side**: client-side seeding was racy — two fresh client DBs
+could both see an empty remote, both seed, and upload two sets of defaults that
+then sync back to EVERY client as duplicate context tags. The server process is
+the single writer, so it cannot race. The client no longer seeds
+(`apps/mobile/app/_layout.tsx` only subscribes to the stream);
+`seedDefaultContexts(db, now)` in `packages/db/src/queries/contexts.ts` is
+retained for local/offline seeding and the db query tests. Seed rows are ordinary
+user data — they ride the existing sync stream to clients (no schema change).
 The user's current environments are a
 UI-layer declaration (mobile: **manual selection** — location-assisted context is
 post-MVP; desktop: `computer` + user selection) and are passed to the engine as

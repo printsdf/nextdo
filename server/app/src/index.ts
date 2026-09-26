@@ -18,6 +18,7 @@ import { pathToFileURL } from 'node:url';
 import { createApp } from './app.js';
 import { createPool } from './db.js';
 import { logger } from './logger.js';
+import { seedDefaultContexts } from './seed.js';
 
 /** Read the environment, refuse to boot on a missing secret, serve. */
 export async function main(): Promise<void> {
@@ -40,6 +41,16 @@ export async function main(): Promise<void> {
   }
 
   const pool = createPool(databaseUrl);
+  // Seed the default contexts on a FRESH database (domain-model.md "Context").
+  // SINGLE-WRITER (the server entry) — it cannot race the way client-side
+  // seeding did (two fresh clients seeding two sets of defaults). No-op when
+  // the table already holds any row. Non-fatal: a seed failure must not block
+  // startup — the user can create contexts in the UI, and the next boot retries.
+  try {
+    await seedDefaultContexts(pool);
+  } catch (error) {
+    logger.error('context seeding failed', error);
+  }
   const app = createApp({ pool, ownerToken, jwtSecret });
   serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`listening on :${info.port}`);

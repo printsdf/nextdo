@@ -1,0 +1,103 @@
+# Nextdo PRODUCTION stack — Postgres + PowerSync Service + Hono backend.
+#
+# Every service binds 127.0.0.1 ONLY. A same-host reverse proxy (Caddy or
+# nginx — see README.md) is the single public entrypoint and routes
+# /api/* → api:8787 and /sync/* → powersync:8080. The containers are never
+# exposed to the network directly.
+#
+# Run from server/deploy:
+#   cp .env.example .env      # fill in POSTGRES_*, NEXTDO_OWNER_TOKEN,
+#                             #   JWT_SECRET, PS_ADMIN_TOKEN (all required)
+#   docker compose up -d --build
+#
+# One Postgres, two databases: POSTGRES_DB (the app's source DB that the
+# /upload endpoint writes to) and nextdo_powersync (the PowerSync bucket
+# storage DB — name is FIXED by the init script, independent of
+# POSTGRES_DB). The init SQL is reused from the dev stack (relative path
+# ../powersync/init) and runs on first volume init only.
+#
+# JWT_SECRET is ONE secret shared by all three consumers: server/app signs
+# the /credentials PowerSync JWT with it, and the PowerSync service verifies
+# it (PS_JWT_SECRET in service.yaml, used verbatim as the HS256 JWK `k`).
+
+name: nextdo-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    # PowerSync's Postgres replication requires LOGICAL WAL decoding (the
+    # image default is `replica`). wal_level is a postmaster parameter, so
+    # the -c flag also applies to pre-existing volumes.
+    command: ['postgres', '-c', 'wal_level=logical']
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    ports:
+      # Same-host only — for psql debugging; the reverse proxy does not use
+      # this (it talks to api + powersync).
+      - '127.0.0.1:5432:5432'
+    volumes:
+      # First-init only (alphabetical): creates the PowerSync storage DB +
+      # the app tables /upload writes to. Reused from the dev stack — the
+      # schema stays in one place with the client.
+      - ../powersync/init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U "${POSTGRES_USER:-nextdo}" -d "${POSTGRES_DB:-nextdo}"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  powersync:
+    image: journeyapps/powersync-service:1.26.1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Same-host only — the reverse proxy routes /sync/* here.
+      - '127.0.0.1:8080:8080'
+    volumes:
+      # service.yaml + sync-config.yaml land in /config (the image's
+      # POWERSYNC_CONFIG_PATH convention). Reused from the dev stack — the
+      # sync rules + stream name are versioned with the app, not copied.
+      - ../powersync/service.yaml:/config/service.yaml:ro
+      - ../powersync/sync-config.yaml:/config/sync-config.yaml:ro
+    environment:
+      # WHERE the config file is — without this the service falls back to
+      # /app/powersync.yaml (missing) and exits(150).
+      POWERSYNC_CONFIG_PATH: /config/service.yaml
+      # Consumed by service.yaml's `!env` tags (PS_ prefix required).
+      PS_DATA_SOURCE_URI: postgresql://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}
+      # The storage DB name is FIXED at nextdo_powersync (created by
+      # init/01-create-storage-db.sql) — do NOT derive it from POSTGRES_DB.
+      PS_STORAGE_URI: postgresql://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/nextdo_powersync
+      PS_JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (base64url — same value server/app signs with)}
+      PS_ADMIN_TOKEN: ${PS_ADMIN_TOKEN:?set PS_ADMIN_TOKEN in .env}
+
+  api:
+    build:
+      # The Hono backend. Dockerfile convention: context = repo root (the
+      # committed lockfile drives a filtered install of only @nextdo/server).
+      context: ../..
+      dockerfile: server/app/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Same-host only — the reverse proxy routes /api/* here.
+      - '127.0.0.1:8787:8787'
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}
+      NEXTDO_OWNER_TOKEN: ${NEXTDO_OWNER_TOKEN:?set NEXTDO_OWNER_TOKEN in .env}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (same value PS_JWT_SECRET)}
+
+volumes:
+  pgdata:

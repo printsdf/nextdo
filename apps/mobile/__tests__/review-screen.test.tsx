@@ -56,7 +56,12 @@ jest.mock('@nextdo/db', () => {
   };
   return {
     createPowerSyncDatabase: () => powersync,
-    getOwnerToken: async () => null,
+    // Root auth gate (prod-deploy R3): a stored token that passes the
+    // startup pre-check, so the screen (not the ConnectGate) renders.
+    getOwnerToken: async () => 'test-owner-token',
+    fetchCredentialsOnce: async () => ({ ok: true, token: 'ps-service-jwt' }),
+    setOwnerToken: async () => undefined,
+    clearOwnerToken: async () => undefined,
     subscribeToOwnerTokenChange: () => () => undefined,
     createPowerSyncConnector: () => ({
       fetchCredentials: async () => null,

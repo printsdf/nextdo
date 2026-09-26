@@ -31,7 +31,12 @@ jest.mock('@nextdo/db', () => {
   };
   return {
     createPowerSyncDatabase: () => powersync,
-    getOwnerToken: async () => null,
+    // Root auth gate (prod-deploy R3): a stored token that passes the
+    // startup pre-check, so the screen (not the ConnectGate) renders.
+    getOwnerToken: async () => 'test-owner-token',
+    fetchCredentialsOnce: async () => ({ ok: true, token: 'ps-service-jwt' }),
+    setOwnerToken: async () => undefined,
+    clearOwnerToken: async () => undefined,
     subscribeToOwnerTokenChange: () => () => undefined,
     createPowerSyncConnector: () => ({
       fetchCredentials: async () => null,
@@ -191,19 +196,23 @@ describe('Inbox screen — R1 capture → Clarify handoff', () => {
 describe('Inbox screen — Paper Serenity rows (design §2)', () => {
   // The screen's clock is the fake system time pinned at render — both rows
   // are built relative to it, so the 24h comparison is deterministic.
-  function renderWithTwoRows() {
+  async function renderWithTwoRows() {
     const t = Date.now();
     mockQueryResult.data = [
       inboxItem('inbox-old', '两天前记下的事', new Date(t - 48 * HOUR_MS).toISOString()),
       inboxItem('inbox-fresh', '刚刚记下的事', new Date(t - 10 * 60 * 1000).toISOString()),
     ];
     const view = renderRouter('app', { initialUrl: '/(tabs)/inbox' });
+    // The root auth gate (prod-deploy R3) renders asynchronously — flush it
+    // before interacting, or '稍后再说' is not mounted yet (still the
+    // loading placeholder).
+    await act(async () => {});
     fireEvent.press(screen.getByText('稍后再说'));
     return view;
   }
 
   it('shows the 清空大脑 header, the 记录并澄清 CTA and the 待处理 count', async () => {
-    renderWithTwoRows();
+    await renderWithTwoRows();
     await act(async () => {});
     expect(screen.getByText('清空大脑')).toBeTruthy();
     expect(screen.getByText('先记下来，不用现在想清楚。')).toBeTruthy();
@@ -215,7 +224,7 @@ describe('Inbox screen — Paper Serenity rows (design §2)', () => {
   });
 
   it('captures older than 24h carry the 优先澄清 meta; fresh ones do not', async () => {
-    renderWithTwoRows();
+    await renderWithTwoRows();
     await act(async () => {});
 
     expect(screen.getByText('两天前记下的事')).toBeTruthy();
@@ -227,7 +236,7 @@ describe('Inbox screen — Paper Serenity rows (design §2)', () => {
   });
 
   it('the row 处理 → button opens the Clarify wizard for that item', async () => {
-    const view = renderWithTwoRows();
+    const view = await renderWithTwoRows();
     await act(async () => {});
 
     fireEvent.press(screen.getAllByText('处理 →')[1]!);

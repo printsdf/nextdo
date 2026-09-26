@@ -19,11 +19,15 @@ export interface MockPool {
 export interface MockPoolOptions {
   /** Make the next N `query` calls throw (a transient DB failure). */
   failNextQueries?: number;
+  /** Rows returned for SELECT queries (default: none — an empty table).
+   *  Non-SELECT statements always return `{ rows: [] }`, as in real pg. */
+  selectRows?: unknown[];
 }
 
 export function createMockPool(options?: MockPoolOptions): MockPool {
   const queries: RecordedQuery[] = [];
   let failures = options?.failNextQueries ?? 0;
+  const selectRows = options?.selectRows;
 
   const client: DbClient = {
     async query(text, values) {
@@ -32,7 +36,8 @@ export function createMockPool(options?: MockPoolOptions): MockPool {
         failures -= 1;
         throw new Error('mock transient pg failure');
       }
-      return { rows: [] };
+      const isSelect = text.trimStart().toUpperCase().startsWith('SELECT');
+      return { rows: isSelect ? (selectRows ?? []) : [] };
     },
     release() {
       // no-op

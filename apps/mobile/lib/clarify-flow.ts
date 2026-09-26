@@ -90,7 +90,11 @@ export type WizardState = WizardBase &
     | { step: 'q1' }
     | { step: 'q1b' }
     | { step: 'q2' }
-    | { step: 'q2b' }
+    /** Q2b carries the Q2 answer: multi-step items either attach to an
+     *  EXISTING project or become a NEW one — the UI hides the "不属于
+     *  项目" option for them (single-step items keep it and continue to
+     *  Q3). */
+    | { step: 'q2b'; multipleSteps: boolean }
     | { step: 'q3' }
     | { step: 'q3b' }
     | { step: 'q4' }
@@ -313,8 +317,13 @@ export function clarifyReducer(state: WizardState, action: WizardAction): Wizard
       return state;
     case 'q2':
       if (action.type === 'answer-q2') {
+        // Both answers walk Q2b (它属于哪个项目？): a multi-step item
+        // attaches to an EXISTING project or becomes a NEW one (新建项目
+        // → the project form); a single-step item additionally gets 不属
+        // 于项目 (the regular Q3 chain). The Q2 answer travels in the q2b
+        // state so the UI hides 不属于项目 for the multi-step case.
         const next = advanced(state, 'q2', action.multipleSteps ? '是，拆成项目' : '否，一步能完成');
-        return action.multipleSteps ? toForm(next, 'project', false, null) : { ...next, step: 'q2b' };
+        return { ...next, step: 'q2b', multipleSteps: action.multipleSteps };
       }
       return state;
     case 'q2b':

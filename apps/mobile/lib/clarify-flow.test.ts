@@ -130,11 +130,13 @@ describe('outcome 3 — trash (q1 no → 删除)', () => {
   });
 });
 
-describe('outcome 4 — project (q2 yes → 项目 + 首个行动)', () => {
-  const state = walkTo(createWizardState('clarify', TITLE), { type: 'answer-q1', actionable: true }, {
-    type: 'answer-q2',
-    multipleSteps: true,
-  });
+describe('outcome 4 — project (q2 yes → 新建项目 → 项目 + 首个行动)', () => {
+  const state = walkTo(
+    createWizardState('clarify', TITLE),
+    { type: 'answer-q1', actionable: true },
+    { type: 'answer-q2', multipleSteps: true },
+    { type: 'answer-q2b', choice: 'new-project' },
+  );
 
   it('intercepts a missing project outcome', () => {
     expect(validateForm('project', formState(state).fields)).toBe('请填写项目结果（"完成"是什么样）');
@@ -173,6 +175,49 @@ describe('outcome 8 — project attach (q2b → existing project)', () => {
 
   it('q2 no → q2b (the project question, not q3 anymore)', () => {
     expect(atQ2.step).toBe('q2b');
+    if (atQ2.step === 'q2b') expect(atQ2.multipleSteps).toBe(false);
+  });
+
+  it('q2 yes → q2b too (a multi-step item picks its project: attach / new)', () => {
+    const atQ2b = clarifyReducer(
+      clarifyReducer(createWizardState('clarify', TITLE), { type: 'answer-q1', actionable: true }),
+      { type: 'answer-q2', multipleSteps: true },
+    );
+    expect(atQ2b.step).toBe('q2b');
+    if (atQ2b.step === 'q2b') expect(atQ2b.multipleSteps).toBe(true);
+  });
+
+  it('q2 yes + new-project → the project form (the capture becomes the project)', () => {
+    const atQ2b = clarifyReducer(
+      clarifyReducer(createWizardState('clarify', TITLE), { type: 'answer-q1', actionable: true }),
+      { type: 'answer-q2', multipleSteps: true },
+    );
+    const state = clarifyReducer(atQ2b, { type: 'answer-q2b', choice: 'new-project' });
+    expect(formState(state).form).toBe('project');
+  });
+
+  it('q2 yes + attach → the action form carries the project (no new project created)', () => {
+    const atQ2b = clarifyReducer(
+      clarifyReducer(createWizardState('clarify', TITLE), { type: 'answer-q1', actionable: true }),
+      { type: 'answer-q2', multipleSteps: true },
+    );
+    const state = clarifyReducer(atQ2b, {
+      type: 'answer-q2b',
+      choice: 'attach',
+      projectId: 'p-2',
+      projectValue: 5,
+      projectTitle: '官网改版',
+    });
+    const form = formState(state);
+    expect(form.form).toBe('action');
+    expect(form.projectId).toBe('p-2');
+    expect(form.projectTitle).toBe('官网改版');
+    expect(form.fields.value).toBe(5);
+    // The submission is the project-attach encoding: NO new project
+    // (multipleSteps=false) + the existing project id — core classifies
+    // this as next-action/project-attach.
+    const submission = buildFormSubmission('clarify', 'action', form.fields, false, form.projectId);
+    expect(submission.answers).toMatchObject({ multipleSteps: false, projectId: 'p-2' });
   });
 
   it('none → q3 (the regular chain)', () => {
@@ -420,8 +465,12 @@ describe('outcome 7b — two-minute path (q3 yes)', () => {
 });
 
 describe('reclarify mode (q2 起)', () => {
-  it('walks q2 → project and its answers carry NO actionable field', () => {
-    const state = walkTo(createWizardState('reclarify', TITLE), { type: 'answer-q2', multipleSteps: true });
+  it('walks q2 → q2b → 新建项目 and its answers carry NO actionable field', () => {
+    const state = walkTo(
+      createWizardState('reclarify', TITLE),
+      { type: 'answer-q2', multipleSteps: true },
+      { type: 'answer-q2b', choice: 'new-project' },
+    );
     const form = formState(state);
     const fields = fill(form.fields, { projectOutcome: '新结果', estMinutes: 30 });
     const submission = buildFormSubmission('reclarify', 'project', fields, false);
@@ -432,7 +481,11 @@ describe('reclarify mode (q2 起)', () => {
 
   it('throws for the Q1-only forms (unreachable in reclarify)', () => {
     const fields = formState(
-      walkTo(createWizardState('reclarify', TITLE), { type: 'answer-q2', multipleSteps: true }),
+      walkTo(
+        createWizardState('reclarify', TITLE),
+        { type: 'answer-q2', multipleSteps: true },
+        { type: 'answer-q2b', choice: 'new-project' },
+      ),
     ).fields;
     expect(() => buildFormSubmission('reclarify', 'reference', fields, false)).toThrow();
     expect(() => buildFormSubmission('reclarify', 'someday', fields, false)).toThrow();

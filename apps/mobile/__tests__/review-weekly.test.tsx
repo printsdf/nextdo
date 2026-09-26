@@ -58,7 +58,12 @@ jest.mock('@nextdo/db', () => {
   };
   return {
     createPowerSyncDatabase: () => powersync,
-    getOwnerToken: async () => null,
+    // Root auth gate (prod-deploy R3): a stored token that passes the
+    // startup pre-check, so the screen (not the ConnectGate) renders.
+    getOwnerToken: async () => 'test-owner-token',
+    fetchCredentialsOnce: async () => ({ ok: true, token: 'ps-service-jwt' }),
+    setOwnerToken: async () => undefined,
+    clearOwnerToken: async () => undefined,
     subscribeToOwnerTokenChange: () => () => undefined,
     createPowerSyncConnector: () => ({
       fetchCredentials: async () => null,
@@ -105,7 +110,7 @@ jest.mock('@powersync/react', () => {
   };
 });
 
-import { fireEvent, renderRouter, screen, testRouter, waitFor } from 'expo-router/testing-library';
+import { act, fireEvent, renderRouter, screen, testRouter, waitFor } from 'expo-router/testing-library';
 import { addReviewRecord, trashSomedayMaybeItem, updateProject } from '@nextdo/db';
 
 const mockedUpdateProject = updateProject as jest.Mock;
@@ -119,9 +124,16 @@ const mockedAddReviewRecord = addReviewRecord as jest.Mock;
  * unhandled; expo-router then THROWS in test mode, which wedges RNTL's
  * fake-timer `waitFor` loop (the test would die on jest's 5s timeout).
  */
-function renderWeekly() {
+async function renderWeekly() {
   const view = renderRouter('app', { initialUrl: '/review' });
+  // The root auth gate (prod-deploy R3) renders asynchronously — flush it so
+  // /review actually loads before we push /review/weekly onto it (otherwise
+  // the submit's router.back() has no parent to pop to). The navigate itself
+  // is NOT act-wrapped: expo-router's test router asserts the pathname
+  // synchronously, and act() would batch the update past that assertion.
+  await act(async () => {});
   testRouter.navigate('/review/weekly');
+  await act(async () => {});
   return view;
 }
 
@@ -171,7 +183,7 @@ describe('weekly review — rendering', () => {
 
 describe('weekly review — submit', () => {
   it('lands the CHANGED decisions first and the record last', async () => {
-    const view = renderWeekly();
+    const view = await renderWeekly();
     await waitFor(() => expect(screen.getByText('本周回顾')).toBeTruthy());
 
     // p-1 → 已完成 (first row's chip), s-1 → 删除, inboxCleared → 是.
@@ -225,7 +237,7 @@ describe('weekly review — submit', () => {
   });
 
   it('a review with NO changes still writes the record, but runs no transactions', async () => {
-    renderWeekly();
+    await renderWeekly();
     await waitFor(() => expect(screen.getByText('本周回顾')).toBeTruthy());
 
     fireEvent.press(screen.getByText('提交回顾'));
@@ -243,7 +255,7 @@ describe('weekly review — submit', () => {
 
   it('a failed decision transaction STOPS the sequence — no record is written', async () => {
     mockedUpdateProject.mockRejectedValueOnce(new Error('boom'));
-    renderWeekly();
+    await renderWeekly();
     await waitFor(() => expect(screen.getByText('本周回顾')).toBeTruthy());
 
     fireEvent.press(screen.getAllByText('已完成')[0]!);

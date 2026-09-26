@@ -61,15 +61,19 @@ export async function trashContext(db: NextdoDb, args: { id: string; now: Date }
 }
 
 /**
- * Seed the default contexts on a FRESH database (design §6): when the
- * `contexts` table holds NO rows at all — live or soft-deleted — insert
- * the five spec defaults (ulid(now) ids, now timestamps) and return the
- * inserted count. ANY existing row is a no-op (returns 0): a user who
- * deleted all the seeds is not re-seeded (their intent is respected —
- * their soft-deleted rows still count as "existing"), and existing user
- * contexts are untouched. Idempotent — the app root layout calls it on
- * every launch (database-guidelines: the root layout is the documented
- * exception that imports `@nextdo/db`).
+ * Seed the default contexts on a FRESH database: when the `contexts` table
+ * holds NO rows at all — live or soft-deleted — insert the five spec
+ * defaults (ulid(now) ids, now timestamps) and return the inserted count.
+ * ANY existing row is a no-op (returns 0): a user who deleted all the seeds
+ * is not re-seeded (their intent is respected — their soft-deleted rows
+ * still count as "existing"), and existing user contexts are untouched.
+ * Idempotent.
+ *
+ * PRODUCTION SEEDING IS SERVER-SIDE (server/app/src/seed.ts, single-writer):
+ * the app root layout no longer calls this. Client-side seeding was racy —
+ * two fresh client DBs could both seed and upload two sets of defaults,
+ * which sync back to every client as duplicate context tags. This function
+ * is retained for local/offline seeding and the db query tests.
  */
 export async function seedDefaultContexts(db: NextdoDb, now: Date): Promise<number> {
   const anyRow = await db

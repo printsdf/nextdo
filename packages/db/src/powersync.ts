@@ -11,7 +11,7 @@
  * - `createPowerSyncConnector(config)` — the v2 connector the app passes
  *   to `powersync.connect(connector)`:
  *     * `fetchCredentials()` reads the owner token (owner-token.ts) and
- *       does `GET {backendUrl}/credentials` → `{ token, endpoint }`.
+ *       calls `fetchCredentialsOnce()` → `{ token, endpoint }`.
  *       Returns null when no owner token is stored (SDK: not signed in);
  *       throws on network failure / non-2xx (SDK retries).
  *     * `uploadData(database)` is invoked by the SDK in a loop — never
@@ -23,6 +23,13 @@
  *       rejections — error detail comes back via sync tables; only
  *       transient failures return 5xx). A non-2xx throws, which blocks
  *       the queue for the SDK's retry (official guidance).
+ * - `fetchCredentialsOnce(config, ownerToken)` — the ONE place the
+ *   `/credentials` wire protocol lives (Bearer GET + response token
+ *   check), exported as a pure function: the connector maps its result
+ *   back to the null/throw contract, and the app's ConnectGate + startup
+ *   pre-check (apps/mobile) call it directly — the PowerSync v2 SDK
+ *   swallows credential rejections in its retry loop, so token validity
+ *   is checked BEFORE `connect()` (prod-deploy design R3).
  *
  * Upload protocol (consumed by server/app `/upload`): the body is
  * `{ ops: [{ op, id, table, opData }] }` — one entry per ps_crud op
@@ -176,6 +183,11 @@ export function createPowerSyncDatabase(
  * Subscribe to the single v1 stream. The service declares it with
  * `auto_subscribe: true`, so this is a safeguard that keeps the stream
  * name in one place — the app calls it once after `connect()`.
+ *
+ * Resolves once the subscription is registered. (The default contexts are
+ * seeded SERVER-SIDE — server/app/src/seed.ts, single-writer — so the app
+ * no longer needs the subscription handle's `waitForFirstSync()` to gate a
+ * client-side seed.)
  */
 export async function subscribeAppStream(powersync: CommonPowerSyncDatabase): Promise<void> {
   await powersync.syncStream(SYNC_STREAM_NAME, {}).subscribe();
@@ -183,6 +195,57 @@ export async function subscribeAppStream(powersync: CommonPowerSyncDatabase): Pr
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The outcome of one `/credentials` round-trip (prod-deploy design R3).
+ * A discriminated union, NEVER a throw: the caller decides what each
+ * kind means (the connector maps it to its null/throw contract; the
+ * app's Gate maps it to user-facing errors).
+ *
+ * - `ok` — 2xx with a non-empty token string.
+ * - `rejected` — non-2xx (401 = wrong owner token; 5xx = server problem).
+ * - `invalid` — 2xx but the body is unparseable or has no token
+ *   (a server/protocol bug, distinct from a rejected token).
+ * - `network` — the fetch itself failed (offline / DNS / connection
+ *   refused); retryable. `detail` carries the underlying error message.
+ */
+export type FetchCredentialsOnceResult =
+  | { ok: true; token: string }
+  | { ok: false; kind: 'rejected'; status: number }
+  | { ok: false; kind: 'invalid' }
+  | { ok: false; kind: 'network'; detail?: string };
+
+/**
+ * One Bearer `GET {backendUrl}/credentials` + response-token check — the
+ * single owner of the wire protocol (see the file header for why the
+ * Gate + startup pre-check need this as a standalone function).
+ *
+ * Pure with respect to module state: takes the config + token, returns
+ * the outcome; the owner token is read by the CALLER (the connector
+ * reads it via `getOwnerToken()` so that the "no token → null" branch
+ * stays on the connector side).
+ */
+export async function fetchCredentialsOnce(
+  config: NextdoPowerSyncConfig,
+  ownerToken: string,
+): Promise<FetchCredentialsOnceResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${config.backendUrl}/credentials`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+  } catch (error) {
+    return { ok: false, kind: 'network', detail: errorMessage(error) };
+  }
+  if (!res.ok) {
+    return { ok: false, kind: 'rejected', status: res.status };
+  }
+  const data = (await res.json().catch(() => null)) as { token?: unknown } | null;
+  if (data === null || typeof data.token !== 'string' || data.token === '') {
+    return { ok: false, kind: 'invalid' };
+  }
+  return { ok: true, token: data.token };
 }
 
 /** Build the v2 connector for the injected config (see file header). */
@@ -198,32 +261,29 @@ export function createPowerSyncConnector(config: NextdoPowerSyncConfig): PowerSy
         // not connect() while this returns null (it disconnects instead).
         return null;
       }
-      let res: Response;
-      try {
-        res = await fetch(`${config.backendUrl}/credentials`, {
-          headers: { Authorization: `Bearer ${ownerToken}` },
-        });
-      } catch (error) {
+      // One round-trip via the shared protocol function (fetchCredentialsOnce
+      // never throws — each kind maps back to the SDK's contract below).
+      const result = await fetchCredentialsOnce(config, ownerToken);
+      if (result.ok) {
+        return { endpoint: config.endpoint, token: result.token };
+      }
+      if (result.kind === 'network') {
         // Network failure — temporary; the SDK retries with backoff.
         throw new SyncNextdoError(
           'credentials.network',
-          `GET /credentials failed: ${errorMessage(error)}`,
+          `GET /credentials failed: ${result.detail ?? 'network error'}`,
         );
       }
-      if (!res.ok) {
-        throw new SyncNextdoError(
-          'credentials.rejected',
-          `GET /credentials failed with status ${res.status}`,
-        );
-      }
-      const data = (await res.json().catch(() => null)) as { token?: unknown } | null;
-      if (data === null || typeof data.token !== 'string' || data.token === '') {
+      if (result.kind === 'invalid') {
         throw new SyncNextdoError(
           'credentials.invalid',
           'credential response is missing a token',
         );
       }
-      return { endpoint: config.endpoint, token: data.token };
+      throw new SyncNextdoError(
+        'credentials.rejected',
+        `GET /credentials failed with status ${result.status}`,
+      );
     },
 
     async uploadData(database: CommonPowerSyncDatabase): Promise<void> {

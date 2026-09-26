@@ -102,7 +102,12 @@ jest.mock('@nextdo/db', () => {
   };
   return {
     createPowerSyncDatabase: () => powersync,
-    getOwnerToken: async () => null,
+    // Root auth gate (prod-deploy R3): a stored token that passes the
+    // startup pre-check, so the screen (not the ConnectGate) renders.
+    getOwnerToken: async () => 'test-owner-token',
+    fetchCredentialsOnce: async () => ({ ok: true, token: 'ps-service-jwt' }),
+    setOwnerToken: async () => undefined,
+    clearOwnerToken: async () => undefined,
     subscribeToOwnerTokenChange: () => () => undefined,
     createPowerSyncConnector: () => ({
       fetchCredentials: async () => null,
@@ -151,7 +156,7 @@ jest.mock('@powersync/react', () => {
   };
 });
 
-import { fireEvent, renderRouter, screen, testRouter, waitFor } from 'expo-router/testing-library';
+import { act, fireEvent, renderRouter, screen, testRouter, waitFor } from 'expo-router/testing-library';
 import { addReviewRecord, completeAction, snoozeAction } from '@nextdo/db';
 
 const mockedCompleteAction = completeAction as jest.Mock;
@@ -179,9 +184,16 @@ function tomorrowAt8(): Date {
  * RNTL's fake-timer `waitFor` loop (the test dies on jest's 5s timeout even
  * though every assertion would pass).
  */
-function renderDaily() {
+async function renderDaily() {
   const view = renderRouter('app', { initialUrl: '/review' });
+  // The root auth gate (prod-deploy R3) renders asynchronously — flush it so
+  // /review actually loads before we push /review/daily onto it (otherwise
+  // the submit's router.back() has no parent to pop to). The navigate itself
+  // is NOT act-wrapped: expo-router's test router asserts the pathname
+  // synchronously, and act() would batch the update past that assertion.
+  await act(async () => {});
   testRouter.navigate('/review/daily');
+  await act(async () => {});
   return view;
 }
 
@@ -227,7 +239,7 @@ describe('daily review — rendering', () => {
 
 describe('daily review — submit', () => {
   it('lands the decision transactions FIRST and the record LAST, with the full answers', async () => {
-    const view = renderDaily();
+    const view = await renderDaily();
     await waitFor(() => expect(screen.getByText('未完成的行动（4）')).toBeTruthy());
 
     // a-1 → 已完成 · a-2 → 明日必做 · a-3 → 排期 2026-09-25 · a-4 → 跳过
@@ -283,7 +295,7 @@ describe('daily review — submit', () => {
   });
 
   it('an invalid reschedule date is rejected with a hint and never reaches the record', async () => {
-    renderDaily();
+    await renderDaily();
     await waitFor(() => expect(screen.getByText('未完成的行动（4）')).toBeTruthy());
 
     fireEvent.changeText(screen.getAllByPlaceholderText('排期到 YYYY-MM-DD（08:00）')[0]!, '2026-02-30');
@@ -300,7 +312,7 @@ describe('daily review — submit', () => {
 
   it('a failed decision transaction STOPS the sequence — no record is written', async () => {
     mockedCompleteAction.mockRejectedValueOnce(new Error('boom'));
-    renderDaily();
+    await renderDaily();
     await waitFor(() => expect(screen.getByText('未完成的行动（4）')).toBeTruthy());
 
     fireEvent.press(screen.getAllByText('已完成')[0]!);

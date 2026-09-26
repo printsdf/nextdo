@@ -37,7 +37,7 @@
  */
 import { useMemo, useReducer, useState, type Dispatch, type ReactNode } from 'react';
 import { router } from 'expo-router';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Button, Card, ContextChip, ProgressBar, Tag, cn } from '@nextdo/ui';
 import { DateTimePicker } from '@/components/datetime-picker';
 import {
@@ -363,6 +363,10 @@ export function WizardBody({
 
   return (
     <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
+      {/* The form steps can exceed the viewport (project / calendar forms
+       * on a 800px-tall desktop window, or the keyboard on phone) — the
+       * whole body scrolls, same pattern as the review screens. */}
+      <ScrollView className="flex-1" keyboardShouldPersistTaps="handled">
       {/* 1. header row: the back button + the status tag */}
       <View className="mb-3.5 flex-row items-center justify-between">
         <Button label="← 返回" variant="ghost" onPress={() => router.back()} />
@@ -468,6 +472,7 @@ export function WizardBody({
           <DecisionSummaryCard mode={state.mode} answered={state.answered} />
         </View>
       )}
+      </ScrollView>
     </View>
   );
 }
@@ -591,7 +596,14 @@ function QuestionCard({ state, dispatch, onDoNow, disabled, projects, currentPro
     case 'q2b':
       return (
         <View className="gap-4">
-          <Question title="它属于哪个项目？" sub="挂到已有项目下（价值默认跟随项目），或新建 / 不挂。" />
+          <Question
+            title="它属于哪个项目？"
+            sub={
+              state.multipleSteps
+                ? '挂到已有项目下作为一个行动（价值默认跟随项目），或由这件事新建项目。'
+                : '挂到已有项目下（价值默认跟随项目），或新建 / 不挂。'
+            }
+          />
           {projects.map((project) => (
             <Pressable
               key={project.id}
@@ -622,7 +634,9 @@ function QuestionCard({ state, dispatch, onDoNow, disabled, projects, currentPro
             </Pressable>
           ))}
           <Button label="新建项目" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q2b', choice: 'new-project' })} disabled={disabled} />
-          <Button label="不属于项目" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q2b', choice: 'none' })} disabled={disabled} />
+          {state.multipleSteps ? null : (
+            <Button label="不属于项目" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q2b', choice: 'none' })} disabled={disabled} />
+          )}
         </View>
       );
     case 'q3':

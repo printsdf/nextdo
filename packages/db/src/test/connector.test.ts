@@ -333,13 +333,13 @@ describe('connector.uploadData', () => {
 // ---------------------------------------------------------------------------
 
 describe('subscribeAppStream', () => {
-  it('subscribes to the single v1 stream name', async () => {
+  it('subscribes to the single v1 stream name (resolves void — the client no longer seeds)', async () => {
     const subscribe = jest.fn().mockResolvedValue({ unsubscribe: jest.fn() });
     const powersync = {
       syncStream: jest.fn().mockReturnValue({ subscribe }),
     } as unknown as CommonPowerSyncDatabase;
 
-    await subscribeAppStream(powersync);
+    await expect(subscribeAppStream(powersync)).resolves.toBeUndefined();
 
     expect(powersync.syncStream).toHaveBeenCalledWith(SYNC_STREAM_NAME, {});
     expect(subscribe).toHaveBeenCalledTimes(1);

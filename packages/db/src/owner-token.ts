@@ -22,7 +22,7 @@
  * `__setStorageBackendForTests`. The connector (powersync.ts) calls
  * `getOwnerToken()` — it never touches storage itself.
  */
-import { StorageNextdoError, ValidationNextdoError } from '@nextdo/core';
+import { logger, StorageNextdoError, ValidationNextdoError } from '@nextdo/core';
 import { isReactNativeRuntime } from './powersync';
 
 export interface KeyValueStore {
@@ -71,52 +71,142 @@ function createSecureStoreStore(): KeyValueStore {
   };
 }
 
-/** Encrypted local file (Tauri desktop) — the plugin is required lazily
- *  so plain Node / browser never loads the Tauri IPC bridge.
+/**
+ * Encrypted local file (Tauri desktop) — the plugin is required lazily
+ * so plain Node / browser never loads the Tauri IPC bridge.
  *
- *  KNOWN DEFECT (cannot be verified without a real Tauri build): the calls
- *  below target a file-based API (`init` / `createFile` / `readFile` /
- *  `writeFile` / `deleteFile`) that does NOT exist in the installed
- *  `@tauri-apps/plugin-stronghold@2.3.2`, whose real API is Ristretto's
- *  vault model (`Stronghold.load(path, password)` → `client.getStore()` →
- *  `store.insert/get/remove` + `stronghold.save()`). Jest never reaches this
- *  branch (plain Node → in-memory store), so the suite stays green; on a real
- *  desktop runtime it throws (and it sits on the `fetchCredentials` path via
- *  `getOwnerToken`). Rewrite against the 2.3.2 API as part of the
- *  runtime-owner-token task. */
+ * Written against the installed `@tauri-apps/plugin-stronghold@2.3.2`
+ * VAULT API (shapes from `dist-js/index.d.ts`):
+ *
+ *   Stronghold.load(snapshotPath, password)   // lazy, cached per store
+ *     → vault.loadClient('nextdo')            // existing snapshot
+ *     → vault.createClient('nextdo')          // first run (fallback)
+ *     → client.getStore().get / insert / remove
+ *     → await vault.save()                    // after EVERY insert/remove
+ *
+ * The snapshot path is an ABSOLUTE path returned by the Rust command
+ * `stronghold_snapshot_path` (apps/desktop/src-tauri/src/lib.rs) — the
+ * plugin resolves a relative path against the process cwd, which would
+ * drop the vault file into the source tree (dev) or the launcher's cwd
+ * (release). The command is invoked through the `__TAURI_INTERNALS__`
+ * bridge Tauri injects into the webview (no @tauri-apps/api import —
+ * packages/db keeps no Tauri dependency of its own).
+ *
+ * The earlier draft targeted a file-based API (`init`/`createFile`/
+ * `readFile`/`writeFile`/`deleteFile`) that does not exist in 2.3.2 —
+ * that was the KNOWN DEFECT; this rewrite is the fix (prod-deploy R4).
+ *
+ * Snapshot password is a FIXED CONSTANT (design R4 trade-off, recorded in
+ * the spec): the Rust side already initializes the plugin with Argon2 + an
+ * app-data-dir salt, so the JS password only unlocks the vault ON THIS
+ * MACHINE. v1 is single-user — the security boundary is "encrypted local
+ * file" (same class as any other local desktop app's data), not cross-user
+ * secrecy. A per-machine derived password is post-MVP.
+ *
+ * The vault is opened ONCE per store (the lazy promises below are
+ * cached); the store itself is the module singleton behind getBackend(),
+ * so in production the snapshot is loaded exactly once per app launch.
+ */
 function createStrongholdStore(): KeyValueStore {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Stronghold } = require('@tauri-apps/plugin-stronghold') as {
     Stronghold: {
-      init(): Promise<void>;
-      createFile(path: string, options?: { overwrite: boolean; permissions?: string }): Promise<void>;
-      writeFile(path: string, content: string): Promise<void>;
-      readFile(path: string): Promise<string>;
-      deleteFile(path: string): Promise<void>;
+      load(path: string, password: string): Promise<StrongholdVault>;
     };
   };
-  const FILE = 'nextdo/owner-token.txt';
-  let ready = false;
 
-  async function ensureReady(): Promise<void> {
-    if (!ready) {
-      await Stronghold.init();
-      ready = true;
-    }
+  /** The 2.3.2 vault surface this store uses (dist-js/index.d.ts). */
+  interface StrongholdVaultStore {
+    get(key: string): Promise<Uint8Array | null>;
+    insert(key: string, value: number[]): Promise<void>;
+    remove(key: string): Promise<Uint8Array | null>;
+  }
+  interface StrongholdVaultClient {
+    getStore(): StrongholdVaultStore;
+  }
+  interface StrongholdVault {
+    loadClient(client: string): Promise<StrongholdVaultClient>;
+    createClient(client: string): Promise<StrongholdVaultClient>;
+    save(): Promise<void>;
   }
 
-  const notFound = (error: unknown): boolean =>
-    error instanceof Error && /no such file|not found/i.test(error.message);
+  // Fixed constants (the trade-off above). The snapshot PATH is not a
+  // constant: the Rust side owns it (`stronghold_snapshot_path` command).
+  const SNAPSHOT_PASSWORD = 'nextdo-desktop-v1';
+  // Single-user v1: one client, one store, one key (OWNER_TOKEN_KEY).
+  const CLIENT_NAME = 'nextdo';
 
-  /** createFile(overwrite: false) — ignore the "already exists" error. */
-  async function ensureFile(): Promise<void> {
-    try {
-      await Stronghold.createFile(FILE, { overwrite: false, permissions: '600' });
-    } catch (error) {
-      if (!/exists/i.test(String(error))) {
-        throw error;
-      }
+  const encoder = new (
+    globalThis as unknown as {
+      TextEncoder: new () => { encode(input: string): Uint8Array };
     }
+  ).TextEncoder();
+  // TextEncoder/TextDecoder are standard globals: always present in the web
+  // runtime this store targets (the Tauri webview), and in Hermes on
+  // RN ≥ 0.85 (this repo pins RN 0.86). The app's TS lib is ES2022 without
+  // DOM, so they are not declared here (packages/db's own typecheck sees
+  // them via @types/node) — hence the typed globalThis view.
+  const decoder = new (
+    globalThis as unknown as {
+      TextDecoder: new () => { decode(input: Uint8Array): string };
+    }
+  ).TextDecoder();
+
+  let snapshotPathPromise: Promise<string> | null = null;
+  function getSnapshotPath(): Promise<string> {
+    if (snapshotPathPromise === null) {
+      snapshotPathPromise = (async () => {
+        // Tauri v2 injects the IPC bridge into the webview globals; the
+        // command is registered in apps/desktop/src-tauri/src/lib.rs.
+        const invoke = (
+          globalThis as unknown as {
+            __TAURI_INTERNALS__: { invoke(command: string): Promise<unknown> };
+          }
+        ).__TAURI_INTERNALS__.invoke;
+        return (await invoke('stronghold_snapshot_path')) as string;
+      })();
+    }
+    return snapshotPathPromise;
+  }
+
+  let vaultPromise: Promise<StrongholdVault> | null = null;
+  function getVault(): Promise<StrongholdVault> {
+    if (vaultPromise === null) {
+      vaultPromise = getSnapshotPath()
+        .then((snapshotPath) => Stronghold.load(snapshotPath, SNAPSHOT_PASSWORD))
+        .catch((error) => {
+          // A failed load must not poison the cache (a half-written
+          // snapshot or a transient lock would brick every later read):
+          // clear it so the next call retries the load.
+          vaultPromise = null;
+          throw error;
+        });
+    }
+    return vaultPromise;
+  }
+
+  let storePromise: Promise<StrongholdVaultStore> | null = null;
+  function getStore(): Promise<StrongholdVaultStore> {
+    if (storePromise === null) {
+      storePromise = getVault()
+        .then((vault) =>
+          // Existing snapshot → load the client. First run (fresh
+          // snapshot, no client yet) → loadClient rejects → create it.
+          vault
+            .loadClient(CLIENT_NAME)
+            .catch((error: unknown) => {
+              logger.warn('stronghold: no existing client, creating', error);
+              return vault.createClient(CLIENT_NAME);
+            })
+        )
+        .then((client) => client.getStore())
+        .catch((error) => {
+          // Same non-poisoning rule as getVault.
+          storePromise = null;
+          throw error;
+        });
+    }
+    return storePromise;
   }
 
   return {
@@ -124,15 +214,11 @@ function createStrongholdStore(): KeyValueStore {
       if (key !== OWNER_TOKEN_KEY) {
         return null;
       }
-      await ensureReady();
-      try {
-        return await Stronghold.readFile(FILE);
-      } catch (error) {
-        if (notFound(error)) {
-          return null;
-        }
-        throw error;
-      }
+      const store = await getStore();
+      // An empty vault / missing record resolves to null from store.get
+      // itself — no error swallowing needed here.
+      const bytes = await store.get(OWNER_TOKEN_KEY);
+      return bytes === null ? null : decoder.decode(bytes);
     },
     async setItem(key, value) {
       if (key !== OWNER_TOKEN_KEY) {
@@ -141,22 +227,18 @@ function createStrongholdStore(): KeyValueStore {
           `stronghold store only holds ${OWNER_TOKEN_KEY}`,
         );
       }
-      await ensureReady();
-      await ensureFile();
-      await Stronghold.writeFile(FILE, value);
+      const [store, vault] = await Promise.all([getStore(), getVault()]);
+      // 2.3.2 insert takes a byte array (number[]), not a string.
+      await store.insert(OWNER_TOKEN_KEY, Array.from(encoder.encode(value)));
+      await vault.save(); // persist the mutation to the encrypted snapshot
     },
     async removeItem(key) {
       if (key !== OWNER_TOKEN_KEY) {
         return;
       }
-      await ensureReady();
-      try {
-        await Stronghold.deleteFile(FILE);
-      } catch (error) {
-        if (!notFound(error)) {
-          throw error;
-        }
-      }
+      const [store, vault] = await Promise.all([getStore(), getVault()]);
+      await store.remove(OWNER_TOKEN_KEY);
+      await vault.save();
     },
   };
 }
@@ -190,6 +272,13 @@ function getBackend(): KeyValueStore {
  *  in-memory store per test). Passing null resets to the lazy default. */
 export function __setStorageBackendForTests(store: KeyValueStore | null): void {
   backend = store;
+}
+
+/** Test hook: the currently selected (or injected) backend — lets tests
+ *  drive the KeyValueStore contract directly (e.g. the multi-key
+ *  rejection path, which the owner-token API never exercises). */
+export function __getStorageBackendForTests(): KeyValueStore {
+  return getBackend();
 }
 
 /* ------------------------------------------------------------------ *

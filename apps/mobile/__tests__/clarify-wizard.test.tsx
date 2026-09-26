@@ -173,7 +173,7 @@ function walkToActionForm() {
 }
 
 describe('WizardBody — step walking (clarify)', () => {
-  it('walks q1 → q2 → the project form, previews, then submits applyClarify', async () => {
+  it('walks q1 → q2 → q2b(新建项目) → the project form, previews, then submits applyClarify', async () => {
     mockedApplyClarify.mockResolvedValue({ inboxId: 'inbox-1', outcome: { kind: 'project' }, createdIds: ['p1', 'a1'] });
     renderWizard();
     expect(screen.getAllByText('可以变成下一步行动吗？').length).toBeGreaterThan(0);
@@ -182,6 +182,11 @@ describe('WizardBody — step walking (clarify)', () => {
     expect(screen.getAllByText('需要多个步骤才能完成吗？').length).toBeGreaterThan(0);
 
     fireEvent.press(screen.getByText('是，拆成项目'));
+    // Multi-step items walk Q2b too (它属于哪个项目？) — the attachable
+    // project rows + 新建项目. 不属于项目 is hidden for multi-step.
+    expect(screen.getAllByText('它属于哪个项目？').length).toBeGreaterThan(0);
+    expect(screen.queryByText('不属于项目')).toBeNull();
+    fireEvent.press(screen.getByText('新建项目'));
     expect(screen.getByText('项目名')).toBeTruthy();
     expect(screen.getByPlaceholderText('用一句话描述完成的样貌')).toBeTruthy();
 
@@ -224,6 +229,44 @@ describe('WizardBody — step walking (clarify)', () => {
 
     // Done step shows the Chinese outcome summary.
     await waitFor(() => expect(screen.getByText('已整理为「项目 + 首个行动」')).toBeTruthy());
+  });
+
+  it('q2 yes → q2b: attach to the existing project submits a project-attach action', async () => {
+    mockedApplyClarify.mockResolvedValue({
+      inboxId: 'inbox-1',
+      outcome: { kind: 'next-action', source: 'project-attach' },
+      createdIds: ['a3'],
+    });
+    renderWizard();
+    fireEvent.press(screen.getByText('可以，是行动'));
+    fireEvent.press(screen.getByText('是，拆成项目'));
+    // The attachable project row — its title + value are the row text.
+    expect(screen.queryByText('不属于项目')).toBeNull();
+    fireEvent.press(screen.getByText('毕业论文实验（价值 4）'));
+    // The action form with the attachment fixed (the preview shows 所属项目).
+    expect(screen.getByText('记成一个行动')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('10 分钟'));
+    fireEvent.press(screen.getByText('保存'));
+    expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
+    // The preview's 所属项目 row carries the attachment (the title also
+    // appears in the GTD 决策摘要 answer row — getAllByText on purpose).
+    expect(screen.getByText('所属项目')).toBeTruthy();
+    expect(screen.getAllByText('毕业论文实验').length).toBeGreaterThan(0);
+
+    fireEvent.press(screen.getByText('确认保存'));
+    await waitFor(() => expect(mockedApplyClarify).toHaveBeenCalledTimes(1));
+    const call = mockedApplyClarify.mock.calls[0][1];
+    // project-attach encoding: NO new project (multipleSteps=false) +
+    // the existing project id — value defaults to the project's (4).
+    expect(call.answers).toMatchObject({
+      actionable: true,
+      multipleSteps: false,
+      twoMinutes: false,
+      myResponsibility: true,
+      fixedTime: false,
+      projectId: 'proj-1',
+    });
+    await waitFor(() => expect(screen.getByText('已整理为「项目行动（挂接已有项目）」')).toBeTruthy());
   });
 
   it('the do-now path (q3 yes → q3b yes) submits immediately, no form', async () => {

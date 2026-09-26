@@ -1,31 +1,36 @@
 /**
- * App-level runtime configuration (design.md §4: `lib/env.ts` — backend URL /
- * owner-token access, platform-aware).
+ * App-level runtime configuration (design.md §4: `lib/env.ts` — the single
+ * config point for the backend URLs, shared by phone and desktop).
  *
  * No env-var fallback anywhere (spec: app/database-guidelines.md — client env
  * values may end up in the build output). The values are:
- * - dev defaults for a local backend (`server/app`) and PowerSync Service
- *   (`server/powersync`) — replaceable at runtime via `configureBackend`
- *   (the settings screen, a later task, writes the user's values here);
+ * - the production backend URLs below (prod-deploy R2): after the user
+ *   deploys the stack under their own domain they fill these in ONCE —
+ *   the placeholder `REPLACE-WITH-YOUR-DOMAIN` marks the not-yet-deployed
+ *   state;
  * - the owner token itself is NOT stored here — it lives in `packages/db`'s
- *   owner-token module (per-platform storage matrix).
+ *   owner-token module (per-platform storage matrix), entered by the user
+ *   in the ConnectGate.
+ *
+ * `configureBackend` is retained as a TEST SEAM ONLY (unit tests + the
+ * local e2e harness inject their own constants; app code never calls it).
  */
 import type { NextdoPowerSyncConfig } from '@nextdo/db';
 
-/** Dev defaults: local backend + local PowerSync Service. */
-const DEV_BACKEND: NextdoPowerSyncConfig = {
-  backendUrl: 'http://localhost:3000',
-  endpoint: 'http://localhost:8080',
+// 生产配置 — 部署后填一次（手机/桌面共用；本地 e2e 用 e2e/run.ts 自有常量，不受影响）
+const BACKEND: NextdoPowerSyncConfig = {
+  backendUrl: 'https://REPLACE-WITH-YOUR-DOMAIN/api',
+  endpoint: 'https://REPLACE-WITH-YOUR-DOMAIN/sync',
 };
 
-let backend: NextdoPowerSyncConfig = DEV_BACKEND;
+let backend: NextdoPowerSyncConfig = BACKEND;
 
 /** The backend config the connector uses (`/credentials` + `/upload`). */
 export function getBackendConfig(): NextdoPowerSyncConfig {
   return backend;
 }
 
-/** Replace the backend config at runtime (settings screen, later task). */
+/** Test seam: replace the backend config (never called from app code). */
 export function configureBackend(config: NextdoPowerSyncConfig): void {
   backend = config;
 }
