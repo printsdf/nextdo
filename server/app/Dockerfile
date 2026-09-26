@@ -31,6 +31,10 @@ COPY server/app/package.json server/app/package.json
 RUN pnpm install --frozen-lockfile --filter @nextdo/server
 
 COPY server/app/tsconfig.json server/app/tsconfig.json
+# tsconfig.base.json is the root the app tsconfig extends — without it
+# tsc fails with TS5083 (the Docker build path is not covered by the
+# source-run e2e, so this was never exercised until the prod deploy).
+COPY tsconfig.base.json ./
 COPY server/app/src server/app/src
 RUN pnpm --filter @nextdo/server build
 
