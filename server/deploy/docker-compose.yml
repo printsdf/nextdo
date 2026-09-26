@@ -36,8 +36,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
     ports:
       # Same-host only — for psql debugging; the reverse proxy does not use
-      # this (it talks to api + powersync).
-      - '127.0.0.1:5432:5432'
+      # this (it talks to api + powersync). Host port is overridable via
+      # POSTGRES_HOST_PORT (e.g. 5433 when another Postgres owns 5432).
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432'
     volumes:
       # First-init only (alphabetical): creates the PowerSync storage DB +
       # the app tables /upload writes to. Reused from the dev stack — the
