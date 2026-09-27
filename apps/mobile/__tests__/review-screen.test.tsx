@@ -56,8 +56,8 @@ jest.mock('@nextdo/db', () => {
   };
   return {
     createPowerSyncDatabase: () => powersync,
-    // Root auth gate (prod-deploy R3): a stored token that passes the
-    // startup pre-check, so the screen (not the ConnectGate) renders.
+    // R6 startup token check (background, non-blocking): a valid stored
+    // token — the screen renders regardless (there is no gate in R6).
     getOwnerToken: async () => 'test-owner-token',
     fetchCredentialsOnce: async () => ({ ok: true, token: 'ps-service-jwt' }),
     setOwnerToken: async () => undefined,

@@ -14,19 +14,23 @@
  * - The single v1 stream is subscribed explicitly once after init (the
  *   service declares it `auto_subscribe: true`; the stream name stays in
  *   `packages/db`).
- * - Auth gate (prod-deploy R3): at startup the stored owner token is
- *   validated with `fetchCredentialsOnce` BEFORE the app renders — the
- *   PowerSync v2 SDK swallows 401s in its retry loop, so the app can only
- *   know "wrong token" from an explicit round-trip. No token (or a 401)
- *   shows the full-screen ConnectGate INSTEAD of the app; network errors
- *   let the app run offline-first (the SDK retries in the background).
+ * - Auth (prod-deploy R6 — cloud sync is OPTIONAL): there is NO
+ *   first-launch gate — the app is local-first and renders the main tree
+ *   unconditionally (the font gate below is the only render blocker).
+ *   Cloud sync is configured from the Settings tab (`useCloudSync`). A
+ *   BACKGROUND startup check validates the stored owner token (it never
+ *   blocks rendering): the PowerSync v2 SDK swallows 401s inside its retry
+ *   loop, so a rejected token would spin the sync loop forever while the
+ *   Settings tab claimed 「已连接」 — the check clears a 401 token (the
+ *   provider's subscription disconnects), keeps everything else (200 /
+ *   network error → offline-first, the next startup re-checks).
  * - Font gate (design §1.3): Epilogue + Plus Jakarta Sans load before the
  *   stack renders; until then a canvas placeholder stands in (no white
  *   flash, no `expo-splash-screen` dependency).
  */
 import '../global.css';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Stack } from 'expo-router';
 import { Text, View } from 'react-native';
 import { useFonts } from 'expo-font';
@@ -49,12 +53,10 @@ import {
   fetchCredentialsOnce,
   getOwnerToken,
   isReactNativeRuntime,
-  setOwnerToken,
   subscribeAppStream,
   subscribeToOwnerTokenChange,
 } from '@nextdo/db';
 import { logger } from '@nextdo/core';
-import { ConnectGate, type ConnectGateResult } from '@/components/connect-gate';
 import { POWERSYNC_WEB_WORKER_PATH, getBackendConfig } from '@/lib/env';
 
 function toError(error: unknown): Error {
@@ -206,14 +208,6 @@ function PowerSyncProvider({ children }: { children: ReactNode }) {
   return <PowerSyncContext.Provider value={powersync}>{children}</PowerSyncContext.Provider>;
 }
 
-/** Auth gate (prod-deploy R3): the root of the app is either loading
- *  (the startup pre-check is running), signed-out (the ConnectGate is
- *  shown INSTEAD of the app), or signed-in (the normal subtree). */
-type AuthGateState =
-  | { status: 'loading' }
-  | { status: 'signed-out' }
-  | { status: 'signed-in' };
-
 export default function RootLayout() {
   // Paper Serenity type (design §1.3): Epilogue for display, Plus Jakarta
   // Sans for body. Each weight is its own map key (the platform registers one
@@ -306,29 +300,26 @@ export default function RootLayout() {
     if (jakartaError !== null) logger.error('Plus Jakarta Sans font load failed', jakartaError);
   }, [epilogueError, jakartaError]);
 
-  /* ---------------- Auth gate (prod-deploy R3) ----------------
+  /* ---------------- Startup token hygiene check (prod-deploy R6) ----------------
    *
+   * Background ONLY — never blocks rendering (the app is local-first).
    * The PowerSync v2 SDK swallows a 401 inside its retry loop (the
-   * connector's `credentials.rejected` never surfaces to the app), so the
-   * stored token's validity is validated ONCE at startup, before the app
-   * renders:
+   * connector's `credentials.rejected` never surfaces to the app), so a
+   * stale stored token would spin the sync loop forever while the
+   * Settings tab claimed 「已连接」. One /credentials round-trip at
+   * startup:
    *
    *   startup → getOwnerToken()
-   *     null            → Gate (signed out)
+   *     null            → do nothing
    *     token stored    → fetchCredentialsOnce(config, token)
-   *       200           → the app (the provider connects via its
-   *                       existing token-driven mechanism)
-   *       401           → clearOwnerToken() + Gate (「token 无效」)
-   *       network / 5xx → the app anyway (offline-first; the SDK retries
-   *                       in the background — v1 has no in-session 401
-   *                       awareness, a restart re-runs this check)
-   *
-   * After startup the gate only follows the owner-token CHANGE events
-   * (the Gate's connect stores the token; a future sign-out clears it).
+   *       200           → do nothing (the provider's existing mechanism
+   *                       connects)
+   *       401           → clearOwnerToken() (the provider's subscription
+   *                       disconnects; the Settings tab reads it as
+   *                       「未连接」 — re-entering is the recovery path)
+   *       network / 5xx → do nothing (offline-first; the next startup
+   *                       re-checks — v1 has no in-session 401 awareness)
    */
-  const [authGate, setAuthGate] = useState<AuthGateState>({ status: 'loading' });
-  const [gateError, setGateError] = useState<string | null>(null);
-
   useEffect(() => {
     let disposed = false;
     const start = async () => {
@@ -336,81 +327,25 @@ export default function RootLayout() {
       try {
         token = await getOwnerToken();
       } catch (error) {
-        // A storage failure is treated as signed-out: re-entering the
-        // token on the Gate is the recovery path (never brick the app).
         logger.error('owner token read failed', toError(error));
-        token = null;
-      }
-      if (disposed) return;
-      if (token === null) {
-        setAuthGate({ status: 'signed-out' });
         return;
       }
+      if (token === null) return;
       const result = await fetchCredentialsOnce(getBackendConfig(), token);
       if (disposed) return;
       if (result.ok === false && result.kind === 'rejected' && result.status === 401) {
-        setGateError('token 无效，请重新输入');
+        logger.warn('stored owner token rejected (401) — clearing it');
         try {
           await clearOwnerToken();
         } catch (error) {
           logger.error('owner token clear failed', toError(error));
         }
-        setAuthGate({ status: 'signed-out' });
-        return;
       }
-      setAuthGate({ status: 'signed-in' });
     };
     void start();
     return () => {
       disposed = true;
     };
-  }, []);
-
-  useEffect(() => {
-    const unsubscribe = subscribeToOwnerTokenChange(() => {
-      void (async () => {
-        let token: string | null;
-        try {
-          token = await getOwnerToken();
-        } catch (error) {
-          logger.error('owner token read failed', toError(error));
-          token = null;
-        }
-        if (token === null) {
-          setAuthGate({ status: 'signed-out' });
-        } else {
-          setGateError(null);
-          setAuthGate({ status: 'signed-in' });
-        }
-      })();
-    });
-    return unsubscribe;
-  }, []);
-
-  // The Gate's connect handler: one /credentials round-trip, then store
-  // the OWNER token (NOT the minted service JWT). The change notification
-  // flips the gate AND drives the provider's connect() — one mechanism.
-  const handleConnect = useCallback(async (rawToken: string): Promise<ConnectGateResult> => {
-    const token = rawToken.trim();
-    if (token === '') {
-      return { ok: false, message: 'token 不能为空' };
-    }
-    const result = await fetchCredentialsOnce(getBackendConfig(), token);
-    if (result.ok) {
-      try {
-        await setOwnerToken(token);
-        return { ok: true };
-      } catch (error) {
-        logger.error('owner token save failed', toError(error));
-        return { ok: false, message: 'token 验证通过，但保存失败，请重试' };
-      }
-    }
-    if (result.kind === 'rejected' && result.status === 401) {
-      return { ok: false, message: 'token 不正确' };
-    }
-    // Network failure / 5xx / malformed 200 body: the token is NOT
-    // invalidated — the server is unreachable or unhealthy, retry later.
-    return { ok: false, message: '连不上服务器，请稍后重试' };
   }, []);
 
   // Font gate: no `<Stack>` (a native) or web content until the faces are
@@ -422,15 +357,12 @@ export default function RootLayout() {
     ? webFontsReady
     : (epilogueLoaded || epilogueError !== null) &&
       (jakartaLoaded || jakartaError !== null);
-  if (!fontsReady || authGate.status === 'loading') {
+  if (!fontsReady) {
     return (
       <View className="flex-1 items-center justify-center bg-canvas dark:bg-canvas-dark">
         <Text className="text-base text-muted dark:text-muted-dark">加载中…</Text>
       </View>
     );
-  }
-  if (authGate.status === 'signed-out') {
-    return <ConnectGate onConnect={handleConnect} initialError={gateError ?? undefined} />;
   }
   return (
     <PowerSyncProvider>

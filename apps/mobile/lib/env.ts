@@ -10,7 +10,7 @@
  *   state;
  * - the owner token itself is NOT stored here — it lives in `packages/db`'s
  *   owner-token module (per-platform storage matrix), entered by the user
- *   in the ConnectGate.
+ *   in the Settings tab (cloud sync is optional — R6).
  *
  * `configureBackend` is retained as a TEST SEAM ONLY (unit tests + the
  * local e2e harness inject their own constants; app code never calls it).
