@@ -184,9 +184,11 @@ UI:
   - In-session 401 (token rotation) is **deferred**: the PowerSync v2 SDK
     swallows `credentials.rejected` and retries internally, so a revoked
     token is not detectable mid-session. Instead the app pre-validates the
-    stored token on startup with `fetchCredentialsOnce` (401 →
-    `clearOwnerToken()` + the connect gate re-asks; network error → offline
-    mode proceeds).
+    stored token at startup with `fetchCredentialsOnce` — a BACKGROUND
+    check that never blocks rendering (cloud sync is optional, R6):
+    401 → `clearOwnerToken()` (the Settings tab then reads 「未连接」;
+    re-entering the token is the recovery path); network error → offline
+    mode proceeds (the next startup re-checks).
 - **Web/Tauri assembly**: the JS web client runs SQLite (wasm) inside a **web worker**.
   In this repo the worker + its wasm bundle are checked in as static assets under
   `apps/mobile/public/@powersync/` (`worker.js` + `assets/*.wasm`); the Expo Web

@@ -20,13 +20,20 @@
 ## 决策（用户拍板）
 
 - **鉴权模型**：维持 v1 owner token（Home Assistant 模式），不做账号体系（spec 既定 post-MVP）。
-- **首次启动 UX**：全屏门槛页——无 token（或 token 预校验 401）时只显示连接页，输入成功后才进主界面；一次输入，SecureStore/stronghold 持久化，之后永不再问。
+- **首次启动 UX（2026-09-27 修订，用户拍板）**：**云同步是可选项**。首次启动不再显示全屏门槛页（R3 的 Gate 整体移除）——直接进主界面；无 token 时应用仅本地运行（PowerSync 保持断开，本地 SQLite 照常可用，底层机制 R3 实现时已具备）。配置入口：新增底部「设置」标签页（第 5 个 tab），内含云同步区块（状态 + token 输入 + 连接/断开）。token 仍走 SecureStore/stronghold 持久化，一次输入之后不再问。
 
 ## Requirements
 
 - **R1 生产部署**：新增 `server/deploy/` 生产 docker compose（postgres + powersync + hono，全部只绑 127.0.0.1 给同机反代）+ `.env.example` + 部署 README（含 Caddy 反代示例：`/api/*` → hono、`/sync/*` → powersync，WebSocket upgrade）。具体域名布局由用户定。
 - **R2 客户端默认地址**：`lib/env.ts` 的 localhost 默认替换为生产 URL 常量（两个 URL，唯一配置点，用户部署后填一次，手机/桌面共用）。
-- **R3 首次启动 token 门槛页**：全屏 Gate（token 输入 + 连接 + 内联错误：token 不正确 / 连不上服务器）；提交前用新抽取的纯函数 `fetchCredentialsOnce(config, token)` 校验（200 → `setOwnerToken` 进入主界面，复用现有 connect 机制；401 → 内联错误；网络错 → 内联错误）；启动时对已存 token 做同样预校验（401 → `clearOwnerToken` + Gate「token 无效」）。会话内 token 轮换不感知（重启即恢复，deferred）。
+- **R3 首次启动 token 门槛页**：全屏 Gate（token 输入 + 连接 + 内联错误：token 不正确 / 连不上服务器）；提交前用新抽取的纯函数 `fetchCredentialsOnce(config, token)` 校验（200 → `setOwnerToken` 进入主界面，复用现有 connect 机制；401 → 内联错误；网络错 → 内联错误）；启动时对已存 token 做同样预校验（401 → `clearOwnerToken` + Gate「token 无效」）。会话内 token 轮换不感知（重启即恢复，deferred）。**（Gate 的 UX 已被 R6 取代：门槛页移除；`fetchCredentialsOnce` 纯函数与启动预校验保留，见 R6。）**
+- **R6 云同步可选项（取代 R3 的门槛页 UX，2026-09-27）**：
+  - 移除全屏 ConnectGate 组件与 RootLayout 的 auth gate 状态机（loading/signed-out/signed-in）——任何启动状态下都直接渲染主界面。
+  - 新增底部「设置」标签页（第 5 个 tab，`(tabs)/settings.tsx`），内含云同步区块：
+    - **未连接**（无已存 token）：说明文案 + token 输入 + 「连接」按钮 + 内联错误（复用 R3 三态：token 不正确 / 连不上服务器，请稍后重试）；提交走 `fetchCredentialsOnce`，200 → `setOwnerToken`（现有 `subscribeToOwnerTokenChange` 通知驱动 provider connect，UI 切到已连接）。
+    - **已连接**（有已存 token）：已连接状态说明 + 「断开」按钮（`clearOwnerToken`，同一通知机制驱动 provider disconnect，UI 切回未连接）。
+  - 启动预校验降级为后台卫生检查（不阻塞渲染）：启动时对已存 token 调 `fetchCredentialsOnce`，401 → `clearOwnerToken` + 日志（防 SDK 无意义重试、让设置页状态诚实）；200 / 网络错 → 什么都不做（离线优先）。
+  - 桌面端（Tauri 加载同一 web 构建）自动获得相同设置页，无分叉。
 - **R4 修复 stronghold 存储**：按 2.3.2 真实 vault API 重写 `createStrongholdStore`（固定快照路径/密码常量，v1 单用户本机加密取舍；保留单 key 契约）；单测 mock 插件 + 桌面实机验证。
 - **R5 后端 CORS**：`server/app` 加 hono `cors` 中间件（`origin: *`，allow `authorization`/`content-type`）；鉴权行为不变。
 
@@ -35,7 +42,8 @@
 - [ ] 根级 `pnpm test && pnpm typecheck && pnpm lint` 全绿；本地 `node e2e/sync-roundtrip.ts` 全绿（回归）。
 - [ ] CORS：OPTIONS preflight 与带 Origin 请求的响应头有单测覆盖。
 - [ ] stronghold：单测覆盖 2.3.2 形状（get/set/remove/多 key 拒绝/save）；桌面 `tauri dev` 实机下输入 token 成功持久化、重启免输入（用户 Mac 上验证）。
-- [ ] Gate：单测覆盖三态；无 token 只见 Gate；错 token 内联错误可重试；正确 token 进主界面并同步成功；重启 App 不再要求输入。
+- [x] ~~Gate（R3 原验收，已被 R6 取代）~~：门槛页已实现后又按 R6 移除，原 Gate 单测随组件删除。
+- [ ] 设置页（R6）：无 token 启动直接进主界面（无任何门槛页）；「设置」tab 云同步区块单测覆盖未连接/已连接两态与 token 提交三态（成功/401 内联「token 不正确」/网络错内联「连不上服务器」）；断开后回到未连接；已存 token 启动预校验 401 → 静默清除且主界面照常渲染。
 - [ ] 生产 compose `docker compose config` 通过；用户按 README 在自己服务器上起栈 + 填 `lib/env.ts` 常量后，手机/桌面端到端同步成功（用户侧验证步骤，交付时明确提示）。
 
 ## Out of Scope

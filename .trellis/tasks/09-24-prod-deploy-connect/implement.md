@@ -114,3 +114,28 @@ PowerSync web 端把 SQLite 引擎跑在 `type: 'module'` web worker 里；WebKi
 均零警告；根级门禁全绿（pnpm test 642 ✓ / typecheck ✓ / lint ✓ / e2e 7/7 ✓）。
 **待办：`tauri build` + 跑 release .app 实机验证（用户在 Mac 上，dev 模式
 验证不到该路径）。**
+
+## 云同步可选项（R6，2026-09-27，部署验证后用户拍板）
+
+云同步改为可选项：门槛页整体移除，「设置」tab 第 5 个入口。设计见 design.md R6 节；
+prd.md 决策/验收已同步修订。顺序：根布局去 gate → 新设置页 → 测试 → 门禁。
+
+- [ ] `apps/mobile/app/_layout.tsx`：删 `AuthGateState` / `gateError` / `handleConnect` /
+      `ConnectGate` import 与两处 auth useEffect；渲染只剩 字体 gate → Provider + Stack。
+      保留一个**非阻塞**启动卫生检查 useEffect：有已存 token → `fetchCredentialsOnce` →
+      仅 401 时 `clearOwnerToken()` + `logger.warn`（200/网络错不做事）。
+- [ ] `apps/mobile/app/(tabs)/settings.tsx`（新）：「设置」页，云同步区块（未连接：
+      说明 + token 输入 + 连接 + 内联错误三态；已连接：说明 + 断开）；状态 =
+      `getOwnerToken()` + `subscribeToOwnerTokenChange`（挂载读一次 + 跟随）。
+- [ ] `apps/mobile/app/(tabs)/_layout.tsx`：追加 settings tab（title「设置」）。
+- [ ] 删 `apps/mobile/components/connect-gate.tsx` + `__tests__/connect-gate.test.tsx`；
+      新增 `__tests__/settings-screen.test.tsx`（6 条用例见 design.md R6 测试策略）。
+- [ ] 9 个屏幕测试文件的 `@nextdo/db` mock 保留（auth 面仍被启动检查 + provider 用），
+      仅改过期注释（"Root auth gate (prod-deploy R3)…ConnectGate" → 启动卫生检查表述）。
+- [ ] 验证：`pnpm --filter @nextdo/mobile test && pnpm --filter @nextdo/mobile typecheck`，
+      然后根级 `pnpm test && pnpm typecheck && pnpm lint`。
+- [ ] spec 更新（Phase 3.3）：`app/component-guidelines.md` 的 ConnectGate 小节 → 改为
+      设置页云同步区块的约定（或注明 Gate 已移除、fetchCredentialsOnce 三态文案为唯一先例）。
+- [ ] 桌面 release 重建（`tauri build`）——设置页在 Tauri 端同样生效（用户实机验证）。
+
+回滚点：R6 全部在 apps/mobile 内（含测试），单 commit revert 即可。

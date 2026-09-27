@@ -53,6 +53,8 @@ await sh.save()                                     // insert/remove 后必须�
 
 ## R3 — 首次启动门槛页（apps/mobile）
 
+> **（已被 R6 取代：门槛页移除；本节保留为历史记录。`fetchCredentialsOnce` 纯函数与"启动预校验"机制仍有效，见 R6。）**
+
 **为什么必须做「启动预校验」**：错误 token 时 `fetchCredentials` 抛 `credentials.rejected`，但 PowerSync v2 SDK **内部重试、不上抛**（`_layout.tsx:84-89` 的 catch 只兜底）——App 无法靠 SDK 错误感知 401。因此 token 有效性在**连接前**主动校验。
 
 状态机（RootLayout 层，非路由）：
@@ -71,6 +73,31 @@ await sh.save()                                     // insert/remove 后必须�
 - **渲染切换**：`RootLayout` 读 token 状态（async → loading/signed-out/signed-in），signed-out 时渲染 Gate 替代子树。不进 expo-router 路由（无状态机成本）。
 - 会话内 token 轮换（重新部署换了 token）：v1 不感知，用户重启 App 即恢复（启动预校验覆盖）。Deferred，写入 spec。
 - 测试（apps/mobile jest）：Gate 三态（成功/401/网络错）、RootLayout 切换逻辑（mock `@nextdo/db` 导出）。
+
+## R6 — 云同步可选项（apps/mobile；取代 R3 的门槛页 UX）
+
+**背景**：部署验证时用户拍板——云同步是可选项，部分用户只想本地用，不该被全屏门槛页挡住。底层已具备无 token 本地运行能力（`_layout.tsx` 的 provider：无 token → `disconnect()`，本地 SQLite 照常读写），所以 R6 是纯 UI/状态层改动，不动 `packages/db` 协议。
+
+**改动面**：
+
+- `app/_layout.tsx`：删除 `AuthGateState` 状态机、`gateError`、`handleConnect`、`ConnectGate` 渲染分支（含两处 auth useEffect）。启动预校验保留但降级：一个非阻塞 useEffect——`getOwnerToken()` 有值 → `fetchCredentialsOnce` → 仅当 401 时 `clearOwnerToken()` + `logger.warn`；200/网络错不做事。**渲染路径从此只有一条：字体 gate → `PowerSyncProvider` + `<Stack>`**（字体 gate 是 design §1.3 的防白屏机制，与 auth 无关，保留）。
+- `app/(tabs)/settings.tsx`（新）：第 5 个 tab「设置」。云同步区块（`Card`）：
+  - 状态来源：`getOwnerToken()`（挂载时读一次）+ `subscribeToOwnerTokenChange`（跟随变化）——与 provider 的 connect/disconnect 用同一事实源，UI 不会与同步状态分叉。
+  - 未连接：说明文案（本地使用、数据不出本机；输入 owner token 开启同步）+ TextInput + 「连接」按钮 + 内联错误。提交：`fetchCredentialsOnce(getBackendConfig(), token)` → 200 → `setOwnerToken`（清空输入）；401 → 「token 不正确」；网络/其他 → 「连不上服务器，请稍后重试」。
+  - 已连接：已连接说明（数据在这台设备与服务器之间同步）+ 「断开」按钮（`clearOwnerToken`）。断开为轻量操作，v1 不加二次确认（token 忘了可重输，数据留在本地 DB，无破坏性）。
+  - 屏幕本身调 `packages/db` 函数（app 层，component-guidelines 允许；组件文件里不放网络调用——提交逻辑留在屏幕组件内，与 R3 的 RootLayout `handleConnect` 同档）。
+- `app/(tabs)/_layout.tsx`：tab 栏追加 `<Tabs.Screen name="settings" options={{ title: '设置' }} />`（纯文本 tab，无图标，与现有四个一致）。
+- 删除 `components/connect-gate.tsx` + `__tests__/connect-gate.test.tsx`；新增 `__tests__/settings-screen.test.tsx`。9 个屏幕测试文件里 `@nextdo/db` mock 的 auth 面（`getOwnerToken` 等）**仍被启动预校验与 provider 使用，保留**，仅更新过期注释（"so the screen (not the ConnectGate) renders"）。
+
+**测试策略**（settings-screen.test.tsx）：沿用 connect-gate.test.tsx 的 mock 形态（`renderRouter` + 可变 `mockAuth`，set/clear 触发同一 change 通知）：
+1. 未连接态：区块文案 + 输入 + 连接按钮（空输入禁用）；
+2. 提交成功：`setOwnerToken` 被调（存的是 owner token 非 JWT）→ UI 切已连接（断开按钮出现）；
+3. 401：内联「token 不正确」，保持未连接，可重试；
+4. 网络错：内联「连不上服务器，请稍后重试」；
+5. 已连接态（mock 预存 token）：显示已连接 + 断开按钮 → 点断开 → `clearOwnerToken` → 回未连接；
+6. 根级：无 token 启动直接渲染 Inbox（无门槛文案）；预存 token + 401 → token 被清 + 主界面照常。
+
+**不做**：同步实时状态指示（PowerSync SDK 的 status 事件订阅——v1 显示"已连接"= token 已验证并存储；会话内 401 感知仍是 deferred）；设置页的其他内容（URL 不进 UI，版本页等 deferred）；断开的二次确认。
 
 ## R2 — 客户端配置点（apps/mobile/lib/env.ts）
 
