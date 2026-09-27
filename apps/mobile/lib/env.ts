@@ -18,9 +18,11 @@
 import type { NextdoPowerSyncConfig } from '@nextdo/db';
 
 // 生产配置 — 部署后填一次（手机/桌面共用；本地 e2e 用 e2e/run.ts 自有常量，不受影响）
+// 注意：这里填的是裸主机名（Cloudflare Tunnel 直转服务根，不做前缀剥离）——
+// 客户端代码自己拼 /credentials、/upload（api）和 /sync/stream（PowerSync）。
 const BACKEND: NextdoPowerSyncConfig = {
-  backendUrl: 'https://REPLACE-WITH-YOUR-DOMAIN/api',
-  endpoint: 'https://REPLACE-WITH-YOUR-DOMAIN/sync',
+  backendUrl: 'https://api.printsdf.de5.net',
+  endpoint: 'https://sync.printsdf.de5.net',
 };
 
 let backend: NextdoPowerSyncConfig = BACKEND;
