@@ -28,8 +28,8 @@ jest.mock('@nextdo/db', () => {
   };
   return {
     createPowerSyncDatabase: () => powersync,
-    // Root auth gate (prod-deploy R3): a stored token that passes the
-    // startup pre-check, so the screen (not the ConnectGate) renders.
+    // R6 startup token check (background, non-blocking): a valid stored
+    // token — the screen renders regardless (there is no gate in R6).
     getOwnerToken: async () => 'test-owner-token',
     fetchCredentialsOnce: async () => ({ ok: true, token: 'ps-service-jwt' }),
     setOwnerToken: async () => undefined,
@@ -139,7 +139,15 @@ describe('Now screen', () => {
         value: 5,
         estMinutes: 30,
         contextIds: [],
-        deadline: new Date(Date.now() + 60 * 60_000).toISOString(),
+        // A deadline late TODAY (23:59 local): `+1h` crossed midnight after
+        // 23:00 and flipped the due label to 明天 — the test went red every
+        // evening. 23:59-today is always 今天 and always h ≤ 24 (urgency
+        // 0.9 → the 截止时间快到了 reason), at any run time.
+        deadline: (() => {
+          const d = new Date();
+          d.setHours(23, 59, 0, 0);
+          return d.toISOString();
+        })(),
       }),
       nextAction({ id: 'loser', title: '整理桌面', value: 1, estMinutes: 25 }),
     ]);
