@@ -18,7 +18,6 @@ function buildApp(): Hono {
   return createApp({
     pool,
     ownerToken: OWNER_TOKEN,
-    ownerTokenSource: 'env',
     jwtSecret: JWT_SECRET,
     now: () => NOW,
   });

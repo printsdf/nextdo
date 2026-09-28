@@ -22,25 +22,19 @@ import { resolveOwnerToken } from './owner-token.js';
 import { seedDefaultContexts } from './seed.js';
 
 /** Read the environment, refuse to boot on a missing secret, serve.
- *  (The owner token may also resolve to UNCLAIMED at boot — the first
- *  device's POST /claim then mints it; see src/owner-token.ts.) */
+ *  (The owner token comes ONLY from NEXTDO_OWNER_TOKEN — missing/empty
+ *  refuses the boot; see src/owner-token.ts.) */
 export async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   const jwtSecret = process.env.JWT_SECRET;
   if (databaseUrl === undefined || databaseUrl === '') {
     throw new Error('DATABASE_URL is not set');
   }
-  // Claim task 09-28: explicit env > persisted file > UNCLAIMED (token
-  // null — nothing is generated or printed at boot; the token never
-  // reaches a log line, the claim's 200 body is its only display path).
-  const { token: ownerToken, source: ownerTokenSource } = await resolveOwnerToken();
-  if (ownerTokenSource === 'unclaimed') {
-    logger.info(
-      'owner token unclaimed — first device to POST /claim mints it (or set NEXTDO_OWNER_TOKEN)',
-    );
-  } else {
-    logger.info(`owner token source: ${ownerTokenSource}`);
-  }
+  // The token is env-only and REQUIRED: a missing/empty value throws here
+  // and the boot is refused (the message names the generation command +
+  // the .env location). The token value itself never reaches a log line.
+  const ownerToken = resolveOwnerToken();
+  logger.info('owner token source: env');
   if (jwtSecret === undefined || jwtSecret === '') {
     throw new Error('JWT_SECRET is not set');
   }
@@ -61,7 +55,7 @@ export async function main(): Promise<void> {
   } catch (error) {
     logger.error('context seeding failed', error);
   }
-  const app = createApp({ pool, ownerToken, ownerTokenSource, jwtSecret });
+  const app = createApp({ pool, ownerToken, jwtSecret });
   serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`listening on :${info.port}`);
   });

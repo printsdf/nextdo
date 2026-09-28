@@ -9,9 +9,8 @@
  *
  * Log WHAT happened, never user free-text content (inbox items contain
  * personal data) and never tokens/secrets — with NO sanctioned exceptions.
- * (The owner token's only display path is the ONE `POST /claim` 200 body —
- * src/owner-token.ts claimOwnerToken, task 09-28; it never appears in a
- * log line.)
+ * (The owner token's only home is server/deploy/.env — it is never
+ * generated at runtime and never appears in a log line.)
  */
 export const logger = {
   info(message: string): void {

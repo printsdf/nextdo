@@ -117,7 +117,6 @@ describe('GET /credentials endpoint', () => {
     const app = createApp({
       pool,
       ownerToken: OWNER_TOKEN,
-      ownerTokenSource: 'env',
       jwtSecret: JWT_SECRET,
     });
     const t0 = Date.now();

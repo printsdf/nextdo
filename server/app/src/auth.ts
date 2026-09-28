@@ -6,10 +6,6 @@
  * runs) stays.
  *
  * 401 matrix (fail closed — every bad shape is a 401):
- *   - unclaimed (expectedToken null)  → 401 for EVERY request shape (no
- *                                       token exists to match; the claim
- *                                       path is `POST /claim`, which is
- *                                       unauthenticated by design)
  *   - missing Authorization header  → 401
  *   - non-`Bearer` scheme           → 401 (case-sensitive: the client
  *                                       always sends `Bearer`)
@@ -62,18 +58,13 @@ export function timingSafeTokenEqual(presented: string, expected: string): boole
 /**
  * Hono middleware: verify `Authorization: Bearer <ownerToken>` and answer
  * 401 (no body hints at WHY — all rejections look identical) on failure.
- * `expectedToken` null = the server booted UNCLAIMED: no token exists, so
- * every request 401s until the first `POST /claim` mints one (the route
- * swaps the expected token in the same process — see app.ts).
+ * `expectedToken` is the immutable boot value (env-only — the server
+ * refuses to start without it; see src/owner-token.ts).
  */
-export function requireOwnerToken(expectedToken: string | null) {
+export function requireOwnerToken(expectedToken: string) {
   return async (c: Context, next: Next): Promise<Response | void> => {
     const presented = parseBearerToken(c.req.header('authorization'));
-    if (
-      expectedToken === null ||
-      presented === null ||
-      !timingSafeTokenEqual(presented, expectedToken)
-    ) {
+    if (presented === null || !timingSafeTokenEqual(presented, expectedToken)) {
       return c.json({ error: 'unauthorized', code: AUTH_UNAUTHORIZED_CODE }, 401);
     }
     await next();
