@@ -39,38 +39,29 @@ cd server/deploy
 cp .env.example .env
 ```
 
-Fill in `.env` — three secrets are required; the owner token is optional
-(see below):
+Fill in `.env` — all four values are required:
 
 | Variable             | How to generate                                  | Used by                                  |
 | -------------------- | ------------------------------------------------ | ---------------------------------------- |
 | `POSTGRES_PASSWORD`  | any strong string                                | `postgres`, `powersync`, `api`           |
-| `NEXTDO_OWNER_TOKEN` | **optional** — `openssl rand -hex 32`, or leave empty for first-connect auto-claim | `api` — the token clients enter in the Settings tab |
+| `NEXTDO_OWNER_TOKEN` | **required** — `openssl rand -hex 32`            | `api` — the token clients enter in the Settings tab |
 | `JWT_SECRET`         | `openssl rand -base64 32 \| tr '+/' '-_' \| tr -d '='` | `api` + `powersync` — **one shared secret** |
 | `PS_ADMIN_TOKEN`     | `openssl rand -hex 32`                           | `powersync` admin API (local ops only)   |
 
-### The owner token — two ways
+### The owner token — one way (deploy-owned)
 
-- **Explicit (recommended once devices are connected):** generate one
-  (`openssl rand -hex 32`) and set `NEXTDO_OWNER_TOKEN` in `.env`. The
-  token is fixed; `POST /claim` always answers 409 (reason `explicit`)
-  and never serves this value.
-- **First-connect auto-claim:** leave it empty. The server boots
-  **unclaimed** — no token is generated or printed at startup (it never
-  appears in any log). On the **first device's connect** (Settings tab,
-  token field left empty) the server mints a random 64-hex token,
-  persists it in `./data/owner-token` (git-ignored, on the deploy host),
-  and returns it to **that device only** — it fills the device's token
-  field automatically. Every later `POST /claim` is 409 (reason `file`);
-  **later devices enter the token manually** (it is the file's content).
+Generate it once before starting the stack:
 
-  Restarts and container rebuilds reuse the persisted file silently —
-  the token never rotates on its own. If you lose both the devices and
-  the file, delete `./data/owner-token` (or set the env var) and restart
-  to start over — every device must re-claim / re-enter it then.
+```bash
+openssl rand -hex 32
+```
 
-  The only display path for a claimed token is the ONE `POST /claim`
-  200 body — the API and the client UI never echo it anywhere else.
+and set it as `NEXTDO_OWNER_TOKEN` in `.env`. The server **refuses to
+start** when the value is missing or empty (the boot error names the
+command above). The token lives ONLY in that `.env` — there is no
+persisted file, no log line, and no API echo. Every device (the first
+one and all later ones) enters the same value in the Settings tab
+(step 5).
 
 > `JWT_SECRET` must be the **same value** in both `api` and `powersync` — the
 > backend signs the `/credentials` JWT with it and the PowerSync service
@@ -166,9 +157,9 @@ open the **Settings tab** (the 5th tab) and fill in the fields, then press
 
 1. **后端地址 (backend URL)** — where `/credentials` and `/upload` live.
 2. **同步流地址 (sync-stream URL)** — where PowerSync's `/sync/stream` lives.
-3. **owner token** — **optional on the first connect**: leave it empty and
-   the server mints it for this device automatically (first-connect
-   auto-claim, step 1). Otherwise enter the token from step 1.
+3. **owner token** — the value you generated at deploy time (step 1,
+   `NEXTDO_OWNER_TOKEN` in `.env`); it is required, and **every device
+   (the first one and all later ones) goes through this same flow**.
 
 The two addresses match the reverse-proxy layout you chose in step 3:
 
@@ -182,11 +173,6 @@ on mobile, encrypted stronghold file on desktop) and the device syncs — you
 won't be asked again. **断开连接** in the same block stops syncing and clears
 only the token (the addresses stay, so reconnecting is just re-entering the
 token); local data is kept.
-
-> **A second (and later) device:** the one-time claim is already closed —
-> the server answers 「服务器已有 token，请手动输入」 for an empty-token
-> connect. Read the token from the server's `./data/owner-token` file (or
-> your `.env`) and enter it manually in that device's Settings tab.
 
 > **Upgrading from a hardcoded-domain build:** the old build pointed at a
 > fixed domain and stored only the token. After installing this build, enter
@@ -215,23 +201,29 @@ powersync` for the WebSocket stream.
 
 ## Operations
 
-- **Migrate an existing deployment to the first-connect claim flow:** the
-  server must run the claim-capable build FIRST (`docker compose up -d
-  --build`), then clear the explicit token and the persisted file and
-  restart — the stack boots unclaimed and the next device claims:
+- **Migrate an existing deployment to required-token boot:** the new
+  build refuses to start without `NEXTDO_OWNER_TOKEN`, so write the token
+  into `.env` BEFORE deploying it. The current token is either the old
+  `.env`'s `NEXTDO_OWNER_TOKEN` (if non-empty) or the content of the old
+  `./data/owner-token` file:
 
   ```bash
-  # in server/deploy/.env: set NEXTDO_OWNER_TOKEN= (empty)
-  rm -f ./data/owner-token
-  docker compose up -d api
+  cd server/deploy
+  # find the current token (one of these two places):
+  grep '^NEXTDO_OWNER_TOKEN=' .env        # explicit deploy
+  cat ./data/owner-token                  # older deployments (first-boot auto-generation)
+  # then write that value into .env and deploy the new build:
+  docker compose up -d --build
   ```
 
-  After this, **every already-connected device** must reconnect once:
-  the first one to connect (token field empty) claims the new token, the
-  rest enter it manually.
-- **Rotate the owner token:** set a new `NEXTDO_OWNER_TOKEN` in `.env` (or
-  delete `./data/owner-token`) and `docker compose up -d api` — then re-enter
-  it in every device (Settings tab). The old token stops working immediately.
+  Already-connected devices are unaffected when the token value is
+  unchanged (no re-entry needed); only a token CHANGE forces every device
+  to re-enter it (Settings tab). The old `./data/owner-token` file is no
+  longer read by the new code — you may delete it afterwards.
+- **Rotate the owner token:** set a new value for `NEXTDO_OWNER_TOKEN` in
+  `.env` (`openssl rand -hex 32`) and `docker compose up -d api` — then
+  re-enter it in every device (Settings tab). The old token stops working
+  immediately.
 - **Update the backend:** pull your changes, then `docker compose up -d --build`
   (only `api` rebuilds; `postgres`/`powersync` images are pinned and untouched).
 - **Update the PowerSync schema:** a client schema change is one unit —
