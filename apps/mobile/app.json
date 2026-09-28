@@ -23,6 +23,12 @@
       "bundler": "metro",
       "output": "single",
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "7b5502cd-d681-4840-95e3-69d11104cd2b"
+      }
+    },
+    "owner": "printsdf"
   }
 }
