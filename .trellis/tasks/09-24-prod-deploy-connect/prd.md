@@ -36,6 +36,10 @@
   - 桌面端（Tauri 加载同一 web 构建）自动获得相同设置页，无分叉。
 - **R4 修复 stronghold 存储**：按 2.3.2 真实 vault API 重写 `createStrongholdStore`（固定快照路径/密码常量，v1 单用户本机加密取舍；保留单 key 契约）；单测 mock 插件 + 桌面实机验证。
 - **R5 后端 CORS**：`server/app` 加 hono `cors` 中间件（`origin: *`，allow `authorization`/`content-type`）；鉴权行为不变。
+- **R7 生产 owner token 自动生成 + 首次可查看（2026-09-28，用户拍板）**：
+  - `NEXTDO_OWNER_TOKEN` 不再必填：`server/app` 启动时若未设置（或为空），**自动生成** `crypto.randomBytes(32)` 的 64 位 hex token，持久化到文件（`NEXTDO_OWNER_TOKEN_FILE`，生产 compose 绑定 `server/deploy/data/`），并在启动日志**醒目地打印一次**（仅此一次；之后启动只记来源，不打印 token）。
+  - 优先级：显式 `NEXTDO_OWNER_TOKEN`（env）> 持久化文件 > 自动生成（写文件 + 打印）。文件已存在（非空）时静默复用——重建容器/重启不轮换、不重复打印。
+  - 部署侧：compose 的 `NEXTDO_OWNER_TOKEN` 改为可选（`${NEXTDO_OWNER_TOKEN:-}`）+ api 服务加 `./data:/app/data` 卷；`.env.example` 与 README 说明两条路（手动生成 / 首次启动看 `docker compose logs api`）。API/UI 永不回显 token（客户端设置页只进不出）。
 
 ## Acceptance Criteria
 
@@ -44,6 +48,7 @@
 - [ ] stronghold：单测覆盖 2.3.2 形状（get/set/remove/多 key 拒绝/save）；桌面 `tauri dev` 实机下输入 token 成功持久化、重启免输入（用户 Mac 上验证）。
 - [x] ~~Gate（R3 原验收，已被 R6 取代）~~：门槛页已实现后又按 R6 移除，原 Gate 单测随组件删除。
 - [ ] 设置页（R6）：无 token 启动直接进主界面（无任何门槛页）；「设置」tab 云同步区块单测覆盖未连接/已连接两态与 token 提交三态（成功/401 内联「token 不正确」/网络错内联「连不上服务器」）；断开后回到未连接；已存 token 启动预校验 401 → 静默清除且主界面照常渲染。
+- [ ] token 自举（R7）：单测覆盖 env 显式设置（不回退文件）/ 文件已存在（静默复用、不重新生成）/ 无 env 无文件（生成 64-hex + 写文件 + 一次性日志）/ 空文件（重新生成）；`docker compose config` 通过；首次启动 `docker compose logs api` 可见 token 横幅（用户部署时验证）。
 - [ ] 生产 compose `docker compose config` 通过；用户按 README 在自己服务器上起栈 + 填 `lib/env.ts` 常量后，手机/桌面端到端同步成功（用户侧验证步骤，交付时明确提示）。
 
 ## Out of Scope
