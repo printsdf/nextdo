@@ -141,11 +141,16 @@ UI:
   the HS256 signing key) and `server/powersync/.env` (interpolated into
   `PS_JWT_SECRET` → `service.yaml` JWK `k` verbatim). `kid` + `audience` are
   pinned on both sides.
-  The owner token (`NEXTDO_OWNER_TOKEN`) is a shared secret generated once; the
-  client stores it per platform — `expo-secure-store` exists only on native, so:
+  The owner token (`NEXTDO_OWNER_TOKEN`) is a shared secret generated once.
+  The client stores it — **and the user's sync-server config** (`{ backendUrl,
+  endpoint }`, entered in the Settings tab; the OSS default is empty =
+  pure-local) — per platform. Two keys travel together in the SAME store:
+  `nextdo.auth.owner-token` (a secret) and `nextdo.sync.config` (a JSON
+  string, **not** a secret, but per-device configuration). `expo-secure-store`
+  exists only on native, so:
 
-  | Platform | Owner-token storage |
-  |----------|---------------------|
+  | Platform | Owner-token + sync-config storage |
+  |----------|-----------------------------------|
   | iOS / Android | `expo-secure-store` (Keychain / Keystore) |
   | Tauri desktop | `@tauri-apps/plugin-stronghold` (encrypted local store) |
   | Browser Web | in-memory only — re-entered after a browser restart (v1; browser is a secondary surface; a cookie/session flow ships with the post-MVP account work) |
@@ -153,9 +158,11 @@ UI:
   Storage lives in one module: `packages/db/src/owner-token.ts` — the ONLY
   place in the monorepo that touches client-side secret storage. The backend
   is chosen lazily on first use (like the platform client in
-  `powersync.ts`), the connector reads it via `getOwnerToken()`, and
-  dev/test injects it via `__setStorageBackendForTests`. No env-var fallback
-  anywhere (client env values may end up in the build output).
+  `powersync.ts`), the connector reads the token via `getOwnerToken()` and the
+  app's provider / settings hook read the config via
+  `getStoredBackendConfig()`, and dev/test injects the backend via
+  `__setStorageBackendForTests`. No env-var fallback anywhere (client env
+  values may end up in the build output).
   The stronghold store is written against the 2.3.2 **vault API** (unit-tested
   with the plugin mocked to the `dist-js/index.d.ts` shapes; the original
   draft targeted a file-based API that does not exist — fixed in task
@@ -179,8 +186,15 @@ UI:
     password only unlocks the vault ON THIS MACHINE. v1 is single-user: the
     security boundary is "encrypted local file" (not cross-user secrecy). A
     per-machine derived password is post-MVP.
-  - Single-key contract enforced in the store (only `OWNER_TOKEN_KEY`; other
-    keys: `getItem` → null, `setItem` → `StorageNextdoError`).
+  - **Two-key contract** enforced in the stronghold store (only
+    `OWNER_TOKEN_KEY` + `SYNC_CONFIG_KEY` (`nextdo.sync.config`); any other
+    key: `getItem` → null, `setItem` → `StorageNextdoError`
+    `storage.multi-key`). The secure-store / in-memory backends are generic KV
+    (no key restriction). `setStoredBackendConfig` validates both URLs
+    (non-empty absolute http(s) — `sync.invalid-backend-url`) and does NOT
+    poke the owner-token subscribers; the app writes config → token, so the
+    single token poke fires only after both are stored. A corrupt stored value
+    is read as `null` (recovery = re-enter the addresses).
   - In-session 401 (token rotation) is **deferred**: the PowerSync v2 SDK
     swallows `credentials.rejected` and retries internally, so a revoked
     token is not detectable mid-session. Instead the app pre-validates the

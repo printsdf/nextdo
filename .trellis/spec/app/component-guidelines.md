@@ -61,25 +61,36 @@
 
 ## Cloud sync (Settings tab, `apps/mobile/app/(tabs)/settings.tsx`)
 
-- Cloud sync is OPTIONAL (prod-deploy R6 — the R3 first-launch ConnectGate
-  and its full-screen threshold are DELETED): the app is local-first and
-  renders the main tree unconditionally; with no owner token stored,
-  PowerSync stays disconnected and the local DB is still the source of
-  truth. The Settings tab (5th tab, 「设置」) is the single entry point.
+- Cloud sync is OPTIONAL and USER-CONFIGURED (prod-deploy R6 + OSS
+  09-28 — the R3 first-launch ConnectGate is DELETED): the app is local-first
+  and renders the main tree unconditionally; with no owner token **or** no
+  stored server config, PowerSync stays disconnected and the local DB is
+  still the source of truth. The Settings tab (5th tab, 「设置」) is the
+  single entry point — it holds the two server-address inputs + the owner
+  token (the addresses pre-fill from the stored config).
 - The `useCloudSync` UI hook (`apps/mobile/hooks/use-cloud-sync.ts`) owns
-  the connection state: `getOwnerToken()` on mount +
+  the connection state: on mount + on every poke it re-reads
+  `getOwnerToken()` AND `getStoredBackendConfig()`, and subscribes to
   `subscribeToOwnerTokenChange` — the SAME notification the root provider
-  uses to drive connect()/disconnect(), so the UI can never diverge from
-  the sync lifecycle. The hook also owns `connect(token)` (one
-  `fetchCredentialsOnce` round-trip → `setOwnerToken`) and
-  `disconnect()` (`clearOwnerToken`; no confirmation — nothing destructive).
-- The user-facing auth error copies are the single precedent (never throw,
-  always inline, never block): 「token 不正确」(401) /
-  「连不上服务器，请稍后重试」(network / 5xx / malformed 200 — the token is
-  NOT invalidated) / 「token 验证通过，但保存失败，请重试」(storage write).
-- RootLayout runs a non-blocking startup 401 hygiene check (a stale stored
-  token is cleared in the background so the SDK does not spin and the
-  Settings tab stays honest — see Database Guidelines).
+  uses to drive connect()/disconnect() (the provider re-reads token +
+  stored config and only `connect()`s when BOTH are present), so the UI can
+  never diverge from the sync lifecycle. The hook also owns
+  `connect({ backendUrl, endpoint, token })` (three client-side checks before
+  any network → `fetchCredentialsOnce` → `setStoredBackendConfig` **first**
+  then `setOwnerToken`, whose poke flips both the provider and this hook) and
+  `disconnect()` (`clearOwnerToken` only — the stored addresses are KEPT, so
+  reconnecting is just re-entering the token; no confirmation, nothing
+  destructive).
+- The user-facing error copies are the single precedent (never throw, always
+  inline, never block). Client-side, pre-network: 「token 不能为空」/
+  「请先填写服务器地址」/ 「地址无效，应以 http:// 或 https:// 开头」.
+  Server three-state: 「token 不正确」(401) / 「连不上服务器，请稍后重试」
+  (network / 5xx / malformed 200 — the token is NOT invalidated) / 「token
+  验证通过，但保存失败，请重试」(storage write).
+- RootLayout runs a non-blocking startup hygiene check (see Database
+  Guidelines): it re-reads the stored token + config and, on a 401, clears
+  the TOKEN only (the config is kept — the SDK does not spin and the Settings
+  tab stays honest).
 
 ## Tag (packages/ui)
 
