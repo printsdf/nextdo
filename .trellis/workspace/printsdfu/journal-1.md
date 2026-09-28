@@ -371,3 +371,44 @@ web 冒烟复核（空态 + hero 态截图，8091 旧导出已按当前树重新
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: 项目与行动的编辑/归档操作
+<!-- trellis-session: v=2 fp=8463bc3f75d01ab2 -->
+
+**Date**: 2026-09-29
+**Task**: 项目与行动的编辑/归档操作
+**Branch**: `feature/project-action-edit-archive`
+
+### Summary
+
+项目详情编辑/归档/恢复 + 行动编辑：删除改归档（on-hold 可逆）、池子过滤非 active 项目行动、patch 式更新钩子；db 212/mobile 240 测试全绿 + web 冒烟全流程通过，trellis-check 4 项修复含 spec 同步
+
+### Main Changes
+
+- db: queryEnginePool 排除非 active 项目的 next 行动（池子契约 R5，core 零改动）
+- mobile: 项目详情 [编辑][归档/恢复] + 行动行 [编辑]，新增 useUpdateProject/useUpdateNextAction
+- spec: next-action-engine 池子契约 + domain-model 状态快捷切换 + hook-guidelines patch 钩子先例
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `900f855` | feat(db): exclude non-active project actions from the engine pool |
+| `95d6e5d` | feat(mobile): project edit + archive/resume and action edit on project detail |
+| `3794a3a` | docs(spec): pool contract R5 clause, project status quick-switch, patch-hook precedent |
+| `25991dd` | docs(trellis): add project-action-edit-trash task artifacts |
+| `e366c47` | chore(task): archive 09-28-project-action-edit-trash |
+
+### Testing
+
+- [OK] typecheck 6 包 + 测试全绿（core 157/db 212/server 69/mobile 240）+ web 冒烟：归档→Now 消失→恢复→回来→编辑生效
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 分支 feature/project-action-edit-archive 待合并/推送（base: feature/prod-deploy-connect）
+- 可选：回收站页面（软删除的恢复/硬删入口）+ 项目真删除；CalendarAction 支持 projectId
