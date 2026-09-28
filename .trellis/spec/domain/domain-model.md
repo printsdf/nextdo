@@ -97,6 +97,9 @@ A multi-step outcome (Proposal §5.3).
 - `title`, `outcome` (what "done" means; required, see Clarify rules),
 - `value: 1..5` (goal importance — used by the engine's `project-importance` signal),
 - `status: "active" | "on-hold" | "done" | "dropped"`.
+- The project detail screen supports the quick `active ↔ on-hold` switch
+  (归档 / 恢复 — task 09-28 project-action-edit-trash); `done` / `dropped`
+  remain terminal and are decided by the weekly review only.
 - **Coverage is always derived, never stored:** `projectActionCoverage()` (in
   `packages/db`) returns the active projects lacking an open action. The weekly review
   screen and the engine both query it; nothing "bumps" a stored counter.

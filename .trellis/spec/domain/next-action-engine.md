@@ -46,6 +46,9 @@ type CandidateAction = NextCandidate | HabitCandidate | CalendarCandidate;
 // Pool contract (enforced by the packages/db pool query, trusted by the engine):
 //   - only open, non-deleted candidates — done/deleted filtering is the pool's job,
 //     not the engine's;
+//   - a `next_actions` row whose `project_id` points to a project that is not
+//     active (or deleted/missing) is not a candidate; projectless actions,
+//     CalendarActions (no projectId in v1) and today's HabitDays are unaffected;
 //   - dependencyDone = the referenced action is done (or no dependency);
 //   - the pool query tags CalendarBlocks that originate from an open CalendarAction
 //     with its `sourceActionId`; the engine ignores a candidate's own block at check
@@ -55,7 +58,9 @@ interface EngineInput {
   actions: CandidateAction[];    // open NextActions + today's open HabitDays + CalendarActions (today or starting soon)
   calendar: CalendarBlock[];     // hard schedule blocks — v1: other open CalendarActions
                                  // (manual time blocks + system-calendar import: post-MVP).
-  projects: { id: string; value: number; status: string }[];
+  projects: { id: string; value: number; status: string }[]; // ALL non-deleted projects (incl.
+                                                             // non-active — the engine applies
+                                                             // the `active` check itself)
   context: EngineContext;
   now: Date;                     // INJECTED — never Date.now()
 }

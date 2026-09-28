@@ -22,6 +22,15 @@
 - Mutations: **never `db.update(...)` in a component.** Mutations go through query
   functions in `packages/db` that wrap the domain operations from `packages/core`
   (e.g. `completeAction(id, now)`), so invariants are enforced in one place.
+  Full-row edits of an existing entity follow the same pattern as a **patch-style
+  hook** (precedent: task 09-28 project-action-edit-trash — `useUpdateProject` /
+  `useUpdateNextAction`): the hook builds `{ ...row, ...patch, updatedAt:
+  toIso(useAppClock()) }` and delegates to the db query (`updateProject` /
+  `updateNextAction`) — a project status change is asserted against
+  `PROJECT_TRANSITIONS` in the db layer (the detail screen only offers
+  `active ↔ on-hold`; done/dropped stay terminal), and a title/estimate
+  redefinition resets `consecutiveSkips` there too. The weekly review keeps its
+  own `useProjectStatus` (status-only patch).
 
 ## UI Hooks
 
