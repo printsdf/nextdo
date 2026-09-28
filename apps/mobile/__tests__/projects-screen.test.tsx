@@ -16,7 +16,7 @@
  * fixtures are relative to Date.now() (same determinism pattern as the
  * Inbox 24h test).
  */
-const dataRef: { cards: unknown[]; nextActions: unknown[]; contexts: unknown[] } = {
+const dataRef: { cards: Record<string, unknown>[]; nextActions: Record<string, unknown>[]; contexts: Record<string, unknown>[] } = {
   cards: [],
   nextActions: [],
   contexts: [],
@@ -70,6 +70,19 @@ jest.mock('@nextdo/db', () => {
     completeAction: jest.fn(async () => undefined),
     snoozeAction: jest.fn(async () => undefined),
     trashAction: jest.fn(async () => undefined),
+    // Task 09-28 (R1–R4): the edit/archive mutations APPLY to the watched
+    // fixtures, so the header / action rows re-render with the new values
+    // after save (simulating the live PowerSync watch refresh).
+    updateProject: jest.fn(async (_db: unknown, project: Record<string, unknown>) => {
+      const index = dataRef.cards.findIndex((card) => card.id === project.id);
+      if (index >= 0) dataRef.cards[index] = { ...dataRef.cards[index], ...project };
+      return project;
+    }),
+    updateNextAction: jest.fn(async (_db: unknown, action: Record<string, unknown>) => {
+      const index = dataRef.nextActions.findIndex((entry) => entry.id === action.id);
+      if (index >= 0) dataRef.nextActions[index] = action;
+      return action;
+    }),
   };
 });
 
@@ -95,12 +108,22 @@ jest.mock('@powersync/react', () => {
 });
 
 import { fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
-import { addNextAction, addProject, completeAction } from '@nextdo/db';
+import {
+  addNextAction,
+  addProject,
+  completeAction,
+  trashAction,
+  updateNextAction,
+  updateProject,
+} from '@nextdo/db';
 import { formatDueLabel } from '@/lib/format';
 
 const mockedAddProject = addProject as jest.Mock;
 const mockedAddNextAction = addNextAction as jest.Mock;
 const mockedCompleteAction = completeAction as jest.Mock;
+const mockedTrashAction = trashAction as jest.Mock;
+const mockedUpdateProject = updateProject as jest.Mock;
+const mockedUpdateNextAction = updateNextAction as jest.Mock;
 
 const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY).toISOString();
@@ -417,5 +440,206 @@ describe('Project detail', () => {
 
     expect(screen.getByText('日期格式应为 YYYY-MM-DD（例如 2026-10-01）')).toBeTruthy();
     expect(mockedAddNextAction).not.toHaveBeenCalled();
+  });
+
+  it('editing the project (R1): saving updates the header with the new fields', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('论文实验')).toBeTruthy());
+
+    // Header [编辑] — the action row's 编辑 button renders later in the tree.
+    fireEvent.press(screen.getAllByText('编辑')[0]!);
+    expect(screen.getByPlaceholderText('项目标题')).toBeTruthy();
+    // Pre-filled from the current row — change only the title.
+    fireEvent.changeText(screen.getByPlaceholderText('项目标题'), '毕业论文实验（终稿）');
+    fireEvent.press(screen.getByText('保存'));
+
+    await waitFor(() => expect(screen.getByText('毕业论文实验（终稿）')).toBeTruthy());
+    expect(mockedUpdateProject).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        id: 'p-1',
+        title: '毕业论文实验（终稿）',
+        outcome: '跑出 baseline 结果',
+        value: 4,
+        status: 'active',
+      }),
+    );
+  });
+
+  it('editing the project (R1): an empty title or empty outcome cannot submit', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('论文实验')).toBeTruthy());
+    fireEvent.press(screen.getAllByText('编辑')[0]!);
+
+    // Whitespace-only title.
+    fireEvent.changeText(screen.getByPlaceholderText('项目标题'), '   ');
+    fireEvent.press(screen.getByText('保存'));
+    expect(mockedUpdateProject).not.toHaveBeenCalled();
+    // …and an empty outcome with a valid title.
+    fireEvent.changeText(screen.getByPlaceholderText('项目标题'), '毕业论文实验');
+    fireEvent.changeText(screen.getByPlaceholderText('完成是什么样（结果）'), '');
+    fireEvent.press(screen.getByText('保存'));
+    expect(mockedUpdateProject).not.toHaveBeenCalled();
+  });
+
+  it('archiving an active project (R2): no confirm, tag 搁置, button becomes 恢复', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('归档')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('归档'));
+
+    // No confirmation dialog in between — the status update went straight
+    // to the db and the header re-derives from the (mocked) live row.
+    await waitFor(() => expect(screen.getByText('搁置')).toBeTruthy());
+    expect(mockedUpdateProject).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'p-1', status: 'on-hold' }),
+    );
+    expect(screen.getByText('恢复')).toBeTruthy();
+    expect(screen.queryByText('归档')).toBeNull();
+  });
+
+  it('resuming an on-hold project (R3): back to active with the 归档 button', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-4' });
+    await waitFor(() => expect(screen.getByText('恢复')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('恢复'));
+
+    await waitFor(() => expect(screen.getByText('进行中')).toBeTruthy());
+    expect(mockedUpdateProject).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'p-4', status: 'active' }),
+    );
+    expect(screen.getByText('归档')).toBeTruthy();
+    expect(screen.queryByText('搁置')).toBeNull();
+  });
+
+  it('an on-hold project keeps its action rows operable (R6): complete / edit / trash still work', async () => {
+    // Give the on-hold project an open action of its own (fixture p-4 has none).
+    dataRef.cards = dataRef.cards.map((card) =>
+      card.id === 'p-4'
+        ? {
+            ...card,
+            hasOpenAction: true,
+            openCount: 1,
+            nextAction: {
+              id: 'a-4',
+              title: '搁置项目里还开着的行动',
+              contextIds: [],
+              deadline: null,
+              estMinutes: 20,
+            },
+          }
+        : card,
+    );
+    dataRef.nextActions = [
+      ...dataRef.nextActions,
+      action({ id: 'a-4', title: '搁置项目里还开着的行动', projectId: 'p-4', estMinutes: 20 }),
+    ];
+
+    renderRouter('app', { initialUrl: '/projects/p-4' });
+    await waitFor(() => expect(screen.getByText('搁置项目里还开着的行动')).toBeTruthy());
+    // All four row actions are still rendered (编辑 ×2 = header quick action + row).
+    expect(screen.getByText('完成')).toBeTruthy();
+    expect(screen.getByText('稍后')).toBeTruthy();
+    expect(screen.getAllByText('编辑')).toHaveLength(2);
+    expect(screen.getByText('删除')).toBeTruthy();
+
+    // Complete still reaches the db layer.
+    fireEvent.press(screen.getByText('完成'));
+    await waitFor(() =>
+      expect(mockedCompleteAction).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ actionKind: 'next', actionId: 'a-4' }),
+      ),
+    );
+
+    // Edit still opens the inline form (the row's 编辑 — the header's is first).
+    fireEvent.press(screen.getAllByText('编辑')[1]!);
+    expect(screen.getByText('编辑行动')).toBeTruthy();
+    fireEvent.press(screen.getByText('取消'));
+
+    // Trash still reaches the db layer.
+    fireEvent.press(screen.getByText('删除'));
+    await waitFor(() =>
+      expect(mockedTrashAction).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ actionKind: 'next', actionId: 'a-4' }),
+      ),
+    );
+  });
+
+  it('editing an action (R4): saving updates the row with the new fields', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('运行 baseline A')).toBeTruthy());
+
+    // The action row's 编辑 (the header's 编辑 is first in the tree).
+    fireEvent.press(screen.getAllByText('编辑')[1]!);
+    expect(screen.getByText('编辑行动')).toBeTruthy();
+    // Pre-filled title — change it and pick the 30-minute estimate chip.
+    fireEvent.changeText(screen.getByPlaceholderText('下一步行动（具体的、单步的）'), '运行 baseline B');
+    fireEvent.press(screen.getByText('30'));
+    fireEvent.press(screen.getByText('保存'));
+
+    await waitFor(() => expect(screen.getByText('运行 baseline B')).toBeTruthy());
+    expect(mockedUpdateNextAction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'a-1', title: '运行 baseline B', estMinutes: 30, value: 3 }),
+    );
+    // The row re-renders from the (mocked) live data — new estimate tag.
+    expect(screen.getByText('30 分钟')).toBeTruthy();
+  });
+
+  it('a done project (terminal) shows no edit / status buttons', async () => {
+    dataRef.cards = [
+      ...dataRef.cards,
+      {
+        ...dataRef.cards[0],
+        id: 'p-5',
+        title: '已完结的项目',
+        outcome: '论文交付',
+        value: 5,
+        status: 'done',
+        hasOpenAction: false,
+        openCount: 0,
+        completedCount: 4,
+        earliestOpenDeadline: null,
+        lastProgressAt: daysAgo(2),
+        nextAction: null,
+      },
+    ];
+    renderRouter('app', { initialUrl: '/projects/p-5' });
+    await waitFor(() => expect(screen.getByText('已完结的项目')).toBeTruthy());
+    // Terminal audit state: the status Tag only — no edit, no 归档/恢复.
+    expect(screen.getByText('已完成')).toBeTruthy();
+    expect(screen.queryByText('编辑')).toBeNull();
+    expect(screen.queryByText('归档')).toBeNull();
+    expect(screen.queryByText('恢复')).toBeNull();
+  });
+
+  it('a dropped project (terminal) shows no edit / status buttons', async () => {
+    dataRef.cards = [
+      ...dataRef.cards,
+      {
+        ...dataRef.cards[0],
+        id: 'p-6',
+        title: '已取消的项目',
+        outcome: '设备更换',
+        value: 2,
+        status: 'dropped',
+        hasOpenAction: false,
+        openCount: 0,
+        completedCount: 1,
+        earliestOpenDeadline: null,
+        lastProgressAt: daysAgo(30),
+        nextAction: null,
+      },
+    ];
+    renderRouter('app', { initialUrl: '/projects/p-6' });
+    await waitFor(() => expect(screen.getByText('已取消的项目')).toBeTruthy());
+    expect(screen.getByText('已放弃')).toBeTruthy();
+    expect(screen.queryByText('编辑')).toBeNull();
+    expect(screen.queryByText('归档')).toBeNull();
+    expect(screen.queryByText('恢复')).toBeNull();
   });
 });
