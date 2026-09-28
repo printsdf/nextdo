@@ -30,11 +30,6 @@
  *   pre-check (apps/mobile) call it directly — the PowerSync v2 SDK
  *   swallows credential rejections in its retry loop, so token validity
  *   is checked BEFORE `connect()` (prod-deploy design R3).
- * - `claimOwnerTokenOnce(config)` — the ONE place the `/claim` wire
- *   protocol lives (unauthenticated POST + 200-token / 409-reason
- *   check): the Settings tab's empty-token bootstrap (claim task 09-28)
- *   calls it before storing the minted token. Same pure contract style as
- *   `fetchCredentialsOnce` — a discriminated union, never a throw.
  *
  * Upload protocol (consumed by server/app `/upload`): the body is
  * `{ ops: [{ op, id, table, opData }] }` — one entry per ps_crud op
@@ -247,67 +242,6 @@ export async function fetchCredentialsOnce(
     return { ok: false, kind: 'rejected', status: res.status };
   }
   const data = (await res.json().catch(() => null)) as { token?: unknown } | null;
-  if (data === null || typeof data.token !== 'string' || data.token === '') {
-    return { ok: false, kind: 'invalid' };
-  }
-  return { ok: true, token: data.token };
-}
-
-/**
- * The outcome of one `POST {backendUrl}/claim` round-trip (claim task
- * 09-28, R3): the one-time owner-token bootstrap. A discriminated union,
- * NEVER a throw (same contract style as FetchCredentialsOnceResult):
- *
- * - `ok` — 200 with a non-empty token string: the server minted the
- *   owner token for this device (store it — the claim is now closed
- *   server-side, every later call is 409).
- * - `claimed` — 409: the token already exists. `reason` is `'file'`
- *   (already claimed / a boot from the persisted file) or `'explicit'`
- *   (the server booted with NEXTDO_OWNER_TOKEN — that token is NEVER
- *   served by /claim; the user must enter it manually).
- * - `invalid` — 200 but the body is unparseable or the token is not a
- *   non-empty string (a server/protocol bug).
- * - `network` — the fetch itself failed (offline / DNS / connection
- *   refused) or the server answered anything other than 200/409
- *   (5xx etc.); retryable.
- */
-export type ClaimOutcome =
-  | { ok: true; token: string }
-  | { ok: false; kind: 'claimed'; reason: 'file' | 'explicit' }
-  | { ok: false; kind: 'invalid' }
-  | { ok: false; kind: 'network' };
-
-/**
- * One unauthenticated `POST {backendUrl}/claim` (claim task 09-28) — the
- * token's bootstrap path: the first device to connect with an EMPTY token
- * mints it. Pure with respect to module state (takes the config, returns
- * the outcome); storing the minted token is the CALLER's job (the
- * Settings flow stores config first, token last — same poke contract as
- * the credentials path).
- */
-export async function claimOwnerTokenOnce(config: NextdoPowerSyncConfig): Promise<ClaimOutcome> {
-  let res: Response;
-  try {
-    res = await fetch(`${config.backendUrl}/claim`, { method: 'POST' });
-  } catch {
-    return { ok: false, kind: 'network' };
-  }
-  const data = (await res.json().catch(() => null)) as {
-    token?: unknown;
-    reason?: unknown;
-  } | null;
-  if (res.status === 409) {
-    // Malformed/missing reason falls back to 'file' (the common case:
-    // already claimed, persisted).
-    const reason =
-      data !== null && (data.reason === 'file' || data.reason === 'explicit') ? data.reason : 'file';
-    return { ok: false, kind: 'claimed', reason };
-  }
-  if (!res.ok) {
-    // 5xx / anything else: the server is unreachable or unhealthy —
-    // retry later (the claim window is untouched by a failed call).
-    return { ok: false, kind: 'network' };
-  }
   if (data === null || typeof data.token !== 'string' || data.token === '') {
     return { ok: false, kind: 'invalid' };
   }
