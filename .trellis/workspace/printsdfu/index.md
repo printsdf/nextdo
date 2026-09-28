@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-09-24
+- **Total Sessions**: 8
+- **Last Active**: 2026-09-28
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~322 | Active |
+| `journal-1.md` | ~348 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-09-28 | owner token 改部署时生成（移除 /claim）+ 生产服务器升级 | `b4d836b`, `9fa19df`, `090b258`, `916baf2`, `5ec16c6` | `feature/prod-deploy-connect` |
 | 7 | 2026-09-24 | Stitch UI 重做收尾：hero 验证 + chips 去计数 + 归档 | `39533ae`, `c541df7`, `50095c7`, `f4b8f0c`, `f2b6e66` | `feature/stitch-ui-redesign` |
 | 5 | 2026-09-23 | iOS 简约风 UI 重新设计与重构 | `3f686f7`, `f64799e` | `feature/app-ui-ios-redesign` |
 | 4 | 2026-09-23 | app-owned PowerSync connect/disconnect driven by owner token | `51e29a1` | `main` |

@@ -320,3 +320,29 @@ web 冒烟复核（空态 + hero 态截图，8091 旧导出已按当前树重新
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: owner token 改部署时生成（移除 /claim）+ 生产服务器升级
+<!-- trellis-session: v=2 fp=c6e80202a67b2fa4 -->
+
+**Date**: 2026-09-28
+**Task**: owner token 改部署时生成（移除 /claim）+ 生产服务器升级
+**Branch**: `feature/prod-deploy-connect`
+
+### Summary
+
+实机「连不上服务器」定位为生产跑旧代码（/claim 404 被归为 network）；用户拍板撤销 claim 机制，token 改为部署时 openssl rand -hex 32 写入 .env（必填、空则拒启动），客户端 token 恢复必填（内联「请先输入 owner token」零网络）。server/db/mobile/deploy/spec 五层实施，gate 全绿 + e2e 7/7 + 本机 docker 实跑 + trellis-check 零修改，5 个提交；Tauri 重建并重装。后经 SSH 用 bundle 把生产服务器 6e2cb45 升级到 5ec16c6 并公网验证（/credentials 200/401、/claim 404、/upload 200、日志零 token），读出并验证生产 token，用户实机连接成功；push 至 GitHub，归档 4 个任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b4d836b` | feat(server): require NEXTDO_OWNER_TOKEN at boot; drop /claim + file persistence |
+| `9fa19df` | feat(mobile): owner token input required again (drop claim bootstrap) |
+| `090b258` | feat(db): remove claimOwnerTokenOnce (claim endpoint retired) |
+| `916baf2` | chore(deploy): NEXTDO_OWNER_TOKEN required; drop data volume + claim docs |
+| `5ec16c6` | docs(trellis): deploy-owned owner token — spec sync + task 09-28-deploy-owned-owner-token |
+
+### Status
+
+[OK] **Completed**
