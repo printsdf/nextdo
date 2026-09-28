@@ -22,6 +22,7 @@ function buildApp(mock: MockPool): Hono {
   return createApp({
     pool: mock.pool,
     ownerToken: OWNER_TOKEN,
+    ownerTokenSource: 'env',
     jwtSecret: JWT_SECRET,
     now: () => NOW,
   });

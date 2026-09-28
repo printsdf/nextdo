@@ -114,7 +114,12 @@ describe('decodeJwtSecret', () => {
 describe('GET /credentials endpoint', () => {
   it('answers 200 { token } with a 15-min TTL under the valid owner token', async () => {
     const { pool } = createMockPool();
-    const app = createApp({ pool, ownerToken: OWNER_TOKEN, jwtSecret: JWT_SECRET });
+    const app = createApp({
+      pool,
+      ownerToken: OWNER_TOKEN,
+      ownerTokenSource: 'env',
+      jwtSecret: JWT_SECRET,
+    });
     const t0 = Date.now();
     const res = await app.request('/credentials', {
       headers: { Authorization: `Bearer ${OWNER_TOKEN}` },

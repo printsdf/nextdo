@@ -22,18 +22,23 @@ import { resolveOwnerToken } from './owner-token.js';
 import { seedDefaultContexts } from './seed.js';
 
 /** Read the environment, refuse to boot on a missing secret, serve.
- *  (The owner token is the exception — R7 auto-generates it on first run
- *  when unset; see src/owner-token.ts.) */
+ *  (The owner token may also resolve to UNCLAIMED at boot — the first
+ *  device's POST /claim then mints it; see src/owner-token.ts.) */
 export async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   const jwtSecret = process.env.JWT_SECRET;
   if (databaseUrl === undefined || databaseUrl === '') {
     throw new Error('DATABASE_URL is not set');
   }
-  // R7: explicit env > persisted file > first-run auto-generation (whose
-  // one-time banner is the token's only display path).
+  // Claim task 09-28: explicit env > persisted file > UNCLAIMED (token
+  // null — nothing is generated or printed at boot; the token never
+  // reaches a log line, the claim's 200 body is its only display path).
   const { token: ownerToken, source: ownerTokenSource } = await resolveOwnerToken();
-  if (ownerTokenSource !== 'generated') {
+  if (ownerTokenSource === 'unclaimed') {
+    logger.info(
+      'owner token unclaimed — first device to POST /claim mints it (or set NEXTDO_OWNER_TOKEN)',
+    );
+  } else {
     logger.info(`owner token source: ${ownerTokenSource}`);
   }
   if (jwtSecret === undefined || jwtSecret === '') {
@@ -56,7 +61,7 @@ export async function main(): Promise<void> {
   } catch (error) {
     logger.error('context seeding failed', error);
   }
-  const app = createApp({ pool, ownerToken, jwtSecret });
+  const app = createApp({ pool, ownerToken, ownerTokenSource, jwtSecret });
   serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`listening on :${info.port}`);
   });

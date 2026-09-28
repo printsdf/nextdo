@@ -15,7 +15,13 @@ import { createMockPool, JWT_SECRET, NOW, OWNER_TOKEN } from './helpers.js';
 
 function buildApp(): Hono {
   const { pool } = createMockPool();
-  return createApp({ pool, ownerToken: OWNER_TOKEN, jwtSecret: JWT_SECRET, now: () => NOW });
+  return createApp({
+    pool,
+    ownerToken: OWNER_TOKEN,
+    ownerTokenSource: 'env',
+    jwtSecret: JWT_SECRET,
+    now: () => NOW,
+  });
 }
 
 const bearer = (token: string): Record<string, string> => ({ Authorization: `Bearer ${token}` });

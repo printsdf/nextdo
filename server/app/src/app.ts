@@ -1,12 +1,25 @@
 /**
  * The Hono app (spec: app/database-guidelines.md "App backend").
  *
- * Two endpoints, BOTH requiring the owner token (401 otherwise — no
- * anonymous access; a real account flow is post-MVP):
+ * Three endpoints:
+ *   POST /claim       → the ONE-TIME owner-token mint (claim R1).
+ *                        UNAUTHENTICATED bootstrap path: while the server
+ *                        is unclaimed (no env token, no persisted file)
+ *                        the first call returns 200 { token } and closes
+ *                        the claim (persisted); every later call — and
+ *                        every call when a token exists (env or file) —
+ *                        is 409 { reason: 'file' | 'explicit' }. The 200
+ *                        body is the token's only display path; it never
+ *                        reaches a log line.
  *   GET  /credentials → { token: <15-min PowerSync service JWT> }
  *   POST /upload      → applies one ps_crud batch to Postgres, synchronously,
  *                        in one transaction (2xx-on-rejection protocol —
  *                        see upload.ts).
+ *
+ * The two authed endpoints require the owner token (401 otherwise — no
+ * anonymous access; a real account flow is post-MVP). While the server is
+ * unclaimed, `ownerToken` is null and they 401 for EVERY request shape —
+ * the claim above is the only way the first token appears.
  *
  * @nextdo/server is the PowerSync protocol boundary: it imports NOTHING
  * from the monorepo (spec: project/directory-structure.md Rule 1). The
@@ -27,19 +40,24 @@
  * Auth middleware stays AFTER the CORS middleware; the 401 matrix and
  * endpoint behavior are unchanged.
  */
-import { Hono } from 'hono';
+import { Hono, type Context, type Next } from 'hono';
 import { cors } from 'hono/cors';
 import { requireOwnerToken } from './auth.js';
 import { mintPowerSyncJwt } from './credentials.js';
 import { withTransaction, type DbPool } from './db.js';
 import { logger } from './logger.js';
+import { claimOwnerToken } from './owner-token.js';
 import { applyCrudBatch, parseUploadBody } from './upload.js';
 
 export interface ServerConfig {
   /** Postgres pool (injected — tests use an in-memory mock). */
   pool: DbPool;
-  /** The shared owner token (NEXTDO_OWNER_TOKEN). */
-  ownerToken: string;
+  /** The shared owner token (NEXTDO_OWNER_TOKEN or the persisted file);
+   *  null = unclaimed at boot — the first POST /claim mints it. */
+  ownerToken: string | null;
+  /** How the token resolved at boot (src/owner-token.ts) — drives the
+   *  /claim 409 reason without re-reading the env/file. */
+  ownerTokenSource: 'env' | 'file' | 'unclaimed';
   /** base64url shared secret the PowerSync service verifies with (JWT_SECRET). */
   jwtSecret: string;
   /** Injectable clock — defaults to the process clock. */
@@ -49,6 +67,14 @@ export interface ServerConfig {
 /** Build the Hono app (pure — no env reads, so it is unit-testable). */
 export function createApp(config: ServerConfig): Hono {
   const now = config.now ?? (() => new Date());
+  // CLOSURE VARIABLE holding the current token: a successful claim updates
+  // it in-place, so /credentials works in the SAME process (a restart
+  // recovers the same token from the file via resolveOwnerToken).
+  let currentToken = config.ownerToken;
+  // The auth guard reads the closure PER REQUEST (a middleware built from
+  // the boot value would freeze null for an unclaimed boot).
+  const requireCurrentToken = (c: Context, next: Next): Promise<Response | void> =>
+    requireOwnerToken(currentToken)(c, next);
   const app = new Hono();
 
   // CORS first (before the auth middleware): every response to an
@@ -66,7 +92,7 @@ export function createApp(config: ServerConfig): Hono {
 
   app.get(
     '/credentials',
-    requireOwnerToken(config.ownerToken),
+    requireCurrentToken,
     async (c) => {
       const token = await mintPowerSyncJwt({ secret: config.jwtSecret, now: now() });
       // The client reads ONLY `data.token` (endpoint comes from its own
@@ -77,7 +103,7 @@ export function createApp(config: ServerConfig): Hono {
 
   app.post(
     '/upload',
-    requireOwnerToken(config.ownerToken),
+    requireCurrentToken,
     async (c) => {
       let body: unknown;
       try {
@@ -105,6 +131,32 @@ export function createApp(config: ServerConfig): Hono {
       }
     },
   );
+
+  // POST /claim — the unauthenticated bootstrap (claim R1). The token's
+  // ONLY display path is the one 200 body; the success log line names the
+  // event, never the token.
+  app.post('/claim', async (c) => {
+    const claimed409 = (reason: 'file' | 'explicit') =>
+      c.json({ error: 'owner-token.claimed', code: 'owner-token.claimed', reason }, 409);
+    // Fast path: boot already resolved the token (explicit env or
+    // persisted file) → the claim window is closed, and the env/file
+    // VALUE is never re-read or echoed.
+    if (config.ownerTokenSource === 'env') {
+      return claimed409('explicit');
+    }
+    if (config.ownerTokenSource === 'file') {
+      return claimed409('file');
+    }
+    const result = await claimOwnerToken();
+    if (!result.claimed) {
+      // The file appeared since boot (manual rotation / concurrent
+      // claim) — single-writer by design, but fail closed regardless.
+      return claimed409(result.reason);
+    }
+    currentToken = result.token; // /credentials works from this process on
+    logger.info('owner token claimed by first device — claim closed (token persisted)');
+    return c.json({ token: result.token });
+  });
 
   return app;
 }
