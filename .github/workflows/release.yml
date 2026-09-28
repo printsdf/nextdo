@@ -145,9 +145,44 @@ jobs:
             apps/desktop/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
 
+  build-android:
+    name: Build Android (EAS)
+    # Manual dispatch publishes artifacts from an existing build (run_id)
+    # instead of rebuilding.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build with EAS
+        env:
+          EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
+        run: |
+          cd apps/mobile
+          # EAS compiles on Expo's cloud; the CLI here only uploads the
+          # project, waits for the build, and prints the artifact URL.
+          npx -y eas-cli@24.8.0 build --platform android \
+            --profile development --non-interactive
+      - name: Download APK
+        run: |
+          cd apps/mobile
+          npx -y eas-cli@24.8.0 build:list --limit 1 --non-interactive --json > eas-build.json
+          URL="$(node -p "Object.values(require('./eas-build.json')[0].artifacts || {}).find(v => typeof v === 'string' && v.startsWith('http')) || ''")"
+          [ -n "$URL" ] || { echo "no artifact URL found" >&2; exit 1; }
+          VER="$(node -p "require('./app.json').expo.version")"
+          curl -fL -o "Nextdo_${VER}_android.apk" "$URL"
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-android
+          path: apps/mobile/Nextdo_*_android.apk
+          if-no-files-found: error
+
   release:
     name: Create GitHub Release
-    needs: [build-macos, build-windows, build-linux]
+    needs: [build-macos, build-windows, build-linux, build-android]
     # Tag push: run only after all builds succeed. Manual dispatch: build
     # jobs are skipped and artifacts come from the provided run_id.
     if: >-
@@ -155,7 +190,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
        (needs.build-macos.result == 'success' &&
         needs.build-windows.result == 'success' &&
-        needs.build-linux.result == 'success'))
+        needs.build-linux.result == 'success' &&
+        needs.build-android.result == 'success'))
     runs-on: ubuntu-latest
     steps:
       # gh release create shells out to git, so the workspace must be a
