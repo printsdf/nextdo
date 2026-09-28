@@ -55,27 +55,37 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build app bundle
+      - name: Build app bundle (arm64)
         run: pnpm --filter @nextdo/desktop exec tauri build --bundles app
+      - name: Build app bundle (x64)
+        run: |
+          rustup target add x86_64-apple-darwin
+          pnpm --filter @nextdo/desktop exec tauri build --bundles app --target x86_64-apple-darwin
       # Tauri's bundled create-dmg script uses the legacy `hdiutil create
       # -srcfolder` API which is broken on recent macOS (fails with
       # "no space left on device"). Build the installer with diskutil
       # instead — a plain (non-pretty) but fully functional dmg.
-      - name: Package dmg
+      - name: Package dmgs
         run: |
-          OUT=apps/desktop/src-tauri/target/release/bundle
           VER="$(node -p "require('./apps/desktop/package.json').version")"
-          mkdir -p "$OUT/dmg"
-          STAGE="$(mktemp -d)"
-          cp -R "$OUT/macos/Nextdo.app" "$STAGE/"
-          diskutil image create from "$STAGE" --volumeName Nextdo \
-            --format UDZO "$OUT/dmg/Nextdo_${VER}_aarch64.dmg"
-          rm -rf "$STAGE"
-      - name: Upload bundle
+          package_dmg() {
+            local OUT="$1" ARCH="$2" STAGE
+            mkdir -p "$OUT/dmg"
+            STAGE="$(mktemp -d)"
+            cp -R "$OUT/macos/Nextdo.app" "$STAGE/"
+            diskutil image create from "$STAGE" --volumeName Nextdo \
+              --format UDZO "$OUT/dmg/Nextdo_${VER}_${ARCH}.dmg"
+            rm -rf "$STAGE"
+          }
+          package_dmg "apps/desktop/src-tauri/target/release/bundle" aarch64
+          package_dmg "apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle" x64
+      - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
   build-windows:
@@ -169,8 +179,15 @@ jobs:
             git tag "$TAG"
             git push origin "$TAG"
           fi
-          gh release create "$TAG" \
-            --target "${{ github.sha }}" \
-            --title "Nextdo $TAG" \
-            --notes "Nextdo $TAG — desktop builds (macOS / Windows / Linux)." \
-            $(find bundles -type f | sort)
+          FILES=$(find bundles -type f | sort)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Release already exists (e.g. this tag was re-run after a
+            # pipeline fix) — just (re)upload the assets.
+            gh release upload "$TAG" $FILES --clobber
+          else
+            gh release create "$TAG" \
+              --target "${{ github.sha }}" \
+              --title "Nextdo $TAG" \
+              --notes "Nextdo $TAG — desktop builds (macOS / Windows / Linux)." \
+              $FILES
+          fi
