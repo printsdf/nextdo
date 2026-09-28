@@ -1,21 +1,31 @@
 /**
- * Cloud-sync connection state (prod-deploy R6 — sync is OPTIONAL).
+ * Cloud-sync connection state (prod-deploy R6 — sync is OPTIONAL; OSS
+ * task 09-28 — the server addresses are USER-CONFIGURED).
  *
- * The app is local-first: no owner token → PowerSync stays disconnected,
- * the local DB is still the source of truth. This hook is the single
- * reader/writer of the connection state for the Settings tab:
+ * The app is local-first: no stored owner token → PowerSync stays
+ * disconnected, the local DB is still the source of truth. This hook is the
+ * single reader/writer of the connection state for the Settings tab:
  *
  * - `state` — 'connected' (a token is stored) / 'disconnected' / 'loading'
  *   (the first read from storage is in flight). It follows the SAME
  *   `subscribeToOwnerTokenChange` notification the root layout's provider
  *   uses to drive `connect()`/`disconnect()`, so the UI can never diverge
  *   from the actual sync lifecycle.
- * - `connect(token)` — one `/credentials` round-trip (`fetchCredentialsOnce`),
- *   then `setOwnerToken` on success. Never throws; maps each outcome to the
- *   user-facing copy (the three R3 messages stay the single precedent).
- * - `disconnect()` — `clearOwnerToken`; the notification drives the
- *   provider's disconnect. Local data is untouched (there is no destructive
- *   path, so v1 confirms nothing).
+ * - `storedConfig` — the stored sync-server URLs (`{ backendUrl, endpoint }`
+ *   | null), read on mount and re-read on every poke. Prefills the address
+ *   inputs and backs the connected view's read-only address display.
+ * - `connect({ backendUrl, endpoint, token })` — three client-side checks
+ *   (token empty / address empty / address not an absolute http(s) URL) run
+ *   BEFORE any network; then one `/credentials` round-trip
+ *   (`fetchCredentialsOnce`); on 200 it stores the config FIRST and the
+ *   owner token LAST (the token write is the single poke that drives the
+ *   provider's connect — both must be stored by then). Never throws; each
+ *   outcome maps to the user-facing copy (the R3 three-state messages stay
+ *   the single precedent).
+ * - `disconnect()` — `clearOwnerToken` (the stored addresses are KEPT, so a
+ *   reconnect only needs a new token); the notification drives the
+ *   provider's disconnect. Local data is untouched (nothing destructive, so
+ *   v1 confirms nothing).
  *
  * Hook-guidelines: this is a UI hook (transient per-screen state over the
  * auth boundary); all network work goes through `packages/db`'s sync layer
@@ -26,14 +36,29 @@ import {
   clearOwnerToken,
   fetchCredentialsOnce,
   getOwnerToken,
+  getStoredBackendConfig,
   setOwnerToken,
+  setStoredBackendConfig,
   subscribeToOwnerTokenChange,
+  type StoredBackendConfig,
 } from '@nextdo/db';
 import { logger } from '@nextdo/core';
-import { getBackendConfig } from '@/lib/env';
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+/** The client-side address check — the same rule the storage layer enforces
+ *  (`new URL` + protocol ∈ {http:, https:}); the UI only needs the boolean,
+ *  not the typed error. */
+function isHttpUrl(value: string): boolean {
+  if (value === '') return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 export type CloudSyncState = 'connected' | 'disconnected' | 'loading';
@@ -42,15 +67,26 @@ export type CloudSyncState = 'connected' | 'disconnected' | 'loading';
  *  ConnectGateResult contract, now owned by the Settings tab). */
 export type ConnectOutcome = { ok: true } | { ok: false; message: string };
 
+/** The inputs to a connect: the two sync-server addresses + the owner token. */
+export type ConnectInput = {
+  backendUrl: string;
+  endpoint: string;
+  token: string;
+};
+
 export function useCloudSync(): {
   state: CloudSyncState;
-  connect: (token: string) => Promise<ConnectOutcome>;
+  storedConfig: StoredBackendConfig | null;
+  connect: (input: ConnectInput) => Promise<ConnectOutcome>;
   disconnect: () => Promise<void>;
 } {
   const [state, setState] = useState<CloudSyncState>('loading');
+  const [storedConfig, setStoredConfig] = useState<StoredBackendConfig | null>(null);
 
   // Read once on mount, then follow sign-in / sign-out for the screen's
-  // life (the same poke-and-reread contract as the provider).
+  // life (the same poke-and-reread contract as the provider). The token AND
+  // the stored addresses are re-read on every poke; a failed read is treated
+  // as null (re-entering is the recovery path) rather than a wedge.
   useEffect(() => {
     let disposed = false;
     const refresh = async (): Promise<void> => {
@@ -58,12 +94,20 @@ export function useCloudSync(): {
       try {
         token = await getOwnerToken();
       } catch (error) {
-        // A storage failure must not wedge the screen on 'loading' —
-        // the disconnected view (re-entering a token) is the recovery path.
         logger.error('owner token read failed', toError(error));
         token = null;
       }
-      if (!disposed) setState(token === null ? 'disconnected' : 'connected');
+      let config: StoredBackendConfig | null;
+      try {
+        config = await getStoredBackendConfig();
+      } catch (error) {
+        logger.error('stored backend config read failed', toError(error));
+        config = null;
+      }
+      if (!disposed) {
+        setState(token === null ? 'disconnected' : 'connected');
+        setStoredConfig(config);
+      }
     };
     void refresh();
     const unsubscribe = subscribeToOwnerTokenChange(() => {
@@ -75,31 +119,45 @@ export function useCloudSync(): {
     };
   }, []);
 
-  // One /credentials round-trip, then store the OWNER token (NOT the
-  // minted service JWT). The change notification flips this hook AND
-  // drives the provider's connect() — one mechanism.
-  const connect = useCallback(async (rawToken: string): Promise<ConnectOutcome> => {
-    const token = rawToken.trim();
-    if (token === '') {
-      return { ok: false, message: 'token 不能为空' };
-    }
-    const result = await fetchCredentialsOnce(getBackendConfig(), token);
-    if (result.ok) {
-      try {
-        await setOwnerToken(token);
-        return { ok: true };
-      } catch (error) {
-        logger.error('owner token save failed', toError(error));
-        return { ok: false, message: 'token 验证通过，但保存失败，请重试' };
+  // Three client-side checks (no network), then ONE /credentials round-trip,
+  // then store the config FIRST and the owner token LAST — the token write
+  // is the single poke that drives the provider's connect() (by the time it
+  // fires, both are stored). The change notification flips this hook too.
+  const connect = useCallback(
+    async ({ backendUrl, endpoint, token }: ConnectInput): Promise<ConnectOutcome> => {
+      const trimmedBackend = backendUrl.trim();
+      const trimmedEndpoint = endpoint.trim();
+      const trimmedToken = token.trim();
+      if (trimmedToken === '') {
+        return { ok: false, message: 'token 不能为空' };
       }
-    }
-    if (result.ok === false && result.kind === 'rejected' && result.status === 401) {
-      return { ok: false, message: 'token 不正确' };
-    }
-    // Network failure / 5xx / malformed 200 body: the token is NOT
-    // invalidated — the server is unreachable or unhealthy, retry later.
-    return { ok: false, message: '连不上服务器，请稍后重试' };
-  }, []);
+      if (trimmedBackend === '' || trimmedEndpoint === '') {
+        return { ok: false, message: '请先填写服务器地址' };
+      }
+      if (!isHttpUrl(trimmedBackend) || !isHttpUrl(trimmedEndpoint)) {
+        return { ok: false, message: '地址无效，应以 http:// 或 https:// 开头' };
+      }
+      const config: StoredBackendConfig = { backendUrl: trimmedBackend, endpoint: trimmedEndpoint };
+      const result = await fetchCredentialsOnce(config, trimmedToken);
+      if (result.ok) {
+        try {
+          await setStoredBackendConfig(config); // config first…
+          await setOwnerToken(trimmedToken); // …then the token (the poke)
+          return { ok: true };
+        } catch (error) {
+          logger.error('sync config save failed', toError(error));
+          return { ok: false, message: 'token 验证通过，但保存失败，请重试' };
+        }
+      }
+      if (result.ok === false && result.kind === 'rejected' && result.status === 401) {
+        return { ok: false, message: 'token 不正确' };
+      }
+      // Network failure / 5xx / malformed 200 body: the token is NOT
+      // invalidated — the server is unreachable or unhealthy, retry later.
+      return { ok: false, message: '连不上服务器，请稍后重试' };
+    },
+    [],
+  );
 
   const disconnect = useCallback(async (): Promise<void> => {
     try {
@@ -109,5 +167,5 @@ export function useCloudSync(): {
     }
   }, []);
 
-  return { state, connect, disconnect };
+  return { state, storedConfig, connect, disconnect };
 }

@@ -5,12 +5,14 @@
  * - The instance is created once per app launch — it owns the local SQLite
  *   and the sync/upload loops.
  * - The connect/disconnect lifecycle is owned by the app, driven by the
- *   owner-token state (via `subscribeToOwnerTokenChange`): `connect()` is
- *   called only while an owner token is stored, and `disconnect()` when it
- *   is not. The PowerSync v2 SDK does NOT idle on null credentials — calling
- *   `connect()` while signed out makes its sync loop retry `buildRequest()`
- *   forever and log "Not signed in" every cycle. Offline (no token) the app
- *   still works against the local DB; it simply does not sync.
+ *   token + stored-addresses state (via `subscribeToOwnerTokenChange`):
+ *   `connect()` is called only while BOTH an owner token AND the stored
+ *   sync-server config are present, and `disconnect()` when either is
+ *   missing. The PowerSync v2 SDK does NOT idle on null credentials —
+ *   calling `connect()` while signed out makes its sync loop retry
+ *   `buildRequest()` forever and log "Not signed in" every cycle. Offline
+ *   (no token / no config) the app still works against the local DB; it
+ *   simply does not sync.
  * - The single v1 stream is subscribed explicitly once after init (the
  *   service declares it `auto_subscribe: true`; the stream name stays in
  *   `packages/db`).
@@ -18,12 +20,14 @@
  *   first-launch gate — the app is local-first and renders the main tree
  *   unconditionally (the font gate below is the only render blocker).
  *   Cloud sync is configured from the Settings tab (`useCloudSync`). A
- *   BACKGROUND startup check validates the stored owner token (it never
+ *   BACKGROUND startup check validates the stored token + config (it never
  *   blocks rendering): the PowerSync v2 SDK swallows 401s inside its retry
  *   loop, so a rejected token would spin the sync loop forever while the
- *   Settings tab claimed 「已连接」 — the check clears a 401 token (the
- *   provider's subscription disconnects), keeps everything else (200 /
- *   network error → offline-first, the next startup re-checks).
+ *   Settings tab claimed 「已连接」 — the check clears a 401 TOKEN ONLY
+ *   (the stored addresses stay, so reconnecting means re-entering the token,
+ *   not the server; the provider's subscription disconnects), keeps
+ *   everything else (200 / network error → offline-first, the next startup
+ *   re-checks).
  * - Font gate (design §1.3): Epilogue + Plus Jakarta Sans load before the
  *   stack renders; until then a canvas placeholder stands in (no white
  *   flash, no `expo-splash-screen` dependency).
@@ -52,12 +56,14 @@ import {
   createPowerSyncDatabase,
   fetchCredentialsOnce,
   getOwnerToken,
+  getStoredBackendConfig,
   isReactNativeRuntime,
   subscribeAppStream,
   subscribeToOwnerTokenChange,
+  type StoredBackendConfig,
 } from '@nextdo/db';
 import { logger } from '@nextdo/core';
-import { POWERSYNC_WEB_WORKER_PATH, getBackendConfig } from '@/lib/env';
+import { POWERSYNC_WEB_WORKER_PATH } from '@/lib/env';
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -141,15 +147,34 @@ function PowerSyncProvider({ children }: { children: ReactNode }) {
     let disposed = false;
     let unsubscribeOwnerToken: (() => void) | null = null;
 
-    // Connect / disconnect from the owner-token state. The PowerSync v2 SDK
-    // does not idle on null credentials: connect() while signed out spins its
-    // sync loop, logging "Not signed in" every cycle. So: signed in ->
-    // connect(); signed out -> disconnect() (offline, still usable locally).
+    // Connect / disconnect from the token + stored-addresses state. The
+    // PowerSync v2 SDK does not idle on null credentials: connect() while
+    // signed out spins its sync loop, logging "Not signed in" every cycle.
+    // So: token AND config present -> connect(); otherwise -> disconnect()
+    // (offline, still usable locally). Both are re-read on every poke.
     const setSyncFromAuth = async () => {
-      const token = await getOwnerToken();
+      let token: string | null;
+      let config: StoredBackendConfig | null = null;
+      try {
+        token = await getOwnerToken();
+      } catch (error) {
+        logger.error('owner token read failed', toError(error));
+        token = null;
+      }
+      if (token !== null) {
+        try {
+          config = await getStoredBackendConfig();
+        } catch (error) {
+          logger.error('stored backend config read failed', toError(error));
+        }
+      }
       if (disposed) return;
-      if (token === null) {
-        logger.info('powersync: no owner token — staying disconnected');
+      if (token === null || config === null) {
+        logger.info(
+          token === null
+            ? 'powersync: no owner token — staying disconnected'
+            : 'powersync: owner token present but no stored backend config — staying disconnected',
+        );
         try {
           await powersync.disconnect();
         } catch (error) {
@@ -160,7 +185,7 @@ function PowerSyncProvider({ children }: { children: ReactNode }) {
       // connect() re-disconnects any prior connect() itself; the SDK retries
       // rejections internally, so a rejection here is not fatal.
       powersync
-        .connect(createPowerSyncConnector(getBackendConfig()))
+        .connect(createPowerSyncConnector(config))
         .catch((error: unknown) => {
           logger.error('powersync connect failed', toError(error));
         });
@@ -307,23 +332,26 @@ export default function RootLayout() {
    * connector's `credentials.rejected` never surfaces to the app), so a
    * stale stored token would spin the sync loop forever while the
    * Settings tab claimed 「已连接」. One /credentials round-trip at
-   * startup:
+   * startup, using the STORED token + config:
    *
-   *   startup → getOwnerToken()
-   *     null            → do nothing
-   *     token stored    → fetchCredentialsOnce(config, token)
-   *       200           → do nothing (the provider's existing mechanism
-   *                       connects)
-   *       401           → clearOwnerToken() (the provider's subscription
-   *                       disconnects; the Settings tab reads it as
-   *                       「未连接」 — re-entering is the recovery path)
-   *       network / 5xx → do nothing (offline-first; the next startup
-   *                       re-checks — v1 has no in-session 401 awareness)
+   *   startup → getOwnerToken() + getStoredBackendConfig()
+   *     either missing      → do nothing
+   *     both stored         → fetchCredentialsOnce(config, token)
+   *       200               → do nothing (the provider's existing mechanism
+   *                           connects)
+   *       401               → clearOwnerToken() ONLY (the stored addresses
+   *                           stay — the provider's subscription
+   *                           disconnects; the Settings tab reads it as
+   *                           「未连接」 and re-entering the token is the
+   *                           recovery path)
+   *       network / 5xx     → do nothing (offline-first; the next startup
+   *                           re-checks — v1 has no in-session 401 awareness)
    */
   useEffect(() => {
     let disposed = false;
     const start = async () => {
       let token: string | null;
+      let config: StoredBackendConfig | null;
       try {
         token = await getOwnerToken();
       } catch (error) {
@@ -331,9 +359,18 @@ export default function RootLayout() {
         return;
       }
       if (token === null) return;
-      const result = await fetchCredentialsOnce(getBackendConfig(), token);
+      try {
+        config = await getStoredBackendConfig();
+      } catch (error) {
+        logger.error('stored backend config read failed', toError(error));
+        return;
+      }
+      if (config === null) return;
+      const result = await fetchCredentialsOnce(config, token);
       if (disposed) return;
       if (result.ok === false && result.kind === 'rejected' && result.status === 401) {
+        // 401 → clear the token ONLY; the stored addresses stay (the user
+        // re-enters the token, not the server, to reconnect).
         logger.warn('stored owner token rejected (401) — clearing it');
         try {
           await clearOwnerToken();

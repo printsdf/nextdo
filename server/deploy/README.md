@@ -139,38 +139,50 @@ server {
 ```
 
 > The path layout (`/api`, `/sync`) is a **choice**, not a requirement — the
-> client only needs the final URLs (step 4). Use subdomains instead if you
-> prefer (`api.your.domain` / `sync.your.domain`); just point the two client
-> constants at them.
+> client only needs the final URLs (step 5). Use subdomains instead if you
+> prefer (`api.your.domain` / `sync.your.domain`); just enter the two URLs in
+> each device's Settings tab.
 
 ---
 
-## 4. Point the clients at your domain
+## 4. No client rebuild — the OSS default is local
 
-The client backend URLs are a **single config point** shared by phone and
-desktop: `apps/mobile/lib/env.ts`. Replace the placeholders with your real
-URLs (matching the proxy paths you chose):
-
-```ts
-const BACKEND: NextdoPowerSyncConfig = {
-  backendUrl: 'https://your.domain/api',
-  endpoint: 'https://your.domain/sync',
-};
-```
-
-Then rebuild/reload each client (mobile: normal Expo build; desktop:
-`pnpm --filter @nextdo/desktop build`).
+The open-source client ships **no default server**: a fresh install is
+pure-local (no sync, the local DB is the source of truth). The server
+addresses are entered **per device, at runtime** in the **Settings tab**
+(step 5) — there is no `env.ts` edit and no rebuild. This is by design: an
+open-source build must not point at anyone's server.
 
 ---
 
 ## 5. Connect a device
 
 Cloud sync is **optional** — the app works fully local without it. To sync:
-open the **Settings tab** (the 5th tab), enter the owner token from step 1
-(or the auto-generated banner), and press **连接**. On success the token is
-stored (Keychain / Keystore on mobile, encrypted stronghold file on desktop)
-and the device syncs — you won't be asked again. **断开连接** in the same
-block stops syncing (local data is kept).
+open the **Settings tab** (the 5th tab) and fill in **three** fields, then
+press **连接**:
+
+1. **后端地址 (backend URL)** — where `/credentials` and `/upload` live.
+2. **同步流地址 (sync-stream URL)** — where PowerSync's `/sync/stream` lives.
+3. **owner token** — from step 1 (or the auto-generated banner).
+
+The two addresses match the reverse-proxy layout you chose in step 3:
+
+- **Single domain with prefixes** (the Caddy example): backend URL
+  `https://your.domain/api`, sync-stream URL `https://your.domain/sync`.
+- **Subdomains** (if you deployed that way): backend URL
+  `https://api.your.domain`, sync-stream URL `https://sync.your.domain`.
+
+On success the token **and** the two addresses are stored (Keychain / Keystore
+on mobile, encrypted stronghold file on desktop) and the device syncs — you
+won't be asked again. **断开连接** in the same block stops syncing and clears
+only the token (the addresses stay, so reconnecting is just re-entering the
+token); local data is kept.
+
+> **Upgrading from a hardcoded-domain build:** the old build pointed at a
+> fixed domain and stored only the token. After installing this build, enter
+> your two server addresses in the Settings tab once (the token is already
+> stored). From then on the addresses are stored too, so 断开/重连 only needs
+> the token.
 
 ---
 
