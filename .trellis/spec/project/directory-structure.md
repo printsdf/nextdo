@@ -63,15 +63,16 @@ nextdo/
 │           ├── components/       # Button, Card, Tag, EmptyState
 │           ├── lib/              # cn() class merge
 │           └── index.ts
-├── server/                       # app backend (minimal: 2 endpoints) + PowerSync Service config
+├── server/                       # app backend (minimal: /credentials + /upload + one-time /claim) + PowerSync Service config
 │   ├── powersync/                # service.yaml + sync-config.yaml (stream "all"), docker-compose.yml (Postgres + service), init/ DDL
 │   └── app/                      # pnpm workspace — Hono (TypeScript) on Node 24, Dockerfile
 │       ├── src/
-│       │   ├── app.ts            # createApp() — side-effect-free Hono app: /credentials + /upload
+│       │   ├── app.ts            # createApp() — side-effect-free Hono app: /credentials + /upload + /claim
 │       │   ├── index.ts          # process entry (env, pool, serve) — the only self-starting module
-│       │   ├── auth.ts           # owner-token 401 matrix (timing-safe compare)
+│       │   ├── auth.ts           # owner-token 401 matrix (timing-safe compare; null = unclaimed → all 401)
 │       │   ├── credentials.ts    # 15-min PowerSync JWT minting (jose, HS256)
 │       │   ├── upload.ts         # applies ps_crud batches to Postgres (upserts / append-only guards)
+│       │   ├── owner-token.ts    # boot resolution (env > file > unclaimed) + one-time claim mint (never logged)
 │       │   ├── db.ts             # pg pool + 14-table catalog (re-declares packages/db/src/schema.ts)
 │       │   └── logger.ts
 │       └── test/                 # mocked-pg tests (assert real SQL text + bound values)

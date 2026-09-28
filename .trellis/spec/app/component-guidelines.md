@@ -82,11 +82,14 @@
   reconnecting is just re-entering the token; no confirmation, nothing
   destructive).
 - The user-facing error copies are the single precedent (never throw, always
-  inline, never block). Client-side, pre-network: 「token 不能为空」/
+  inline, never block). Client-side, pre-network:
   「请先填写服务器地址」/ 「地址无效，应以 http:// 或 https:// 开头」.
-  Server three-state: 「token 不正确」(401) / 「连不上服务器，请稍后重试」
-  (network / 5xx / malformed 200 — the token is NOT invalidated) / 「token
-  验证通过，但保存失败，请重试」(storage write).
+  Server three-state (token NON-EMPTY path): 「token 不正确」(401) /
+  「连不上服务器，请稍后重试」(network / 5xx / malformed 200 — the token is
+  NOT invalidated) / 「token 验证通过，但保存失败，请重试」(storage write).
+  Claim three-state (token EMPTY first-connect path, task 09-28): 「服务器已有
+  token，请手动输入」(409) / 「连不上服务器，请稍后重试」(network / 5xx /
+  malformed 200 — the same copy as the credentials path).
 - RootLayout runs a non-blocking startup hygiene check (see Database
   Guidelines): it re-reads the stored token + config and, on a 401, clears
   the TOKEN only (the config is kept — the SDK does not spin and the Settings
