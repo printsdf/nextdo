@@ -8,9 +8,11 @@
  *   - powersync.ts: platform client selection (`createPowerSyncDatabase`),
  *     the v2 backend connector (`createPowerSyncConnector`), the single
  *     stream subscription (`subscribeAppStream`)
- *   - owner-token.ts: owner-token storage per the spec platform matrix
- *     (SecureStore / Stronghold / in-memory; the only client-side
- *     key-value access for auth state)
+ *   - owner-token.ts: owner-token + sync-backend-config storage per the spec
+ *     platform matrix (SecureStore / Stronghold / in-memory; the only
+ *     client-side key-value access for auth state and the per-device sync
+ *     server URLs — `getOwnerToken` / `getStoredBackendConfig` + their
+ *     set/clear, `subscribeToOwnerTokenChange`)
  *   - kysely.ts: `wrapDb` — the app-facing Kysely handle over the PowerSync
  *     client (the app never imports Kysely / the driver itself)
  *   - queries/: the app's read + mutation surface (design.md §3/§4 —

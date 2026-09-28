@@ -22,6 +22,7 @@ import {
   getOwnerToken,
   OWNER_TOKEN_KEY,
   setOwnerToken,
+  SYNC_CONFIG_KEY,
 } from '../owner-token';
 
 /* ------------------------------------------------------------------ *
@@ -253,7 +254,21 @@ describe('restart (stronghold persistence)', () => {
   });
 });
 
-describe('the single-key contract (multi-key rejected)', () => {
+describe('the two-key contract (multi-key rejected)', () => {
+  it('both known keys (owner token + sync config) are writable and coexist', async () => {
+    const store = __getStorageBackendForTests();
+    const configJson = '{"backendUrl":"https://a.example/api","endpoint":"https://a.example/sync"}';
+    await store.setItem(OWNER_TOKEN_KEY, 'tok-1');
+    await store.setItem(SYNC_CONFIG_KEY, configJson);
+
+    // Both records persist to the encrypted snapshot side by side.
+    expect(mockVaultState.persisted.get('nextdo')?.has(OWNER_TOKEN_KEY)).toBe(true);
+    expect(mockVaultState.persisted.get('nextdo')?.has(SYNC_CONFIG_KEY)).toBe(true);
+    // …and both read back through the store (UTF-8 decode).
+    await expect(store.getItem(OWNER_TOKEN_KEY)).resolves.toBe('tok-1');
+    await expect(store.getItem(SYNC_CONFIG_KEY)).resolves.toBe(configJson);
+  });
+
   it('setItem for a foreign key throws storage.multi-key and writes nothing', async () => {
     const store = __getStorageBackendForTests();
 

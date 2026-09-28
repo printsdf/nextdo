@@ -1,10 +1,14 @@
 /**
- * Owner-token storage — the ONLY place in the monorepo that touches
- * client-side secret storage (spec: app/database-guidelines.md
+ * Owner-token + sync-backend-config storage — the ONLY place in the monorepo
+ * that touches client-side secret storage (spec: app/database-guidelines.md
  * "PowerSync Rules" — the per-platform owner-token storage matrix).
  *
  * v1 is single-user: there is exactly one owner token, no account model
- * (the spec's account flow is post-MVP; the seam stays).
+ * (the spec's account flow is post-MVP; the seam stays). The store holds TWO
+ * known keys — the owner token (a secret) and the sync backend config
+ * `{ backendUrl, endpoint }` (NOT a secret, but per-device configuration that
+ * travels with the token so the app stays local-first: no stored config →
+ * disconnected, pure local).
  *
  * The storage backend is chosen LAZILY on first use, exactly like
  * `loadPowerSyncClientModule()` in powersync.ts:
@@ -17,13 +21,14 @@
  * Importing this file is therefore safe on plain Node.
  *
  * No env-var fallback anywhere (spec: client env values may end up in the
- * build output). The token is entered by the user in the app's settings
- * screen (a later task) or injected in dev/test via
+ * build output). The token and the backend config are entered by the user in
+ * the app's settings screen or injected in dev/test via
  * `__setStorageBackendForTests`. The connector (powersync.ts) calls
- * `getOwnerToken()` — it never touches storage itself.
+ * `getOwnerToken()` — it never touches storage itself; the backend config is
+ * read by the app's provider / settings hook, not by the connector.
  */
 import { logger, StorageNextdoError, ValidationNextdoError } from '@nextdo/core';
-import { isReactNativeRuntime } from './powersync';
+import { isReactNativeRuntime, type NextdoPowerSyncConfig } from './powersync';
 
 export interface KeyValueStore {
   getItem(key: string): Promise<string | null>;
@@ -31,8 +36,19 @@ export interface KeyValueStore {
   removeItem(key: string): Promise<void>;
 }
 
-/** Single-user v1: one key, no per-user scoping. */
+/** Single-user v1: one token key, no per-user scoping. */
 export const OWNER_TOKEN_KEY = 'nextdo.auth.owner-token';
+
+/**
+ * The user's sync-server config (`{ backendUrl, endpoint }`). NOT a secret —
+ * it is per-device configuration stored alongside the token (same platform
+ * matrix, same test seam). The value is the JSON stringification of a
+ * `NextdoPowerSyncConfig` (see the "Sync backend config" section below).
+ */
+export const SYNC_CONFIG_KEY = 'nextdo.sync.config';
+
+/** The stored backend config — the same shape the connector consumes. */
+export type StoredBackendConfig = NextdoPowerSyncConfig;
 
 /* ------------------------------------------------------------------ *
  * Storage backends (lazy)
@@ -133,7 +149,8 @@ function createStrongholdStore(): KeyValueStore {
   // Fixed constants (the trade-off above). The snapshot PATH is not a
   // constant: the Rust side owns it (`stronghold_snapshot_path` command).
   const SNAPSHOT_PASSWORD = 'nextdo-desktop-v1';
-  // Single-user v1: one client, one store, one key (OWNER_TOKEN_KEY).
+  // Single-user v1: one client, one store, TWO known keys (OWNER_TOKEN_KEY +
+  // SYNC_CONFIG_KEY) — any other key is rejected (storage.multi-key).
   const CLIENT_NAME = 'nextdo';
 
   const encoder = new (
@@ -211,33 +228,33 @@ function createStrongholdStore(): KeyValueStore {
 
   return {
     async getItem(key) {
-      if (key !== OWNER_TOKEN_KEY) {
+      if (key !== OWNER_TOKEN_KEY && key !== SYNC_CONFIG_KEY) {
         return null;
       }
       const store = await getStore();
       // An empty vault / missing record resolves to null from store.get
       // itself — no error swallowing needed here.
-      const bytes = await store.get(OWNER_TOKEN_KEY);
+      const bytes = await store.get(key);
       return bytes === null ? null : decoder.decode(bytes);
     },
     async setItem(key, value) {
-      if (key !== OWNER_TOKEN_KEY) {
+      if (key !== OWNER_TOKEN_KEY && key !== SYNC_CONFIG_KEY) {
         throw new StorageNextdoError(
           'storage.multi-key',
-          `stronghold store only holds ${OWNER_TOKEN_KEY}`,
+          `stronghold store only holds ${OWNER_TOKEN_KEY} and ${SYNC_CONFIG_KEY}`,
         );
       }
       const [store, vault] = await Promise.all([getStore(), getVault()]);
       // 2.3.2 insert takes a byte array (number[]), not a string.
-      await store.insert(OWNER_TOKEN_KEY, Array.from(encoder.encode(value)));
+      await store.insert(key, Array.from(encoder.encode(value)));
       await vault.save(); // persist the mutation to the encrypted snapshot
     },
     async removeItem(key) {
-      if (key !== OWNER_TOKEN_KEY) {
+      if (key !== OWNER_TOKEN_KEY && key !== SYNC_CONFIG_KEY) {
         return;
       }
       const [store, vault] = await Promise.all([getStore(), getVault()]);
-      await store.remove(OWNER_TOKEN_KEY);
+      await store.remove(key);
       await vault.save();
     },
   };
@@ -311,6 +328,92 @@ export async function setOwnerToken(token: string): Promise<void> {
 export async function clearOwnerToken(): Promise<void> {
   await getBackend().removeItem(OWNER_TOKEN_KEY);
   notifyOwnerTokenChange();
+}
+
+/* ------------------------------------------------------------------ *
+ * Sync backend config (the user's sync-server URLs, entered alongside
+ * the token in the Settings tab). The address is NOT a secret, but it is
+ * per-device configuration, so it travels with the token: same store, same
+ * platform matrix, same test seam. No stored config → the provider keeps
+ * PowerSync disconnected (pure local).
+ *
+ * Write order is the app's concern, not this layer's: `use-cloud-sync`
+ * writes the config BEFORE the token, so the single token poke fires only
+ * after both are stored. `setStoredBackendConfig` / `clearStoredBackendConfig`
+ * therefore deliberately do NOT call notifyOwnerTokenChange.
+ * ------------------------------------------------------------------ */
+
+/** A stored backend URL must be a non-empty absolute http(s) URL. */
+function isValidBackendUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed === '') return false;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** The stored backend config, or null when none is stored (or the stored
+ *  value is corrupt — see below). Never throws: a corrupt value is treated
+ *  as "not configured" (the recovery path is the user re-entering the
+ *  addresses) so a bad write can never brick the settings screen. */
+export async function getStoredBackendConfig(): Promise<StoredBackendConfig | null> {
+  const raw = await getBackend().getItem(SYNC_CONFIG_KEY);
+  if (raw === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    logger.warn('stored sync config is not valid JSON — treating as unset', error);
+    return null;
+  }
+  if (
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    typeof (parsed as { backendUrl?: unknown }).backendUrl === 'string' &&
+    typeof (parsed as { endpoint?: unknown }).endpoint === 'string'
+  ) {
+    return {
+      backendUrl: (parsed as { backendUrl: string }).backendUrl,
+      endpoint: (parsed as { endpoint: string }).endpoint,
+    };
+  }
+  logger.warn('stored sync config has an unexpected shape — treating as unset');
+  return null;
+}
+
+/**
+ * Store the backend config the user entered (replaces any previous one).
+ * Validates both URLs (non-empty absolute http(s) — `sync.invalid-backend-url`
+ * on violation) and writes the trimmed values. Does NOT notify
+ * owner-token subscribers (write order is guaranteed by the caller — see
+ * the section header).
+ */
+export async function setStoredBackendConfig(config: StoredBackendConfig): Promise<void> {
+  const backendUrl = config.backendUrl.trim();
+  const endpoint = config.endpoint.trim();
+  if (!isValidBackendUrl(backendUrl) || !isValidBackendUrl(endpoint)) {
+    throw new ValidationNextdoError(
+      'sync.invalid-backend-url',
+      'backendUrl and endpoint must each be an absolute http(s) URL',
+    );
+  }
+  await getBackend().setItem(
+    SYNC_CONFIG_KEY,
+    JSON.stringify({ backendUrl, endpoint }),
+  );
+}
+
+/**
+ * Forget the stored backend config. v1 has no UI caller (disconnect only
+ * clears the token and KEEPS the addresses so the user need not re-enter
+ * them) — the API exists for tests and a future "reset server" action. Does
+ * NOT notify owner-token subscribers.
+ */
+export async function clearStoredBackendConfig(): Promise<void> {
+  await getBackend().removeItem(SYNC_CONFIG_KEY);
 }
 
 /* ------------------------------------------------------------------ *
