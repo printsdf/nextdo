@@ -2,14 +2,16 @@
  * Pool contract tests (spec: domain/next-action-engine.md "Pool Contract" —
  * the query layer guarantees the engine receives ONLY: open + non-deleted
  * candidates with `dependencyDone` resolved, calendar blocks tagged with
- * `sourceActionId`, and all non-deleted projects).
+ * `sourceActionId`, and all non-deleted projects. R5: a NextAction bound
+ * to a project that is not active (or deleted/missing) is not a candidate.)
  *
  * The engine applies the hard filters itself — the pool must NOT filter on
  * snooze, context, or estimate.
  */
-import { toIso } from '@nextdo/core';
+import { toIso, type ProjectStatus } from '@nextdo/core';
 import { completeAction } from '../queries/actions';
 import { queryEnginePool } from '../queries/pool';
+import { listProjects, updateProject } from '../queries/projects';
 import { openTestDb, type TestDb } from './query-helpers';
 import { FIXTURE_IDS, FIXTURE_NOW } from './fixtures';
 
@@ -28,6 +30,15 @@ afterEach(async () => {
 async function open(seed = false, now: Date = FIXTURE_NOW): Promise<TestDb> {
   env = await openTestDb(seed, now);
   return env;
+}
+
+/** Move a fixture project through a legal transition via the db-layer
+ *  mutation (the same path the app's archive/resume buttons use). */
+async function setProjectStatus(db: TestDb['db'], projectId: string, status: ProjectStatus): Promise<void> {
+  const projects = await listProjects(db);
+  const project = projects.find((entry) => entry.id === projectId);
+  if (project === undefined) throw new Error(`fixture project missing: ${projectId}`);
+  await updateProject(db, { ...project, status, updatedAt: toIso(FIXTURE_NOW) });
 }
 
 describe('queryEnginePool', () => {
@@ -178,6 +189,94 @@ describe('queryEnginePool', () => {
       const pool = await queryEnginePool(db, FIXTURE_NOW);
       const blocked = pool.actions.find((action) => action.id === A.blocked);
       expect(blocked?.dependencyDone).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('R5 — project status filter (the pool contract)', () => {
+  it('open actions of an active project enter the pool (regression)', async () => {
+    const { db, close } = await open(true);
+    try {
+      const pool = await queryEnginePool(db, FIXTURE_NOW);
+      const ids = new Set(pool.actions.map((action) => action.id));
+      // A.b and A.depDone are bound to the ACTIVE paper project.
+      expect(ids.has(A.b)).toBe(true);
+      expect(ids.has(A.depDone)).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  it('open actions of an on-hold project leave the pool; resuming brings them back', async () => {
+    const { db, close } = await open(true);
+    try {
+      await setProjectStatus(db, P.paper, 'on-hold');
+      let pool = await queryEnginePool(db, FIXTURE_NOW);
+      let ids = new Set(pool.actions.map((action) => action.id));
+      expect(ids.has(A.b)).toBe(false);
+      expect(ids.has(A.depDone)).toBe(false);
+      // Resume (on-hold → active): pure derivation, no data moves.
+      await setProjectStatus(db, P.paper, 'active');
+      pool = await queryEnginePool(db, FIXTURE_NOW);
+      ids = new Set(pool.actions.map((action) => action.id));
+      expect(ids.has(A.b)).toBe(true);
+      expect(ids.has(A.depDone)).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  it('open actions of a done / dropped project leave the pool (terminal states)', async () => {
+    // done and dropped are terminal — one fresh DB per status.
+    for (const status of ['done', 'dropped'] as const) {
+      const test = await open(true);
+      await setProjectStatus(test.db, P.paper, status);
+      const pool = await queryEnginePool(test.db, FIXTURE_NOW);
+      const ids = new Set(pool.actions.map((action) => action.id));
+      expect(ids.has(A.b)).toBe(false);
+      expect(ids.has(A.depDone)).toBe(false);
+      env = null; // closed by hand below — skip the afterEach close
+      await test.close();
+    }
+  });
+
+  it('projectless actions are unaffected by any project status', async () => {
+    const { db, close } = await open(true);
+    try {
+      // Every project leaves active — the standalone actions survive.
+      await setProjectStatus(db, P.paper, 'on-hold');
+      await setProjectStatus(db, P.empty, 'dropped');
+      const pool = await queryEnginePool(db, FIXTURE_NOW);
+      const ids = new Set(pool.actions.map((action) => action.id));
+      for (const id of [A.a, A.blocked, A.baseline, A.window, A.snoozed, A.skipped]) {
+        expect(ids.has(id)).toBe(true);
+      }
+      // …while the project-bound one is out.
+      expect(ids.has(A.b)).toBe(false);
+      expect(ids.has(A.depDone)).toBe(false);
+    } finally {
+      await close();
+    }
+  });
+
+  it('CalendarActions and today’s HabitDays are unaffected by project status (regression)', async () => {
+    const { db, close } = await open(true);
+    try {
+      await setProjectStatus(db, P.paper, 'on-hold');
+      const pool = await queryEnginePool(db, FIXTURE_NOW);
+      // calendar_actions has no projectId in v1 — `soon` stays a candidate.
+      const calendarIds = pool.actions
+        .filter((action) => action.kind === 'calendar')
+        .map((action) => action.id);
+      expect(calendarIds).toEqual([C.soon]);
+      // Today's open days of live active habits are unchanged.
+      const habitIds = pool.actions
+        .filter((action) => action.kind === 'habit')
+        .map((action) => (action as { habitId: string }).habitId)
+        .sort();
+      expect(habitIds).toEqual([H.today, H.mid, H.last, H.weekdays].sort());
     } finally {
       await close();
     }

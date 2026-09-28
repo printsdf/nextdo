@@ -5,6 +5,10 @@
  *
  * - only open, non-deleted candidates — done/deleted filtering is the
  *   pool's job, not the engine's;
+ * - a `next_actions` row whose `project_id` points to a project that is
+ *   not active (or deleted/missing) is not a candidate; projectless
+ *   actions, CalendarActions (no projectId in v1) and today's HabitDays
+ *   are unaffected;
  * - dependencyDone = the referenced action is done (or no dependency);
  * - the pool tags CalendarBlocks that originate from an open CalendarAction
  *   with its `sourceActionId`.
@@ -121,6 +125,18 @@ export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePo
 
   const actions: CandidateAction[] = [];
 
+  // Projects (all non-deleted; the engine applies the `active` check for
+  // scoring). Loaded first: the same rows back the R5 pool filter below —
+  // a NextAction bound to a non-active project is not a candidate.
+  const projectRows = await db
+    .selectFrom('projects')
+    .select(['id', 'value', 'status'])
+    .where('deleted_at', 'is', null)
+    .execute();
+  const activeProjectIds = new Set(
+    projectRows.filter((row) => row.status === 'active').map((row) => row.id),
+  );
+
   // 1. Open NextActions.
   const nextRows = await db
     .selectFrom('next_actions')
@@ -129,6 +145,11 @@ export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePo
     .where('deleted_at', 'is', null)
     .execute();
   for (const row of nextRows) {
+    // Pool contract (R5): bound to a project that is not active (or
+    // deleted/missing) → not a candidate. Projectless actions pass.
+    if (row.project_id !== null && !activeProjectIds.has(row.project_id)) {
+      continue;
+    }
     actions.push({ ...baseFromRow(row), kind: 'next', dependencyDone: resolveDependency(row.depends_on_id ?? undefined) });
   }
 
@@ -196,12 +217,9 @@ export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePo
     actions.push({ ...baseFromRow(row), kind: 'calendar', startsAt });
   }
 
-  // Projects (all non-deleted; the engine applies the `active` check).
-  const projectRows = await db
-    .selectFrom('projects')
-    .select(['id', 'value', 'status'])
-    .where('deleted_at', 'is', null)
-    .execute();
+  // The `projects` output keeps ALL non-deleted projects (including
+  // non-active ones) — the engine's `project-importance` signal applies
+  // the active check itself; R5 filtered the CANDIDATES above.
   const projects = projectRows.map((row) => ({
     id: row.id,
     value: row.value ?? 3,

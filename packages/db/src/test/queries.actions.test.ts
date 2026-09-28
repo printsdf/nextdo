@@ -166,6 +166,26 @@ describe('updateNextAction', () => {
     }
   });
 
+  it('redefining (estimate change) resets consecutiveSkips and lastSkippedAt', async () => {
+    const { db, close } = await open(true);
+    try {
+      const skipped = (await listNextActions(db)).find((action) => action.id === A.skipped);
+      expect(skipped).toBeDefined();
+      const updated = await updateNextAction(db, {
+        ...(skipped as NextAction),
+        estMinutes: 45,
+        updatedAt: toIso(FIXTURE_NOW),
+      });
+      expect(updated.consecutiveSkips).toBe(0);
+      expect(updated.lastSkippedAt).toBeUndefined();
+      const reloaded = (await listNextActions(db)).find((action) => action.id === A.skipped);
+      expect(reloaded?.consecutiveSkips).toBe(0);
+      expect(reloaded?.lastSkippedAt).toBeUndefined();
+    } finally {
+      await close();
+    }
+  });
+
   it('throws not-found for a missing action', async () => {
     const { db, close } = await open(true);
     try {
