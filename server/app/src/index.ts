@@ -18,18 +18,23 @@ import { pathToFileURL } from 'node:url';
 import { createApp } from './app.js';
 import { createPool } from './db.js';
 import { logger } from './logger.js';
+import { resolveOwnerToken } from './owner-token.js';
 import { seedDefaultContexts } from './seed.js';
 
-/** Read the environment, refuse to boot on a missing secret, serve. */
+/** Read the environment, refuse to boot on a missing secret, serve.
+ *  (The owner token is the exception — R7 auto-generates it on first run
+ *  when unset; see src/owner-token.ts.) */
 export async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
-  const ownerToken = process.env.NEXTDO_OWNER_TOKEN;
   const jwtSecret = process.env.JWT_SECRET;
   if (databaseUrl === undefined || databaseUrl === '') {
     throw new Error('DATABASE_URL is not set');
   }
-  if (ownerToken === undefined || ownerToken === '') {
-    throw new Error('NEXTDO_OWNER_TOKEN is not set');
+  // R7: explicit env > persisted file > first-run auto-generation (whose
+  // one-time banner is the token's only display path).
+  const { token: ownerToken, source: ownerTokenSource } = await resolveOwnerToken();
+  if (ownerTokenSource !== 'generated') {
+    logger.info(`owner token source: ${ownerTokenSource}`);
   }
   if (jwtSecret === undefined || jwtSecret === '') {
     throw new Error('JWT_SECRET is not set');

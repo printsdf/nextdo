@@ -39,15 +39,35 @@ cd server/deploy
 cp .env.example .env
 ```
 
-Fill in `.env` (all four are required — the compose file refuses to start
-without them):
+Fill in `.env` — three secrets are required; the owner token is optional
+(see below):
 
 | Variable             | How to generate                                  | Used by                                  |
 | -------------------- | ------------------------------------------------ | ---------------------------------------- |
 | `POSTGRES_PASSWORD`  | any strong string                                | `postgres`, `powersync`, `api`           |
-| `NEXTDO_OWNER_TOKEN` | `openssl rand -hex 32`                           | `api` — the token clients enter in the ConnectGate |
+| `NEXTDO_OWNER_TOKEN` | **optional** — `openssl rand -hex 32`, or leave empty for auto-generation | `api` — the token clients enter in the Settings tab |
 | `JWT_SECRET`         | `openssl rand -base64 32 \| tr '+/' '-_' \| tr -d '='` | `api` + `powersync` — **one shared secret** |
 | `PS_ADMIN_TOKEN`     | `openssl rand -hex 32`                           | `powersync` admin API (local ops only)   |
+
+### The owner token — two ways
+
+- **Explicit (recommended once devices are connected):** generate one
+  (`openssl rand -hex 32`) and set `NEXTDO_OWNER_TOKEN` in `.env`.
+- **Auto-generated:** leave it empty. On the **first boot** `server/app`
+  generates a random 64-hex token and prints it **once** in a banner:
+
+  ```bash
+  docker compose logs api    # the banner contains the token — shown ONCE
+  ```
+
+  The token is persisted in `./data/owner-token` (git-ignored, on the
+  deploy host) and **reused silently** on every later boot — container
+  rebuilds and restarts never rotate it and never re-print it. If you
+  lose both the log and the file, delete `./data/owner-token` (or set the
+  env var) to get a fresh one — every device must re-enter it then.
+
+  The API and the client UI never return the token (the Settings tab is
+  input-only) — the banner is its only display path.
 
 > `JWT_SECRET` must be the **same value** in both `api` and `powersync` — the
 > backend signs the `/credentials` JWT with it and the PowerSync service
@@ -145,10 +165,12 @@ Then rebuild/reload each client (mobile: normal Expo build; desktop:
 
 ## 5. Connect a device
 
-On first launch each device shows the **ConnectGate**. Enter the
-`NEXTDO_OWNER_TOKEN` from step 1. On success the token is stored (Keychain /
-Keystore on mobile, encrypted stronghold file on desktop) and the device syncs
-— you won't be asked again.
+Cloud sync is **optional** — the app works fully local without it. To sync:
+open the **Settings tab** (the 5th tab), enter the owner token from step 1
+(or the auto-generated banner), and press **连接**. On success the token is
+stored (Keychain / Keystore on mobile, encrypted stronghold file on desktop)
+and the device syncs — you won't be asked again. **断开连接** in the same
+block stops syncing (local data is kept).
 
 ---
 
@@ -171,6 +193,9 @@ powersync` for the WebSocket stream.
 
 ## Operations
 
+- **Rotate the owner token:** set a new `NEXTDO_OWNER_TOKEN` in `.env` (or
+  delete `./data/owner-token`) and `docker compose up -d api` — then re-enter
+  it in every device (Settings tab). The old token stops working immediately.
 - **Update the backend:** pull your changes, then `docker compose up -d --build`
   (only `api` rebuilds; `postgres`/`powersync` images are pinned and untouched).
 - **Update the PowerSync schema:** a client schema change is one unit —

@@ -21,6 +21,9 @@ apps/desktop/src-tauri/target/
 !.env.example
 *.local
 
+# R7: first-run owner-token persistence (server/deploy/data/owner-token)
+server/deploy/data/
+
 # PowerSync local dev state
 .powersync/
 

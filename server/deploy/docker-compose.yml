@@ -6,8 +6,9 @@
 # exposed to the network directly.
 #
 # Run from server/deploy:
-#   cp .env.example .env      # fill in POSTGRES_*, NEXTDO_OWNER_TOKEN,
-#                             #   JWT_SECRET, PS_ADMIN_TOKEN (all required)
+#   cp .env.example .env      # fill in POSTGRES_*, JWT_SECRET,
+#                             #   PS_ADMIN_TOKEN; NEXTDO_OWNER_TOKEN is
+#                             #   optional (auto-generated on first boot)
 #   docker compose up -d --build
 #
 # One Postgres, two databases: POSTGRES_DB (the app's source DB that the
@@ -97,8 +98,15 @@ services:
       - '127.0.0.1:8787:8787'
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}
-      NEXTDO_OWNER_TOKEN: ${NEXTDO_OWNER_TOKEN:?set NEXTDO_OWNER_TOKEN in .env}
+      # R7: OPTIONAL — when empty/unset, server/app auto-generates the
+      # owner token on FIRST boot, prints it ONCE in `docker compose
+      # logs api`, and persists it in ./data (silent reuse afterwards).
+      NEXTDO_OWNER_TOKEN: ${NEXTDO_OWNER_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (same value PS_JWT_SECRET)}
+    volumes:
+      # R7: first-run owner-token persistence (bind = the deploy host, the
+      # same trust domain as .env). Docker creates the dir on first run.
+      - ./data:/app/data
 
 volumes:
   pgdata:

@@ -8,7 +8,11 @@
  * forbidden everywhere else by lint).
  *
  * Log WHAT happened, never user free-text content (inbox items contain
- * personal data) and never tokens/secrets.
+ * personal data) and never tokens/secrets — with ONE sanctioned
+ * exception: the first-run AUTO-GENERATED owner token banner
+ * (src/owner-token.ts, prod-deploy R7). It is the token's only display
+ * path, printed exactly once (the generation branch never runs again
+ * while the persisted file exists).
  */
 export const logger = {
   info(message: string): void {
