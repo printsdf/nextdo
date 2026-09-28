@@ -20,6 +20,7 @@ jest.mock('@nextdo/db', () => {
     listInboxItems: jest.fn(),
     listNextActions: jest.fn(),
     listCalendarActions: jest.fn(async () => []),
+    getStoredBackendConfig: async () => null,
     wrapDb: () => ({}),
   };
 });

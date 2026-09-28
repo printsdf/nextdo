@@ -31,6 +31,7 @@ jest.mock('@nextdo/db', () => {
     // R6 startup token check (background, non-blocking): a valid stored
     // token — the screen renders regardless (there is no gate in R6).
     getOwnerToken: async () => 'test-owner-token',
+    getStoredBackendConfig: async () => null,
     fetchCredentialsOnce: async () => ({ ok: true, token: 'ps-service-jwt' }),
     setOwnerToken: async () => undefined,
     clearOwnerToken: async () => undefined,
