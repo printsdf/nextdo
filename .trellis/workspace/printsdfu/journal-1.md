@@ -346,3 +346,28 @@ web 冒烟复核（空态 + hero 态截图，8091 旧导出已按当前树重新
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: v0.1.1 发布：修复 release 流程、macOS 双架构、EAS Android 接入
+<!-- trellis-session: v=2 fp=27b64e1d25c997ca -->
+
+**Date**: 2026-09-28
+**Task**: v0.1.1 发布：修复 release 流程、macOS 双架构、EAS Android 接入
+**Branch**: `feature/prod-deploy-connect`
+
+### Summary
+
+定位并修复 v0.1.0 发布三连败根因（release job 缺 actions/checkout 导致 gh release create 报 not a git repository）；发布步骤改为幂等（release 已存在时仅 --clobber 上传 asset），--target 改为 github.sha；macOS 任务交叉编译 x86_64，release 补齐 Nextdo_0.1.1_x64.dmg（共 6 个桌面 asset 全部就绪）；版本号统一升 0.1.1 并强移 v0.1.1 tag 重跑成功。移动端：创建并关联 EAS 项目 @printsdf/nextdo（app.json extra.eas.projectId），EAS_TOKEN 存为 repo secret，release.yml 新增 build-android 任务（EAS 云端编译 APK 并入同一 Release）。遗留：本轮 Android APK 构建仍在 EAS 队列中，出包后需下载上传到 v0.1.1 release；孤儿 tag v0.1.0 未处理（无对应 release）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3baae9f` | fix(release): checkout in publish job, dynamic dmg name, dispatch publish; bump to v0.1.1 |
+| `c3cf28d` | ci(release): build both macOS arches, idempotent publish; mobile version 0.1.1 |
+| `0966fca` | chore(mobile): link EAS project @printsdf/nextdo |
+| `346e093` | ci(release): build Android via EAS and include APK in the release |
+
+### Status
+
+[OK] **Completed**
