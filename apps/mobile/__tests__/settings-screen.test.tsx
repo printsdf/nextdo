@@ -1,7 +1,8 @@
 /**
  * The Settings tab's cloud-sync block (prod-deploy R6 — sync is OPTIONAL;
- * OSS task 09-28 — the server addresses are USER-CONFIGURED; claim task
- * 09-28 — the owner token is OPTIONAL on the first connect).
+ * OSS task 09-28 — the server addresses are USER-CONFIGURED; the owner
+ * token is REQUIRED — connect() refuses an empty token with an inline
+ * error before any network).
  *
  * Two layers:
  *  1. The root — there is NO first-launch gate: with no stored token the app
@@ -11,35 +12,29 @@
  *     reads 「未连接」 with the addresses pre-filled).
  *  2. The Settings block — disconnected view (backend address + sync-stream
  *     address + token inputs + 连接 + inline errors; the two address inputs
- *     pre-fill from the stored config; the token input is EMPTY on a first
- *     connect and triggers the one-time claim) and connected view
- *     (read-only address display + 断开连接 → back to disconnected,
- *     addresses retained).
+ *     pre-fill from the stored config; the token input starts EMPTY and is
+ *     required to connect) and connected view (read-only address display +
+ *     断开连接 → back to disconnected, addresses retained).
  *
  * Rendered via `renderRouter` against a mocked `@nextdo/db` boundary whose
  * auth + config surface is mutable per test; the set/clear paths fire the
  * SAME change notification as production (the token write is the single poke;
  * the config write is NOT — same as production).
  *
- * The button's `canSubmit` requires the two ADDRESSES non-empty (the token
- * is optional — an empty token is a legal first-connect submit), so the
- * validation the button cannot reach (empty address) is exercised through
- * the REAL `useCloudSync` hook via a tiny render harness — asserting the
- * inline copy AND that no network round-trip happened (claim +
- * fetchCredentialsOnce spy counts). The ftp:// (invalid, but non-empty)
- * case IS reachable through the button and is tested the same way.
+ * The button's `canSubmit` requires the two ADDRESSES non-empty (an empty
+ * token is a legal BUTTON PRESS — the token requirement is enforced by
+ * connect() inline), so the validation the button cannot reach (empty
+ * address) is exercised through the REAL `useCloudSync` hook via a tiny
+ * render harness — asserting the inline copy AND that no network
+ * round-trip happened (the fetchCredentialsOnce spy count). The ftp://
+ * (invalid, but non-empty) case IS reachable through the button and is
+ * tested the same way.
  */
 type MockValidateResult =
   | { ok: true; token: string }
   | { ok: false; kind: 'rejected'; status: number }
   | { ok: false; kind: 'invalid' }
   | { ok: false; kind: 'network'; detail?: string };
-
-type MockClaimResult =
-  | { ok: true; token: string }
-  | { ok: false; kind: 'claimed'; reason: 'file' | 'explicit' }
-  | { ok: false; kind: 'invalid' }
-  | { ok: false; kind: 'network' };
 
 /** A valid stored / typed config used across the cases. */
 const VALID_CONFIG = {
@@ -48,30 +43,24 @@ const VALID_CONFIG = {
 };
 
 /** The token input's placeholder (must match settings.tsx). */
-const TOKEN_PLACEHOLDER = 'owner token（首次连接可留空，自动获取）';
+const TOKEN_PLACEHOLDER = 'owner token';
 
 const mockAuth: {
   storedToken: string | null;
   storedConfig: { backendUrl: string; endpoint: string } | null;
   /** Per-test behavior of the /credentials round-trip. */
   validate: (config: unknown, token: string) => MockValidateResult;
-  /** Per-test behavior of the one-time /claim bootstrap. */
-  claim: (config: unknown) => MockClaimResult;
 } = {
   storedToken: null,
   storedConfig: null,
   // Default: permissive (accept anything). Overwritten per test.
   validate: () => ({ ok: true, token: 'ps-jwt' }),
-  claim: () => ({ ok: true, token: 'claimed-token-1' }),
 };
 
 const mockTokenListeners = new Set<() => void>();
 
 /** Count of fetchCredentialsOnce calls (asserts the no-network contract). */
 let mockFetchCalls = 0;
-
-/** Count of claimOwnerTokenOnce calls (asserts which path a submit took). */
-let mockClaimCalls = 0;
 
 /** The configs passed to createPowerSyncConnector (the provider is the
  *  only caller — the acceptance check "provider connects WITH the stored
@@ -106,10 +95,6 @@ jest.mock('@nextdo/db', () => {
     fetchCredentialsOnce: async (config: unknown, token: string): Promise<MockValidateResult> => {
       mockFetchCalls += 1;
       return mockAuth.validate(config, token);
-    },
-    claimOwnerTokenOnce: async (config: unknown): Promise<MockClaimResult> => {
-      mockClaimCalls += 1;
-      return mockAuth.claim(config);
     },
     setOwnerToken: async (token: string) => {
       mockAuth.storedToken = token;
@@ -201,8 +186,8 @@ import { useCloudSync } from '@/hooks/use-cloud-sync';
 
 /** A tiny harness that drives the REAL `useCloudSync` hook directly. The
  *  button's canSubmit (two addresses non-empty) blocks empty-address
- *  submits, and the empty-token branch (the claim) is asserted here at the
- *  hook level too (which path a submit takes, and what gets stored). */
+ *  submits, and the empty-token branch is asserted here at the hook level
+ *  too (the inline refusal, zero network, nothing stored). */
 let hook: ReturnType<typeof useCloudSync> | null = null;
 function ConnectHarness() {
   // Test harness only: capture the hook's connect() for direct invocation.
@@ -231,10 +216,8 @@ beforeEach(() => {
   mockAuth.storedToken = null;
   mockAuth.storedConfig = null;
   mockAuth.validate = () => ({ ok: true, token: 'ps-jwt' });
-  mockAuth.claim = () => ({ ok: true, token: 'claimed-token-1' });
   mockTokenListeners.clear();
   mockFetchCalls = 0;
-  mockClaimCalls = 0;
   mockConnectorConfigs = [];
   hook = null;
 });
@@ -288,7 +271,7 @@ describe('settings cloud-sync block', () => {
     expect(connectButtonDisabled()).toBe(true);
   });
 
-  it('连接 enables when both addresses are filled (token is OPTIONAL); missing addresses stay disabled', async () => {
+  it('连接 enables when both addresses are filled (token may be empty — the requirement is enforced by connect() inline); missing addresses stay disabled', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
@@ -348,9 +331,7 @@ describe('settings cloud-sync block', () => {
     expect(mockConnectorConfigs).toEqual([VALID_CONFIG]);
   });
 
-  it('empty token + valid addresses + claim 200 → the config AND the minted token are stored → the connected block (no /credentials round-trip)', async () => {
-    mockAuth.claim = () => ({ ok: true, token: 'minted-by-server' });
-
+  it('empty token + valid addresses → inline 「请先输入 owner token」, nothing stored, ZERO network', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
@@ -362,91 +343,21 @@ describe('settings cloud-sync block', () => {
       screen.getByPlaceholderText('https://nextdo.example.com/sync'),
       VALID_CONFIG.endpoint,
     );
-    // The token input is left EMPTY — a legal first-connect submit.
+    // The token input is left EMPTY — a legal button press, an invalid
+    // connect(): the requirement is connect()'s inline error, not the
+    // button (same pattern as the address validity check).
     await flush();
     expect(connectButtonDisabled()).toBe(false);
     fireEvent.press(screen.getByRole('button', { name: '连接' }));
     await flush();
 
-    // The MINTED owner token was stored (the claim path took over)…
-    expect(mockAuth.storedToken).toBe('minted-by-server');
-    // …AND the server addresses (the SAME config-first / token-last order).
-    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
-    expect(mockClaimCalls).toBe(1);
-    expect(mockFetchCalls).toBe(0); // NO /credentials round-trip happened
-    // …and the same poke flips the block to the connected view.
-    expect(screen.getByRole('button', { name: '断开连接' })).toBeTruthy();
-    expect(screen.getByText(/已连接/)).toBeTruthy();
-    expect(mockConnectorConfigs).toEqual([VALID_CONFIG]);
-  });
-
-  it('claim 409 → inline 「服务器已有 token，请手动输入」, nothing stored; hand-typing a token re-submits through the ORIGINAL /credentials path', async () => {
-    mockAuth.claim = () => ({ ok: false, kind: 'claimed', reason: 'file' });
-    mockAuth.validate = (_c, t) =>
-      t === 'manual-token'
-        ? { ok: true, token: 'ps-jwt' }
-        : { ok: false, kind: 'rejected', status: 401 };
-
-    renderRouter('app', { initialUrl: '/(tabs)/settings' });
-    await flush();
-
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/api'),
-      VALID_CONFIG.backendUrl,
-    );
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/sync'),
-      VALID_CONFIG.endpoint,
-    );
-    // Empty token → claim 409.
-    await flush();
-    fireEvent.press(screen.getByRole('button', { name: '连接' }));
-    await flush();
-
-    expect(screen.getByText('服务器已有 token，请手动输入')).toBeTruthy();
-    expect(mockAuth.storedToken).toBeNull();
-    expect(mockAuth.storedConfig).toBeNull(); // the 409 stores nothing
-    expect(mockClaimCalls).toBe(1);
-    expect(mockFetchCalls).toBe(0);
-    // …and the token input is STILL there (the user can hand-type it).
+    expect(screen.getByText('请先输入 owner token')).toBeTruthy();
+    expect(mockFetchCalls).toBe(0); // ZERO network round-trips
+    expect(mockAuth.storedToken).toBeNull(); // nothing stored…
+    expect(mockAuth.storedConfig).toBeNull(); // …not even the addresses
+    expect(screen.getByText(/未连接/)).toBeTruthy();
+    // …and the token input is still there (the user can type it in).
     expect(screen.getByPlaceholderText(TOKEN_PLACEHOLDER)).toBeTruthy();
-    expect(screen.getByText(/未连接/)).toBeTruthy();
-
-    // Hand-type a token and re-submit → the ORIGINAL path succeeds.
-    fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), 'manual-token');
-    await flush();
-    fireEvent.press(screen.getByRole('button', { name: '连接' }));
-    await flush();
-
-    expect(mockFetchCalls).toBe(1);
-    expect(mockClaimCalls).toBe(1); // the claim was NOT retried
-    expect(mockAuth.storedToken).toBe('manual-token');
-    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
-    expect(screen.getByText(/已连接/)).toBeTruthy();
-  });
-
-  it('claim network failure → inline 「连不上服务器，请稍后重试」, nothing stored', async () => {
-    mockAuth.claim = () => ({ ok: false, kind: 'network' });
-
-    renderRouter('app', { initialUrl: '/(tabs)/settings' });
-    await flush();
-
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/api'),
-      VALID_CONFIG.backendUrl,
-    );
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/sync'),
-      VALID_CONFIG.endpoint,
-    );
-    await flush();
-    fireEvent.press(screen.getByRole('button', { name: '连接' }));
-    await flush();
-
-    expect(screen.getByText('连不上服务器，请稍后重试')).toBeTruthy();
-    expect(mockAuth.storedToken).toBeNull();
-    expect(mockAuth.storedConfig).toBeNull();
-    expect(screen.getByText(/未连接/)).toBeTruthy();
   });
 
   it('401 → inline 「token 不正确」, stays disconnected, nothing is stored, retry is possible', async () => {
@@ -544,7 +455,7 @@ describe('settings cloud-sync block', () => {
     expect(screen.getByDisplayValue(VALID_CONFIG.endpoint)).toBeTruthy();
   });
 
-  it('invalid address (ftp://) → inline 「地址无效…」 and NO network round-trip (claim OR /credentials)', async () => {
+  it('invalid address (ftp://) → inline 「地址无效…」 and NO network round-trip', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
@@ -563,7 +474,6 @@ describe('settings cloud-sync block', () => {
 
     expect(screen.getByText(/地址无效/)).toBeTruthy();
     expect(mockFetchCalls).toBe(0); // zero network round-trips
-    expect(mockClaimCalls).toBe(0);
     expect(mockAuth.storedToken).toBeNull();
     expect(mockAuth.storedConfig).toBeNull();
   });
@@ -571,27 +481,24 @@ describe('settings cloud-sync block', () => {
 
 /* ------------------------------------------------------------------ *
  * connect() input branches the button cannot reach (canSubmit requires
- * the two addresses non-empty; the token is optional) — driven through
- * the real hook.
+ * the two addresses non-empty; the token is required but NOT button-
+ * gated) — driven through the real hook.
  * ------------------------------------------------------------------ */
 describe('connect() input branches (button cannot reach)', () => {
-  it('empty address → 「请先填写服务器地址」 and NEITHER claim NOR /credentials is called (address checks run first)', async () => {
+  it('empty address → 「请先填写服务器地址」 and /credentials is NOT called (address checks run first)', async () => {
     render(<ConnectHarness />);
     const result = await act(async () =>
       hook!.connect({
         backendUrl: '  ',
         endpoint: VALID_CONFIG.endpoint,
-        token: '   ', // even an empty token (a claim candidate) must not fire
+        token: '   ', // even an empty token must not fire any network call
       }),
     );
     expect(result).toEqual({ ok: false, message: '请先填写服务器地址' });
-    expect(mockClaimCalls).toBe(0);
     expect(mockFetchCalls).toBe(0);
   });
 
-  it('empty token + valid addresses → the CLAIM path is taken (no /credentials round-trip) and the minted token is stored', async () => {
-    mockAuth.claim = () => ({ ok: true, token: 'minted-by-server' });
-
+  it('empty token + valid addresses → 「请先输入 owner token」, ZERO network, nothing stored', async () => {
     render(<ConnectHarness />);
     const result = await act(async () =>
       hook!.connect({
@@ -600,10 +507,9 @@ describe('connect() input branches (button cannot reach)', () => {
         token: '   ',
       }),
     );
-    expect(result).toEqual({ ok: true });
-    expect(mockClaimCalls).toBe(1);
-    expect(mockFetchCalls).toBe(0);
-    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
-    expect(mockAuth.storedToken).toBe('minted-by-server');
+    expect(result).toEqual({ ok: false, message: '请先输入 owner token' });
+    expect(mockFetchCalls).toBe(0); // ZERO network round-trips
+    expect(mockAuth.storedConfig).toBeNull();
+    expect(mockAuth.storedToken).toBeNull();
   });
 });
