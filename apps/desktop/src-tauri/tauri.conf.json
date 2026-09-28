@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm --filter @nextdo/mobile run web",
     "devUrl": "http://localhost:8081",
-    "beforeBuildCommand": "pnpm --filter @nextdo/mobile exec expo export --platform web && node -e \"const fs=require('node:fs');fs.rmSync('src-tauri/frontend-dist',{recursive:true,force:true});fs.cpSync('../mobile/dist','src-tauri/frontend-dist',{recursive:true})\"",
+    "beforeBuildCommand": "pnpm --filter @nextdo/mobile exec expo export --platform web && node scripts/sync-frontend-dist.cjs",
     "frontendDist": "http://127.0.0.1:52123"
   },
   "app": {

@@ -57,6 +57,7 @@ jobs:
       - name: Package dmg
         run: |
           OUT=apps/desktop/src-tauri/target/release/bundle
+          mkdir -p "$OUT/dmg"
           STAGE="$(mktemp -d)"
           cp -R "$OUT/macos/Nextdo.app" "$STAGE/"
           diskutil image create from "$STAGE" --volumeName Nextdo \
