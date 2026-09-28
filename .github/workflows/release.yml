@@ -21,6 +21,10 @@ on:
         description: "Tag to release (e.g. v0.1.0)"
         required: true
         default: "v0.1.0"
+      run_id:
+        description: "Build run that produced the artifacts to publish (GitHub run ID)"
+        required: true
+        default: ""
 
 concurrency:
   group: release
@@ -36,6 +40,9 @@ env:
 jobs:
   build-macos:
     name: Build macOS
+    # Manual dispatch publishes artifacts from an existing build (run_id)
+    # instead of rebuilding.
+    if: github.event_name == 'push'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,11 +64,12 @@ jobs:
       - name: Package dmg
         run: |
           OUT=apps/desktop/src-tauri/target/release/bundle
+          VER="$(node -p "require('./apps/desktop/package.json').version")"
           mkdir -p "$OUT/dmg"
           STAGE="$(mktemp -d)"
           cp -R "$OUT/macos/Nextdo.app" "$STAGE/"
           diskutil image create from "$STAGE" --volumeName Nextdo \
-            --format UDZO "$OUT/dmg/Nextdo_0.1.0_aarch64.dmg"
+            --format UDZO "$OUT/dmg/Nextdo_${VER}_aarch64.dmg"
           rm -rf "$STAGE"
       - name: Upload bundle
         uses: actions/upload-artifact@v4
@@ -130,10 +138,22 @@ jobs:
   release:
     name: Create GitHub Release
     needs: [build-macos, build-windows, build-linux]
+    # Tag push: run only after all builds succeed. Manual dispatch: build
+    # jobs are skipped and artifacts come from the provided run_id.
+    if: >-
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+       (needs.build-macos.result == 'success' &&
+        needs.build-windows.result == 'success' &&
+        needs.build-linux.result == 'success'))
     runs-on: ubuntu-latest
     steps:
+      # gh release create shells out to git, so the workspace must be a
+      # checkout.
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
+          run-id: ${{ github.event.inputs.run_id }}
           path: bundles
           merge-multiple: true
       - name: Publish release
@@ -141,15 +161,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          # workflow_dispatch may reference a tag that does not exist yet.
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            git tag -l "$TAG" | grep -qx "$TAG" || {
-              git tag "$TAG"
-              git push origin "$TAG"
-            }
+          # A manual dispatch may reference a tag that does not exist yet —
+          # create and push it (pointing at this run's commit).
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "$TAG"
           fi
           gh release create "$TAG" \
-            --target main \
+            --target "${{ github.sha }}" \
             --title "Nextdo $TAG" \
             --notes "Nextdo $TAG — desktop builds (macOS / Windows / Linux)." \
             $(find bundles -type f | sort)
