@@ -115,35 +115,28 @@ UI:
 - **App backend (`server/app`)**: a minimal **Hono (TypeScript) API on Node 24**
   (its own pnpm workspace), containerized (`server/app/Dockerfile`, node:24-alpine,
   multi-stage; the real deploy target is post-scaffold — v1 runs the local
-  `server/powersync/docker-compose.yml` stack). Three endpoints: the two
-  authed ones **both require the owner token** (v1 single-user auth per
-  Proposal §10; a real account flow is post-MVP, the seam stays), plus the
-  unauthenticated one-time claim bootstrap:
+  `server/powersync/docker-compose.yml` stack). Two endpoints, **both require
+  the owner token** (v1 single-user auth per Proposal §10; a real account flow
+  is post-MVP, the seam stays):
   - `GET /credentials` → verifies the owner token, mints a 15-min PowerSync JWT
     (signed with `jose` HS256; the old `powersync-jwt` package was removed in the
     2026-07 SDK v2 revamp);
   - `POST /upload` → verifies the owner token, applies the ps_crud batch to Postgres
-    (upserts; 2xx for validation-level rejections);
-  - `POST /claim` → the one-time owner-token mint (claim task 09-28): while the
-    server is UNCLAIMED (no `NEXTDO_OWNER_TOKEN`, no persisted `data/owner-token`)
-    the first call returns 200 { token } (the token's ONLY display path — never
-    logged) and persists it; every later call, and every call when a token
-    exists (env or file), is 409 { reason: 'file' | 'explicit' }. The env token
-    is never served by /claim.
-  Without the owner token the two authed endpoints return 401 for every request
-  shape (including the unclaimed state) — there is no anonymous access.
+    (upserts; 2xx for validation-level rejections).
+  Without the owner token the endpoints return 401 for every request shape —
+  there is no anonymous access.
 
   File layout (`server/app/src/`): `app.ts` (`createApp(config)` — the
-  side-effect-free Hono app with the three routes, unit-testable via `app.request()`
+  side-effect-free Hono app with the two routes, unit-testable via `app.request()`
   with an injected pool + clock), `index.ts` (process entry: env validation,
   pg pool, `serve()` on `:PORT` — the only self-starting module), `auth.ts`
-  (Bearer parsing + timing-safe compare; the 401 matrix; `expectedToken: null`
-  = unclaimed → every request 401s), `credentials.ts`
+  (Bearer parsing + timing-safe compare; the 401 matrix), `credentials.ts`
   (JWT: exactly 900 s TTL from an injected `now`, `kid: nextdo-dev`,
   `aud: nextdo`, `sub: owner`), `upload.ts` (body parsing + apply: upsert
   mutable / insert-only append-only / soft-delete), `owner-token.ts`
-  (boot resolution: env > persisted `data/owner-token` > unclaimed; the
-  one-time `claimOwnerToken` mint — the token never reaches a log line),
+  (boot resolution: `NEXTDO_OWNER_TOKEN` required — non-empty after trim;
+  missing/empty refuses the boot, the error names the generation command +
+  the .env location; the token never reaches a log line),
   `db.ts` (pg pool + the
   14-table column catalog — a re-declaration of `packages/db/src/schema.ts`;
   a test asserts the two stay in lockstep), `logger.ts`. Tests live in
@@ -153,7 +146,9 @@ UI:
   the HS256 signing key) and `server/powersync/.env` (interpolated into
   `PS_JWT_SECRET` → `service.yaml` JWK `k` verbatim). `kid` + `audience` are
   pinned on both sides.
-  The owner token (`NEXTDO_OWNER_TOKEN`) is a shared secret generated once.
+  The owner token (`NEXTDO_OWNER_TOKEN`) is a shared secret generated once
+  at deploy time (deploy-owned — `openssl rand -hex 32` in
+  `server/deploy/.env`; REQUIRED, the server refuses to boot without it).
   The client stores it — **and the user's sync-server config** (`{ backendUrl,
   endpoint }`, entered in the Settings tab; the OSS default is empty =
   pure-local) — per platform. Two keys travel together in the SAME store:
