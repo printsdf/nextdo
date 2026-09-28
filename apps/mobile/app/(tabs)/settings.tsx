@@ -4,12 +4,15 @@
  * v1 hosts ONE block: cloud sync.
  *
  * - disconnected (no owner token): explains local-only mode + three inputs
- *   (backend address, sync-stream address, owner token) + 连接 + inline
+ *   (backend address, sync-stream address, owner token — OPTIONAL on the
+ *   first connect: an empty token triggers the one-time server-side claim,
+ *   the minted token fills this device automatically) + 连接 + inline
  *   error. The two address inputs pre-fill from the stored config when it
- *   exists (so a reconnect after 断开 only needs a new token). Client-side
- *   validation (token 不能为空 / 请先填写服务器地址 / 地址无效…) runs BEFORE
+ *   exists (so a reconnect after 断开 only needs a new token).
+ *   Client-side validation (请先填写服务器地址 / 地址无效…) runs BEFORE
  *   any network; the server three-state copy (token 不正确 /
- *   连不上服务器，请稍后重试) is unchanged.
+ *   连不上服务器，请稍后重试) is unchanged, the claim adds 「服务器已有
+ *   token，请手动输入」for the 409.
  * - connected: status line + the two stored addresses (read-only) +
  *   断开连接 (clears the token — the addresses are KEPT; the provider's
  *   subscription then disconnects sync; local data is untouched, so no
@@ -44,11 +47,10 @@ export default function SettingsScreen() {
     setEndpoint((prev) => (prev === '' ? storedConfig.endpoint : prev));
   }, [storedConfig]);
 
-  // All three fields non-empty (address VALIDITY is left to connect's inline
-  // error, not the button — same as the token, which only needs to be
-  // non-empty to enable submit).
-  const canSubmit =
-    backendUrl.trim() !== '' && endpoint.trim() !== '' && token.trim() !== '' && !submitting;
+  // The two addresses non-empty (token is OPTIONAL — an empty token is a
+  // legal first-connect submit: it triggers the server-side claim).
+  // Address VALIDITY is left to connect's inline error, not the button.
+  const canSubmit = backendUrl.trim() !== '' && endpoint.trim() !== '' && !submitting;
 
   const handleSubmit = async (): Promise<void> => {
     if (!canSubmit) return;
@@ -118,7 +120,7 @@ export default function SettingsScreen() {
           <View className="gap-3">
             <Text className="font-sans text-sm text-muted dark:text-muted-dark">
               未连接 — 数据仅保存在这台设备上。填写你的同步服务器地址与 owner
-              token 即可开启同步。
+              token 即可开启同步（首次连接 token 可留空，自动获取）。
             </Text>
             <TextInput
               className={INPUT_CLASS}
@@ -148,7 +150,7 @@ export default function SettingsScreen() {
             />
             <TextInput
               className={INPUT_CLASS}
-              placeholder="owner token"
+              placeholder="owner token（首次连接可留空，自动获取）"
               value={token}
               onChangeText={(next) => {
                 setToken(next);

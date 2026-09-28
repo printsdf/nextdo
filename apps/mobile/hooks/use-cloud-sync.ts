@@ -14,14 +14,19 @@
  * - `storedConfig` — the stored sync-server URLs (`{ backendUrl, endpoint }`
  *   | null), read on mount and re-read on every poke. Prefills the address
  *   inputs and backs the connected view's read-only address display.
- * - `connect({ backendUrl, endpoint, token })` — three client-side checks
- *   (token empty / address empty / address not an absolute http(s) URL) run
- *   BEFORE any network; then one `/credentials` round-trip
- *   (`fetchCredentialsOnce`); on 200 it stores the config FIRST and the
- *   owner token LAST (the token write is the single poke that drives the
- *   provider's connect — both must be stored by then). Never throws; each
- *   outcome maps to the user-facing copy (the R3 three-state messages stay
- *   the single precedent).
+ * - `connect({ backendUrl, endpoint, token })` — two client-side address
+ *   checks (empty / not an absolute http(s) URL) run BEFORE any network.
+ *   Then it branches on the token:
+ *     * token NON-EMPTY → one `/credentials` round-trip
+ *       (`fetchCredentialsOnce`); on 200 it stores the config FIRST and
+ *       the owner token LAST (the token write is the single poke that
+ *       drives the provider's connect — both must be stored by then).
+ *     * token EMPTY → the one-time claim (`claimOwnerTokenOnce`,
+ *       `POST /claim`): the server mints the owner token ONCE and returns
+ *       it; on 200 the SAME config-then-token storage order applies.
+ *   Never throws; each outcome maps to the user-facing copy (the R3
+ *   three-state messages stay the single precedent; the claim adds
+ *   「服务器已有 token，请手动输入」for a 409).
  * - `disconnect()` — `clearOwnerToken` (the stored addresses are KEPT, so a
  *   reconnect only needs a new token); the notification drives the
  *   provider's disconnect. Local data is untouched (nothing destructive, so
@@ -33,6 +38,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
+  claimOwnerTokenOnce,
   clearOwnerToken,
   fetchCredentialsOnce,
   getOwnerToken,
@@ -119,18 +125,17 @@ export function useCloudSync(): {
     };
   }, []);
 
-  // Three client-side checks (no network), then ONE /credentials round-trip,
-  // then store the config FIRST and the owner token LAST — the token write
-  // is the single poke that drives the provider's connect() (by the time it
-  // fires, both are stored). The change notification flips this hook too.
+  // Two client-side address checks (no network), then EITHER the claim
+  // (empty token) OR ONE /credentials round-trip (non-empty token), then
+  // store the config FIRST and the owner token LAST in both branches —
+  // the token write is the single poke that drives the provider's
+  // connect() (by the time it fires, both are stored). The change
+  // notification flips this hook too.
   const connect = useCallback(
     async ({ backendUrl, endpoint, token }: ConnectInput): Promise<ConnectOutcome> => {
       const trimmedBackend = backendUrl.trim();
       const trimmedEndpoint = endpoint.trim();
       const trimmedToken = token.trim();
-      if (trimmedToken === '') {
-        return { ok: false, message: 'token 不能为空' };
-      }
       if (trimmedBackend === '' || trimmedEndpoint === '') {
         return { ok: false, message: '请先填写服务器地址' };
       }
@@ -138,6 +143,30 @@ export function useCloudSync(): {
         return { ok: false, message: '地址无效，应以 http:// 或 https:// 开头' };
       }
       const config: StoredBackendConfig = { backendUrl: trimmedBackend, endpoint: trimmedEndpoint };
+      if (trimmedToken === '') {
+        // Empty token = first-connect bootstrap (claim task 09-28): the
+        // server mints the owner token ONCE and returns it in the 200.
+        const claimed = await claimOwnerTokenOnce(config);
+        if (claimed.ok) {
+          try {
+            await setStoredBackendConfig(config); // config first…
+            await setOwnerToken(claimed.token); // …then the token (the poke)
+            return { ok: true };
+          } catch (error) {
+            logger.error('sync config save failed', toError(error));
+            return { ok: false, message: 'token 验证通过，但保存失败，请重试' };
+          }
+        }
+        if (claimed.kind === 'claimed') {
+          // The server already has a token (already claimed, or an
+          // explicit env token it never serves) — the user enters it.
+          return { ok: false, message: '服务器已有 token，请手动输入' };
+        }
+        // Network failure / 5xx / malformed 200: retry later (same copy
+        // as the credentials path — the server is unreachable or
+        // unhealthy, nothing is invalidated).
+        return { ok: false, message: '连不上服务器，请稍后重试' };
+      }
       const result = await fetchCredentialsOnce(config, trimmedToken);
       if (result.ok) {
         try {
