@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
+- **Total Sessions**: 11
 - **Last Active**: 2026-09-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~414 | Active |
+| `journal-1.md` | ~442 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 11 | 2026-09-29 | Web 返回修复 + 0.1.2 Android 发布 | `6485b2b`, `d4b7bea`, `07fb5a9`, `08c0d99`, `c37f839`, `1e4f65e`, `0691436` | `fix/web-go-back-fallback` |
 | 10 | 2026-09-29 | 项目与行动的编辑/归档操作 | `900f855`, `95d6e5d`, `3794a3a`, `25991dd`, `e366c47` | `feature/project-action-edit-archive` |
 | 9 | 2026-09-28 | v0.1.1 发布：修复 release 流程、macOS 双架构、EAS Android 接入 | `3baae9f`, `c3cf28d`, `0966fca`, `346e093` | `feature/prod-deploy-connect` |
 | 8 | 2026-09-28 | owner token 改部署时生成（移除 /claim）+ 生产服务器升级 | `b4d836b`, `9fa19df`, `090b258`, `916baf2`, `5ec16c6` | `feature/prod-deploy-connect` |
