@@ -6,8 +6,9 @@
 # beforeBuildCommand) and publishes one GitHub Release containing the
 # installers for all three platforms.
 #
-# iOS / Android native builds are NOT part of this pipeline — they require
-# store signing credentials (EAS / Fastlane) and are produced separately.
+# Android is built via EAS (build-android, one release .apk per CPU ABI).
+# iOS is NOT part of this pipeline — it needs Apple signing credentials and
+# is produced separately.
 
 name: release
 
@@ -146,11 +147,22 @@ jobs:
           if-no-files-found: error
 
   build-android:
-    name: Build Android (EAS)
+    name: Build Android (EAS, ${{ matrix.abi }})
     # Manual dispatch publishes artifacts from an existing build (run_id)
     # instead of rebuilding.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # One EAS release build per CPU ABI (profiles in apps/mobile/eas.json).
+    # Each leg emits a single-ABI .apk so a user downloads only the libs their
+    # device needs, instead of one fat multi-ABI bundle.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { abi: arm64-v8a,   profile: android-arm64-v8a }
+          - { abi: armeabi-v7a, profile: android-armeabi-v7a }
+          - { abi: x86,         profile: android-x86 }
+          - { abi: x86_64,      profile: android-x86-64 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -161,23 +173,28 @@ jobs:
           EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
         run: |
           cd apps/mobile
-          # EAS compiles on Expo's cloud; the CLI here only uploads the
-          # project, waits for the build, and prints the artifact URL.
+          # EAS compiles on Expo's cloud; the CLI uploads the project and
+          # blocks until the build finishes. Capture this leg's build id so
+          # the download step fetches ITS artifact — matrix legs run in
+          # parallel, so `build:list --limit 1` would race between legs.
           npx -y eas-cli@24.8.0 build --platform android \
-            --profile development --non-interactive
+            --profile "${{ matrix.profile }}" --non-interactive 2>&1 | tee eas-build-output.log
+          BID="$(grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' eas-build-output.log | head -1)"
+          [ -n "$BID" ] || { echo "could not capture EAS build id" >&2; exit 1; }
+          echo "BUILD_ID=$BID" >> "$GITHUB_ENV"
       - name: Download APK
         run: |
           cd apps/mobile
-          npx -y eas-cli@24.8.0 build:list --limit 1 --non-interactive --json > eas-build.json
-          URL="$(node -p "Object.values(require('./eas-build.json')[0].artifacts || {}).find(v => typeof v === 'string' && v.startsWith('http')) || ''")"
+          npx -y eas-cli@24.8.0 build:view "$BUILD_ID" --non-interactive --json > eas-build.json
+          URL="$(node -p "Object.values(require('./eas-build.json').artifacts || {}).find(v => typeof v === 'string' && v.startsWith('http')) || ''")"
           [ -n "$URL" ] || { echo "no artifact URL found" >&2; exit 1; }
           VER="$(node -p "require('./app.json').expo.version")"
-          curl -fL -o "Nextdo_${VER}_android.apk" "$URL"
+          curl -fL -o "Nextdo_${VER}_android_${{ matrix.abi }}.apk" "$URL"
       - name: Upload bundle
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-android
-          path: apps/mobile/Nextdo_*_android.apk
+          name: mobile-android-${{ matrix.abi }}
+          path: apps/mobile/Nextdo_*_android_${{ matrix.abi }}.apk
           if-no-files-found: error
 
   release:
@@ -224,6 +241,6 @@ jobs:
             gh release create "$TAG" \
               --target "${{ github.sha }}" \
               --title "Nextdo $TAG" \
-              --notes "Nextdo $TAG — desktop builds (macOS / Windows / Linux)." \
+              --notes "Nextdo $TAG — desktop builds (macOS / Windows / Linux) and Android APKs (one per ABI)." \
               $FILES
           fi
