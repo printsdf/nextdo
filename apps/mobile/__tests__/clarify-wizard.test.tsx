@@ -48,7 +48,15 @@ jest.mock('@/hooks/use-projects', () => ({ useProjects: jest.fn() }));
 jest.mock('@/hooks/use-contexts', () => ({ useContexts: jest.fn() }));
 
 jest.mock('expo-router', () => ({
-  router: { back: jest.fn(), push: jest.fn(), navigate: jest.fn(), setParams: jest.fn() },
+  router: {
+    back: jest.fn(),
+    push: jest.fn(),
+    navigate: jest.fn(),
+    setParams: jest.fn(),
+    // go-back.ts (web deep-load fallback) — the stack normally HAS a parent.
+    canGoBack: jest.fn(() => true),
+    replace: jest.fn(),
+  },
   useLocalSearchParams: () => ({}),
 }));
 
@@ -694,5 +702,15 @@ describe('WizardBody — done step (explicit exits, no auto-back)', () => {
     fireEvent.press(screen.getByText('完成'));
     expect(router.back).toHaveBeenCalledTimes(1);
     expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it('deep-load without a parent: 完成 replaces to the origin tab instead of back', async () => {
+    await walkToDone();
+    // Simulate a web deep-load (refresh / bookmark): the stack has no parent,
+    // so goBack falls back to the screen the wizard was pushed from.
+    jest.mocked(router.canGoBack).mockReturnValueOnce(false);
+    fireEvent.press(screen.getByText('完成'));
+    expect(router.back).not.toHaveBeenCalled();
+    expect(router.replace).toHaveBeenCalledWith('/(tabs)/inbox');
   });
 });

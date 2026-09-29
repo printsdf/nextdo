@@ -81,6 +81,13 @@ jest.mock('@nextdo/db', () => {
     listCalendarActions: async () => [],
     listHabitDays: async () => [],
     listHabits: async () => [],
+    // The /now fallback target (goBack on 完成/放弃 in a deep-loaded stack)
+    // mounts the Now screen — its pool / context / project hooks resolve
+    // empty here so the screen renders its empty state.
+    poolTriggerWatchQuery: () => ({}),
+    queryEnginePool: async () => ({ actions: [], calendar: [], projects: [] }),
+    listContexts: async () => [],
+    listProjects: async () => [],
   };
 });
 
@@ -224,13 +231,15 @@ describe('Focus screen', () => {
 
   it('完成 closes the session AND completes the action (two transactions)', async () => {
     seedActiveSession();
-    renderRouter('app', { initialUrl: '/focus/f-1?kind=next' });
+    const view = renderRouter('app', { initialUrl: '/focus/f-1?kind=next' });
     await waitFor(() => expect(screen.getByText('完成')).toBeTruthy());
     fireEvent.press(screen.getByText('完成'));
 
     await waitFor(() => expect(mockDb.completeFocusSession).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockDb.completeAction).toHaveBeenCalledTimes(1));
     expect(mockDb.completeAction.mock.calls[0][1]).toMatchObject({ actionKind: 'next', actionId: 'f-1' });
+    // Deep-loaded stack has no parent → goBack replaces to the Now tab.
+    await waitFor(() => expect(view.getPathname()).toBe('/now'));
   });
 
   it('放弃 closes the session as abandoned and leaves the action untouched', async () => {

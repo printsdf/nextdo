@@ -17,7 +17,6 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { router } from 'expo-router';
 import { Button, Card, Tag } from '@nextdo/ui';
 import {
   type ProjectStatus,
@@ -25,6 +24,7 @@ import {
   type WeeklyReviewAnswers,
 } from '@nextdo/core';
 import { errorMessage as errorCopy } from '@/lib/error-messages';
+import { goBack } from '@/lib/go-back';
 import { PROJECT_STATUS_LABELS } from '@/lib/status-labels';
 import { useWeeklyReviewData } from '@/hooks/use-weekly-review-data';
 import { useProjectStatus } from '@/hooks/use-project-status';
@@ -136,7 +136,7 @@ export default function WeeklyReviewScreen() {
       // 3. Last: the append-only record (all-or-nothing with step 1–2).
       const recorded = await add({ kind: 'weekly', snapshot, answers });
       if (!recorded) throw new Error('record failed');
-      router.back();
+      goBack('/(tabs)/review');
     } catch {
       // The mutation hooks surface their own typed error below; the record
       // was NOT written (submit stopped before step 3).
@@ -156,7 +156,7 @@ export default function WeeklyReviewScreen() {
     <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
       <ScrollView className="flex-1" contentContainerClassName="gap-4">
         <View className="flex-row items-center justify-between">
-          <Button label="← 回顾" variant="ghost" onPress={() => router.back()} />
+          <Button label="← 回顾" variant="ghost" onPress={() => goBack('/(tabs)/review')} />
           <Text className="text-xl font-semibold text-ink dark:text-ink-dark">本周回顾</Text>
           <View />
         </View>

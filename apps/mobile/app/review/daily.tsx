@@ -17,6 +17,7 @@ import { ScrollView, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { Button, Card, Tag } from '@nextdo/ui';
 import { errorMessage as errorCopy } from '@/lib/error-messages';
+import { goBack } from '@/lib/go-back';
 import { useDailyReviewData } from '@/hooks/use-daily-review-data';
 import { useCompleteAction } from '@/hooks/use-complete-action';
 import { useSnoozeAction } from '@/hooks/use-snooze-action';
@@ -188,7 +189,7 @@ export default function DailyReviewScreen() {
       const recorded = await add({ kind: 'daily', snapshot, answers });
       if (!recorded) throw new Error('record failed');
       reload();
-      router.back();
+      goBack('/(tabs)/review');
     } catch {
       // The decision-transaction errors are surfaced through their hooks
       // (below) — the record was NOT written (submit stopped before step 4).
@@ -227,7 +228,7 @@ export default function DailyReviewScreen() {
     <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
       <ScrollView className="flex-1" contentContainerClassName="gap-4">
         <View className="flex-row items-center justify-between">
-          <Button label="← 回顾" variant="ghost" onPress={() => router.back()} />
+          <Button label="← 回顾" variant="ghost" onPress={() => goBack('/(tabs)/review')} />
           <Text className="text-xl font-semibold text-ink dark:text-ink-dark">今日回顾</Text>
           <View />
         </View>

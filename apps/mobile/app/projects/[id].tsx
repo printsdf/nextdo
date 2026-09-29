@@ -17,7 +17,7 @@
  */
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { Button, Card, ContextChip, EmptyState, Tag, type TagTone } from '@nextdo/ui';
 import { localDateKey, type NextAction, type Project, type ProjectStatus, type Value } from '@nextdo/core';
 import { useProjects } from '@/hooks/use-projects';
@@ -34,6 +34,7 @@ import { errorMessage } from '@/lib/error-messages';
 import { PROJECT_STATUS_LABELS } from '@/lib/status-labels';
 import { endOfLocalDayIso } from '@/lib/clarify-flow';
 import { formatLocalDate } from '@/lib/format';
+import { goBack } from '@/lib/go-back';
 import { SnoozeSheet } from '@/components/snooze-sheet';
 
 const STATUS_TONES: Record<ProjectStatus, TagTone> = {
@@ -347,7 +348,7 @@ export default function ProjectDetailScreen() {
       <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
         <EmptyState title="缺少参数，无法打开" hint="返回项目列表重试。">
           <View className="mt-4">
-            <Button label="返回" variant="secondary" onPress={() => router.back()} />
+            <Button label="返回" variant="secondary" onPress={() => goBack('/(tabs)/projects')} />
           </View>
         </EmptyState>
       </View>
@@ -365,7 +366,7 @@ export default function ProjectDetailScreen() {
   return (
     <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
       <View className="mb-4 flex-row items-center justify-between">
-        <Button label="← 项目" variant="ghost" onPress={() => router.back()} />
+        <Button label="← 项目" variant="ghost" onPress={() => goBack('/(tabs)/projects')} />
       </View>
 
       {projectsError !== null ? (
