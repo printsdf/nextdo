@@ -440,3 +440,26 @@ Web 深链返回修复：新增 goBack 助手（无父路由时 replace 到 tab 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: Mobile UI/UX Ergonomics and Usability Optimization
+<!-- trellis-session: v=2 fp=b4a7a1fce9fe9f21 -->
+
+**Date**: 2026-09-29
+**Task**: Mobile UI/UX Ergonomics and Usability Optimization
+**Branch**: `main`
+
+### Summary
+
+Audited and overhauled mobile UI ergonomics in a dedicated worktree: added safe area insets and status bar styling, scroll containers on overflowing screens, keyboard avoidance on input forms, unified DateTimePicker in project action forms, vector iconography on the bottom tab bar, and a persistent light/dark/system theme toggle in Settings. Verified with 100% passing tests and merged to main.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5117298` | feat(mobile): optimize UI ergonomics, safe area insets, navigation, and theme toggle |
+| `aa33c07` | Merge branch 'feature/mobile-ui-optimization' into main |
+
+### Status
+
+[OK] **Completed**
