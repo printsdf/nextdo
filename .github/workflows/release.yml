@@ -187,11 +187,14 @@ jobs:
           [ -n "$BID" ] || { echo "could not capture EAS build id" >&2; exit 1; }
           echo "BUILD_ID=$BID" >> "$GITHUB_ENV"
       - name: Download APK
+        env:
+          EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
+          EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
         run: |
           cd apps/mobile
-          npx -y eas-cli@24.8.0 build:view "$BUILD_ID" --non-interactive --json > eas-build.json
-          URL="$(node -p "Object.values(require('./eas-build.json').artifacts || {}).find(v => typeof v === 'string' && v.startsWith('http')) || ''")"
-          [ -n "$URL" ] || { echo "no artifact URL found" >&2; exit 1; }
+          npx -y eas-cli@24.8.0 build:view "$BUILD_ID" --json > eas-build.json
+          URL="$(node -p "(() => { const d = require('./eas-build.json'); const o = Array.isArray(d) ? d[0] : d; const u = Object.values(o.artifacts || {}).find((v) => typeof v === 'string' && v.startsWith('http')); return u || ''; })()")"
+          [ -n "$URL" ] || { echo "no artifact URL found" >&2; cat eas-build.json; exit 1; }
           VER="$(node -p "require('./app.json').expo.version")"
           curl -fL -o "Nextdo_${VER}_android_${{ matrix.abi }}.apk" "$URL"
       - name: Upload bundle
