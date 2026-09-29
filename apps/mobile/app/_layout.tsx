@@ -36,7 +36,9 @@ import '../global.css';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Stack } from 'expo-router';
-import { Text, View } from 'react-native';
+import { Platform, StatusBar, Text, View } from 'react-native';
+import { useAppTheme } from '@/lib/theme';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
 import {
   Epilogue_500Medium,
@@ -100,6 +102,16 @@ const WEB_FONT_FACES: ReadonlyArray<readonly [family: string, source: number | s
 
 type WebFontCtor = new (family: string, source: string) => { load(): Promise<unknown> };
 
+interface WebDocumentHost {
+  document?: {
+    documentElement?: {
+      classList: {
+        add(token: string): void;
+        remove(token: string): void;
+      };
+    };
+  };
+}
 /** Load ONE face with the FontFace API and register it in
  *  document.fonts so `fontFamily: 'Epilogue'` & co. resolve. Rejects on
  *  network/decode failure (a hung fetch is bounded by the caller's
@@ -394,16 +406,37 @@ export default function RootLayout() {
     ? webFontsReady
     : (epilogueLoaded || epilogueError !== null) &&
       (jakartaLoaded || jakartaError !== null);
+  const { isDark } = useAppTheme();
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const host = globalThis as unknown as WebDocumentHost;
+      const root = host.document?.documentElement;
+      if (root !== undefined) {
+        if (isDark) {
+          root.classList.add('dark');
+        } else {
+          root.classList.remove('dark');
+        }
+      }
+    }
+  }, [isDark]);
   if (!fontsReady) {
     return (
-      <View className="flex-1 items-center justify-center bg-canvas dark:bg-canvas-dark">
-        <Text className="text-base text-muted dark:text-muted-dark">加载中…</Text>
-      </View>
+      <SafeAreaProvider>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <View className="flex-1 items-center justify-center bg-canvas dark:bg-canvas-dark">
+          <Text className="text-base text-muted dark:text-muted-dark">加载中…</Text>
+        </View>
+      </SafeAreaProvider>
     );
   }
   return (
-    <PowerSyncProvider>
-      <Stack screenOptions={{ headerShown: false }} />
-    </PowerSyncProvider>
+    <SafeAreaProvider>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <PowerSyncProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </PowerSyncProvider>
+    </SafeAreaProvider>
   );
 }

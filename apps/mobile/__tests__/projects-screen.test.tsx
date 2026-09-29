@@ -368,6 +368,21 @@ describe('Project detail', () => {
     expect(screen.getByText('删除')).toBeTruthy();
   });
 
+  it('deep-load without a parent: ← 项目 replaces to the projects tab (web refresh case)', async () => {
+    const view = renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('论文实验')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('← 项目'));
+
+    // The stack has no parent route → goBack replaces to the tab root.
+    await waitFor(() => expect(view.getPathname()).toBe('/projects'));
+    await waitFor(() =>
+      expect(
+        screen.getByText('需要多个行动才能完成的具体结果。每个进行中的项目都应有一个明确的下一步。'),
+      ).toBeTruthy(),
+    );
+  });
+
   it('action rows show the read-only context chips (names resolved from contexts)', async () => {
     renderRouter('app', { initialUrl: '/projects/p-1' });
 

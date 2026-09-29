@@ -5,6 +5,7 @@
  * tonight 20:00 → 明晚 20:00 once passed — all device-local).
  */
 import { Modal, Pressable, Text, View } from 'react-native';
+import { useAppInsets } from '@/lib/use-app-insets';
 import { Button } from '@nextdo/ui';
 import { snoozeOptions } from '@/lib/snooze-options';
 
@@ -36,12 +37,17 @@ function formatOptionTime(target: Date, now: Date): string {
 }
 
 export function SnoozeSheet({ open, now, onSelect, onClose }: SnoozeSheetProps) {
+  const insets = useAppInsets();
+  const bottomPadding = Math.max(insets.bottom, 16);
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
       <View className="flex-1 justify-end bg-black/40">
         <Pressable className="flex-1" onPress={onClose} />
-        <View className="rounded-t-lg bg-surface p-4 dark:bg-surface-dark">
-          <Text className="mb-3 text-base font-medium text-ink dark:text-ink-dark">稍后提醒</Text>
+        <View
+          style={{ paddingBottom: bottomPadding }}
+          className="gap-3 rounded-t-2xl bg-surface p-4 dark:bg-surface-dark"
+        >
+          <Text className="text-base font-semibold text-ink dark:text-ink-dark">稍后提醒</Text>
           <View className="gap-2">
             {snoozeOptions(now).map((option) => (
               <Pressable

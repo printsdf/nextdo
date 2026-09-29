@@ -412,3 +412,31 @@ web 冒烟复核（空态 + hero 态截图，8091 旧导出已按当前树重新
 
 - 分支 feature/project-action-edit-archive 待合并/推送（base: feature/prod-deploy-connect）
 - 可选：回收站页面（软删除的恢复/硬删入口）+ 项目真删除；CalendarAction 支持 projectId
+
+
+## Session 11: Web 返回修复 + 0.1.2 Android 发布
+<!-- trellis-session: v=2 fp=4438f86c33d325c3 -->
+
+**Date**: 2026-09-29
+**Task**: Web 返回修复 + 0.1.2 Android 发布
+**Branch**: `fix/web-go-back-fallback`
+
+### Summary
+
+Web 深链返回修复：新增 goBack 助手（无父路由时 replace 到 tab 根），替换 focus/projects/review/clarify-wizard 共 12 处 router.back()，新增 3 个 deep-load 测试，mobile 242 测试全绿 + tsc/eslint 干净；声明 babel-preset-expo 依赖；CI 发布：Android 拆 per-ABI APK、EXPO_TOKEN 接入 eas-cli、修复 EAS Download 步骤；EAS 构建 pin Node 22 + pnpm 12.5.1；app 版本升到 0.1.2
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6485b2b` | fix(mobile): declare babel-preset-expo dependency |
+| `d4b7bea` | fix(mobile): robust back navigation on web deep-load |
+| `07fb5a9` | ci(release): split Android into per-ABI APKs |
+| `08c0d99` | ci(release): expose EXPO_TOKEN for eas-cli on CI |
+| `c37f839` | ci(mobile): fix EAS Download step (EXPO_TOKEN + invalid build:view flag) |
+| `1e4f65e` | fix(mobile): pin Node 22 + pnpm 12.5.1 for EAS |
+| `0691436` | chore(mobile): bump app version to 0.1.2 for release |
+
+### Status
+
+[OK] **Completed**

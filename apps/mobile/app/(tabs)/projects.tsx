@@ -18,7 +18,8 @@
  * or the Clarify wizard's project form).
  */
 import { useState } from 'react';
-import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { useAppInsets } from '@/lib/use-app-insets';
 import { router } from 'expo-router';
 import { Button, Card, ContextChip, EmptyState, ProgressBar, Tag, cn } from '@nextdo/ui';
 import type { ProjectCard } from '@nextdo/db';
@@ -258,7 +259,8 @@ export default function ProjectsScreen() {
   const now = useAppClock();
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState<FilterKind>('active');
-
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
   // next-action context ids → display names (unknown ids fall back to the id).
   const contextName = (id: string) =>
     contexts?.find((entry) => entry.id === id)?.name ?? id;
@@ -294,7 +296,11 @@ export default function ProjectsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{ paddingTop: topPadding }}
+      className="flex-1 bg-canvas px-4 pb-4 dark:bg-canvas-dark"
+    >
       {/* Header block (design §4.2) */}
       <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
         项目
@@ -350,6 +356,6 @@ export default function ProjectsScreen() {
           />
         )}
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }

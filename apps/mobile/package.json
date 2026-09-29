@@ -1,7 +1,11 @@
 {
   "name": "@nextdo/mobile",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=22.13"
+  },
   "description": "Nextdo — GTD next-action assistant (Expo app: iOS / Android / Web; the web build is the Tauri desktop surface)",
   "main": "expo-router/entry",
   "scripts": {
@@ -13,6 +17,7 @@
   "dependencies": {
     "@expo-google-fonts/epilogue": "0.4.2",
     "@expo-google-fonts/plus-jakarta-sans": "0.4.2",
+    "@expo/vector-icons": "^15.1.1",
     "@nextdo/core": "workspace:*",
     "@nextdo/db": "workspace:*",
     "@nextdo/ui": "workspace:*",

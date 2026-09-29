@@ -16,7 +16,8 @@
  * sets: the filter never touches the recommendation (state-management).
  */
 import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useAppInsets } from '@/lib/use-app-insets';
 import { router } from 'expo-router';
 import { Button, Card, ContextChip, EmptyState, Tag } from '@nextdo/ui';
 import type { CandidateKind } from '@nextdo/core';
@@ -269,7 +270,8 @@ export default function NowScreen() {
   // The LIST-AREA context filter (design §5): independent from the engine
   // context above — it only trims the list, never the hero recommendation.
   const [selectedContextIds, setSelectedContextIds] = useState<string[]>([]);
-
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
   const mutationError = skipError ?? snoozeError ?? trashError ?? completeError ?? habitError;
 
   const eligible = data?.eligible ?? [];
@@ -327,12 +329,16 @@ export default function NowScreen() {
   const openHabitDays = (days ?? []).filter((day) => day.status === 'open');
 
   return (
-    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
-      {/* Header */}
-      <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
-        现在
-      </Text>
-
+    <View className="flex-1 bg-canvas dark:bg-canvas-dark">
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingTop: topPadding, paddingHorizontal: 16, paddingBottom: 32 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header */}
+        <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
+          现在
+        </Text>
       <View className="mt-4">
         <EngineContextBar settings={settings} update={update} />
       </View>
@@ -546,6 +552,7 @@ export default function NowScreen() {
           </Card>
         ) : null}
       </View>
+      </ScrollView>
 
       <SnoozeSheet
         open={snoozeTarget !== null}

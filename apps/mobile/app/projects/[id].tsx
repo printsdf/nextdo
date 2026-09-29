@@ -16,9 +16,11 @@
  * (design §4.2 — the PRD acceptance "项目详情行内 chips").
  */
 import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
-import { Button, Card, ContextChip, EmptyState, Tag, type TagTone } from '@nextdo/ui';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useAppInsets } from '@/lib/use-app-insets';
+import { useLocalSearchParams } from 'expo-router';
+import { Button, Card, ContextChip, EmptyState, Tag, cn, type TagTone } from '@nextdo/ui';
+import { DateTimePicker } from '@/components/datetime-picker';
 import { localDateKey, type NextAction, type Project, type ProjectStatus, type Value } from '@nextdo/core';
 import { useProjects } from '@/hooks/use-projects';
 import { useProjectActions } from '@/hooks/use-project-actions';
@@ -34,6 +36,7 @@ import { errorMessage } from '@/lib/error-messages';
 import { PROJECT_STATUS_LABELS } from '@/lib/status-labels';
 import { endOfLocalDayIso } from '@/lib/clarify-flow';
 import { formatLocalDate } from '@/lib/format';
+import { goBack } from '@/lib/go-back';
 import { SnoozeSheet } from '@/components/snooze-sheet';
 
 const STATUS_TONES: Record<ProjectStatus, TagTone> = {
@@ -68,13 +71,14 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
 }
 
 /** The inline add-action form (title + est + value + optional deadline). */
-function AddActionForm({ projectId, onDone, onAdded }: { projectId: string; onDone: () => void; onAdded: () => void }) {
+function AddActionForm({ projectId, now, onDone, onAdded }: { projectId: string; now: Date; onDone: () => void; onAdded: () => void }) {
   const { add, error } = useAddNextAction();
   const [title, setTitle] = useState('');
   const [estMinutes, setEstMinutes] = useState<number | null>(null);
   const [value, setValue] = useState<Value>(3);
   const [deadline, setDeadline] = useState('');
   const [deadlineHint, setDeadlineHint] = useState<string | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
   const [customEst, setCustomEst] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -146,16 +150,38 @@ function AddActionForm({ projectId, onDone, onAdded }: { projectId: string; onDo
           ))}
         </View>
       </View>
-      <TextInput
-        className={INPUT_CLASS}
-        placeholder="截止（YYYY-MM-DD，可选）"
-        value={deadline}
-        onChangeText={(value) => {
-          setDeadline(value);
-          setDeadlineHint(null);
-        }}
-        autoCapitalize="none"
-      />
+      <View className="flex-row items-center gap-2">
+        <TextInput
+          className={cn(INPUT_CLASS, 'flex-1')}
+          placeholder="截止（YYYY-MM-DD，可选）"
+          value={deadline}
+          onChangeText={(value) => {
+            setDeadline(value);
+            setDeadlineHint(null);
+          }}
+          autoCapitalize="none"
+        />
+        <Button
+          size="sm"
+          label={deadline ? '更换日期' : '选择日期'}
+          variant="secondary"
+          onPress={() => setShowPicker(true)}
+        />
+      </View>
+      {showPicker ? (
+        <DateTimePicker
+          mode="date"
+          title="选择截止日期"
+          value={deadline}
+          now={now}
+          onConfirm={(val) => {
+            setDeadline(val);
+            setDeadlineHint(null);
+            setShowPicker(false);
+          }}
+          onClose={() => setShowPicker(false)}
+        />
+      ) : null}
       {deadlineHint !== null ? (
         <Text className="text-sm text-danger">{deadlineHint}</Text>
       ) : null}
@@ -225,7 +251,7 @@ function EditProjectForm({ project, onDone, onSaved }: { project: Project; onDon
  *  pattern as `AddActionForm`, pre-filled from the current row. The
  *  deadline input keeps the `endOfLocalDayIso` convention (YYYY-MM-DD →
  *  that local day's 23:59:59; empty clears the deadline). */
-function EditActionForm({ action, onDone, onSaved }: { action: NextAction; onDone: () => void; onSaved: () => void }) {
+function EditActionForm({ action, now, onDone, onSaved }: { action: NextAction; now: Date; onDone: () => void; onSaved: () => void }) {
   const { update, error } = useUpdateNextAction();
   const [title, setTitle] = useState(action.title);
   const [estMinutes, setEstMinutes] = useState<number | null>(action.estMinutes);
@@ -236,6 +262,7 @@ function EditActionForm({ action, onDone, onSaved }: { action: NextAction; onDon
       : localDateKey(new Date(action.deadline)),
   );
   const [deadlineHint, setDeadlineHint] = useState<string | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
   const [customEst, setCustomEst] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -300,16 +327,38 @@ function EditActionForm({ action, onDone, onSaved }: { action: NextAction; onDon
           ))}
         </View>
       </View>
-      <TextInput
-        className={INPUT_CLASS}
-        placeholder="截止（YYYY-MM-DD，可选）"
-        value={deadline}
-        onChangeText={(next) => {
-          setDeadline(next);
-          setDeadlineHint(null);
-        }}
-        autoCapitalize="none"
-      />
+      <View className="flex-row items-center gap-2">
+        <TextInput
+          className={cn(INPUT_CLASS, 'flex-1')}
+          placeholder="截止（YYYY-MM-DD，可选）"
+          value={deadline}
+          onChangeText={(next) => {
+            setDeadline(next);
+            setDeadlineHint(null);
+          }}
+          autoCapitalize="none"
+        />
+        <Button
+          size="sm"
+          label={deadline ? '更换日期' : '选择日期'}
+          variant="secondary"
+          onPress={() => setShowPicker(true)}
+        />
+      </View>
+      {showPicker ? (
+        <DateTimePicker
+          mode="date"
+          title="选择截止日期"
+          value={deadline}
+          now={now}
+          onConfirm={(val) => {
+            setDeadline(val);
+            setDeadlineHint(null);
+            setShowPicker(false);
+          }}
+          onClose={() => setShowPicker(false)}
+        />
+      ) : null}
       {deadlineHint !== null ? (
         <Text className="text-sm text-danger">{deadlineHint}</Text>
       ) : null}
@@ -341,13 +390,18 @@ export default function ProjectDetailScreen() {
   // One open action edit at a time (R4).
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const { update: updateProject, error: updateProjectError } = useUpdateProject();
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
 
   if (projectId === null) {
     return (
-      <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
+      <View
+        style={{ paddingTop: topPadding }}
+        className="flex-1 bg-canvas px-4 pb-4 dark:bg-canvas-dark"
+      >
         <EmptyState title="缺少参数，无法打开" hint="返回项目列表重试。">
           <View className="mt-4">
-            <Button label="返回" variant="secondary" onPress={() => router.back()} />
+            <Button label="返回" variant="secondary" onPress={() => goBack('/(tabs)/projects')} />
           </View>
         </EmptyState>
       </View>
@@ -363,10 +417,18 @@ export default function ProjectDetailScreen() {
     contexts?.find((entry) => entry.id === id)?.name ?? id;
 
   return (
-    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
-      <View className="mb-4 flex-row items-center justify-between">
-        <Button label="← 项目" variant="ghost" onPress={() => router.back()} />
-      </View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      className="flex-1 bg-canvas dark:bg-canvas-dark"
+    >
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingTop: topPadding, paddingHorizontal: 16, paddingBottom: 40 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View className="mb-4 flex-row items-center justify-between">
+          <Button label="← 项目" variant="ghost" onPress={() => goBack('/(tabs)/projects')} />
+        </View>
 
       {projectsError !== null ? (
         <EmptyState title="加载项目失败" hint={errorMessage(projectsError)} />
@@ -438,7 +500,7 @@ export default function ProjectDetailScreen() {
 
           {showForm ? (
             <View className="mt-2">
-              <AddActionForm projectId={projectId} onDone={() => setShowForm(false)} onAdded={reload} />
+              <AddActionForm projectId={projectId} now={now} onDone={() => setShowForm(false)} onAdded={reload} />
             </View>
           ) : null}
 
@@ -458,6 +520,7 @@ export default function ProjectDetailScreen() {
                   {editingActionId === action.id ? (
                     <EditActionForm
                       action={action}
+                      now={now}
                       onDone={() => setEditingActionId(null)}
                       onSaved={() => {
                         setEditingActionId(null);
@@ -504,6 +567,7 @@ export default function ProjectDetailScreen() {
         </>
       )}
 
+      </ScrollView>
       <SnoozeSheet
         open={snoozeTarget !== null}
         now={now}
@@ -514,6 +578,6 @@ export default function ProjectDetailScreen() {
           }
         }}
       />
-    </View>
+    </KeyboardAvoidingView>
   );
 }

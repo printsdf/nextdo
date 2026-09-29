@@ -14,7 +14,8 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
+import { useAppInsets } from '@/lib/use-app-insets';
 import { Button, Card, Tag } from '@nextdo/ui';
 import { FOCUS_PRESET_MINUTES } from '@nextdo/core';
 import type { ActionKind } from '@nextdo/db';
@@ -24,6 +25,7 @@ import { useCompleteAction } from '@/hooks/use-complete-action';
 import { errorMessage } from '@/lib/error-messages';
 import { KIND_LABELS } from '@/lib/kind-labels';
 import { elapsedSeconds, formatClock, isTimeUp, remainingSeconds } from '@/lib/focus-timer';
+import { goBack } from '@/lib/go-back';
 
 const PRESETS = [...FOCUS_PRESET_MINUTES];
 
@@ -59,7 +61,7 @@ export default function FocusScreen() {
       <Shell>
         <Card className="items-center gap-3 py-8">
           <Text className="text-base text-ink dark:text-ink-dark">缺少参数，无法打开</Text>
-          <Button label="返回" variant="secondary" onPress={() => router.back()} />
+          <Button label="返回" variant="secondary" onPress={() => goBack('/(tabs)/now')} />
         </Card>
       </Shell>
     );
@@ -98,7 +100,7 @@ export default function FocusScreen() {
     try {
       await focus.complete(session.id);
       await completeAction({ actionKind, actionId });
-      router.back();
+      goBack('/(tabs)/now');
     } finally {
       setBusy(false);
     }
@@ -116,7 +118,7 @@ export default function FocusScreen() {
         setPauseStart(null);
       }
       await focus.abandon(session.id);
-      router.back();
+      goBack('/(tabs)/now');
     } finally {
       setBusy(false);
     }
@@ -125,7 +127,7 @@ export default function FocusScreen() {
   return (
     <Shell>
       <View className="mb-4 flex-row items-center justify-between">
-        <Button label="← 返回" variant="ghost" onPress={() => router.back()} />
+        <Button label="← 返回" variant="ghost" onPress={() => goBack('/(tabs)/now')} />
         <Text className="text-lg font-semibold text-ink dark:text-ink-dark">专注</Text>
         <View className="w-16" />
       </View>
@@ -230,5 +232,14 @@ export default function FocusScreen() {
 }
 
 function Shell({ children }: { children: ReactNode }) {
-  return <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">{children}</View>;
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
+  return (
+    <View
+      style={{ paddingTop: topPadding }}
+      className="flex-1 bg-canvas px-4 pb-4 dark:bg-canvas-dark"
+    >
+      {children}
+    </View>
+  );
 }

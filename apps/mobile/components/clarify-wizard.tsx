@@ -40,6 +40,8 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Button, Card, ContextChip, ProgressBar, Tag, cn } from '@nextdo/ui';
 import { DateTimePicker } from '@/components/datetime-picker';
+import { useAppInsets } from '@/lib/use-app-insets';
+import { goBack } from '@/lib/go-back';
 import {
   applyClarify,
   reclarifyAction,
@@ -360,16 +362,25 @@ export function WizardBody({
         ? `收录于 ${formatLocalDate(capturedAt)} · 收集箱`
         : '收集箱';
   const errorText = state.step === 'form' ? state.error : null;
+  // Web deep-load fallback (no parent in the stack): clarify was pushed from
+  // the inbox tab, reclarify from now / the daily review — now is the home
+  // of the re-clarified action.
+  const backFallback = mode === 'clarify' ? '/(tabs)/inbox' : '/(tabs)/now';
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
 
   return (
-    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
+    <View
+      style={{ paddingTop: topPadding }}
+      className="flex-1 bg-canvas px-4 pb-4 dark:bg-canvas-dark"
+    >
       {/* The form steps can exceed the viewport (project / calendar forms
        * on a 800px-tall desktop window, or the keyboard on phone) — the
        * whole body scrolls, same pattern as the review screens. */}
       <ScrollView className="flex-1" keyboardShouldPersistTaps="handled">
       {/* 1. header row: the back button + the status tag */}
       <View className="mb-3.5 flex-row items-center justify-between">
-        <Button label="← 返回" variant="ghost" onPress={() => router.back()} />
+        <Button label="← 返回" variant="ghost" onPress={() => goBack(backFallback)} />
         <Tag label={mode === 'clarify' ? '正在澄清' : '重新明晰'} tone="accent" dot />
       </View>
 
@@ -387,7 +398,7 @@ export function WizardBody({
               router.navigate({ pathname: '/(tabs)/inbox', params: { recapture: '1' } })
             }
           />
-          <Button label="完成" variant="secondary" onPress={() => router.back()} />
+          <Button label="完成" variant="secondary" onPress={() => goBack(backFallback)} />
         </Card>
       ) : (
         <View className="gap-3.5">
@@ -1010,13 +1021,15 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
   const isReclarify = mode === 'reclarify';
   const inbox = useInboxItem(isReclarify ? null : id);
   const action = useActionTitle(isReclarify ? actionKind : null, isReclarify ? id : null);
+  // Web deep-load fallback (no parent in the stack) — see WizardBody.
+  const backFallback = isReclarify ? '/(tabs)/now' : '/(tabs)/inbox';
 
   if (id === null) {
     return (
       <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
         <Card className="items-center gap-3 py-8">
           <Text className="font-sans text-base text-ink dark:text-ink-dark">缺少参数，无法打开</Text>
-          <Button label="返回" variant="secondary" onPress={() => router.back()} />
+          <Button label="返回" variant="secondary" onPress={() => goBack(backFallback)} />
         </Card>
       </View>
     );
@@ -1033,7 +1046,7 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
           <Text className="font-sans text-base text-ink dark:text-ink-dark">
             这个行动不能重新明晰（习惯请编辑习惯本身）
           </Text>
-          <Button label="返回" variant="secondary" onPress={() => router.back()} />
+          <Button label="返回" variant="secondary" onPress={() => goBack(backFallback)} />
         </Card>
       </View>
     );
@@ -1048,7 +1061,7 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
       <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
         <Card className="items-center gap-3 py-8">
           <Text className="font-sans text-base text-ink dark:text-ink-dark">{errorMessage(error)}</Text>
-          <Button label="返回" variant="secondary" onPress={() => router.back()} />
+          <Button label="返回" variant="secondary" onPress={() => goBack(backFallback)} />
         </Card>
       </View>
     );
@@ -1071,7 +1084,7 @@ export function ClarifyWizard({ mode, id, actionKind = null }: ClarifyWizardProp
           <Text className="font-sans text-base text-ink dark:text-ink-dark">
             {isReclarify ? '这个行动不存在了' : '这条收件箱记录不存在了'}
           </Text>
-          <Button label="返回" variant="secondary" onPress={() => router.back()} />
+          <Button label="返回" variant="secondary" onPress={() => goBack(backFallback)} />
         </Card>
       </View>
     );
