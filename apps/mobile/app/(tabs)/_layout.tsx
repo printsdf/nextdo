@@ -7,38 +7,80 @@
  * configured there).
  */
 import { Tabs } from 'expo-router';
-import { useColorScheme } from 'react-native';
+import { useAppInsets } from '@/lib/use-app-insets';
+import { useAppTheme } from '@/lib/theme';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@nextdo/ui';
-export default function TabsLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
 
+export default function TabsLayout() {
+  const { isDark } = useAppTheme();
+  const insets = useAppInsets();
+  const bottomPadding = Math.max(insets.bottom, 8);
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: isDark ? colors.accentDark : colors.accent,
         tabBarInactiveTintColor: isDark ? colors.mutedDark : colors.muted,
-        tabBarIconStyle: { display: 'none' },
         tabBarStyle: {
           backgroundColor: isDark ? colors.surfaceDark : colors.surface,
           borderTopColor: isDark ? colors.borderDark : colors.border,
           borderTopWidth: 0.5,
-          height: 52,
-          paddingBottom: 6,
+          height: 64 + (insets.bottom > 0 ? insets.bottom : 0),
+          paddingBottom: bottomPadding,
           paddingTop: 6,
         },
         tabBarLabelStyle: {
-          fontSize: 13,
+          fontSize: 11,
           fontWeight: '600',
         },
       }}
     >
-      <Tabs.Screen name="inbox" options={{ title: '收件箱' }} />
-      <Tabs.Screen name="now" options={{ title: '现在' }} />
-      <Tabs.Screen name="projects" options={{ title: '项目' }} />
-      <Tabs.Screen name="review" options={{ title: '回顾' }} />
-      <Tabs.Screen name="settings" options={{ title: '设置' }} />
+      <Tabs.Screen
+        name="inbox"
+        options={{
+          title: '收件箱',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="file-tray-outline" size={20} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="now"
+        options={{
+          title: '现在',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="compass-outline" size={20} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="projects"
+        options={{
+          title: '项目',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="folder-outline" size={20} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="review"
+        options={{
+          title: '回顾',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="checkmark-circle-outline" size={20} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: '设置',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="settings-outline" size={20} color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

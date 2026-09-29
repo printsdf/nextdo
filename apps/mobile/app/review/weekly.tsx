@@ -17,6 +17,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useAppInsets } from '@/lib/use-app-insets';
 import { Button, Card, Tag } from '@nextdo/ui';
 import {
   type ProjectStatus,
@@ -41,7 +42,8 @@ export default function WeeklyReviewScreen() {
   const { set: setProjectStatus, error: statusError } = useProjectStatus();
   const { trash, error: trashError } = useTrashSomeday();
   const { add, error: recordError } = useAddReviewRecord();
-
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
   // Decision state — seeded ONCE when the snapshot first lands (later
   // reloads must not clobber the user's in-progress decisions).
   const [inboxCleared, setInboxCleared] = useState(false);
@@ -153,7 +155,10 @@ export default function WeeklyReviewScreen() {
   const stalledIds = new Set(snapshot.stalledProjects);
 
   return (
-    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
+    <View
+      style={{ paddingTop: topPadding }}
+      className="flex-1 bg-canvas px-4 pb-4 dark:bg-canvas-dark"
+    >
       <ScrollView className="flex-1" contentContainerClassName="gap-4">
         <View className="flex-row items-center justify-between">
           <Button label="← 回顾" variant="ghost" onPress={() => goBack('/(tabs)/review')} />

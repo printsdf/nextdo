@@ -6,6 +6,7 @@
  */
 import { Button, Card, EmptyState, Tag } from '@nextdo/ui';
 import { FlatList, Text, View } from 'react-native';
+import { useAppInsets } from '@/lib/use-app-insets';
 import { router } from 'expo-router';
 import type { ReviewRecord } from '@nextdo/core';
 import { useReviewRecords } from '@/hooks/use-review-records';
@@ -28,10 +29,14 @@ export default function ReviewScreen() {
   const { data, error } = useReviewRecords();
   // Newest first — the watch query orders by `at` ascending.
   const records = data.slice().reverse();
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
 
   return (
-    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
-      {/* iOS Large Title Header */}
+    <View
+      style={{ paddingTop: topPadding }}
+      className="flex-1 bg-canvas px-4 pb-4 dark:bg-canvas-dark"
+    >
       <Text className="mb-4 text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">
         回顾
       </Text>

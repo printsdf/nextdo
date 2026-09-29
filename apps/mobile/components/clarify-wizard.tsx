@@ -40,6 +40,7 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Button, Card, ContextChip, ProgressBar, Tag, cn } from '@nextdo/ui';
 import { DateTimePicker } from '@/components/datetime-picker';
+import { useAppInsets } from '@/lib/use-app-insets';
 import { goBack } from '@/lib/go-back';
 import {
   applyClarify,
@@ -365,9 +366,14 @@ export function WizardBody({
   // the inbox tab, reclarify from now / the daily review — now is the home
   // of the re-clarified action.
   const backFallback = mode === 'clarify' ? '/(tabs)/inbox' : '/(tabs)/now';
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
 
   return (
-    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
+    <View
+      style={{ paddingTop: topPadding }}
+      className="flex-1 bg-canvas px-4 pb-4 dark:bg-canvas-dark"
+    >
       {/* The form steps can exceed the viewport (project / calendar forms
        * on a 800px-tall desktop window, or the keyboard on phone) — the
        * whole body scrolls, same pattern as the review screens. */}

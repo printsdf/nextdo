@@ -21,21 +21,31 @@
  * boundary); this screen owns only the form's transient state.
  */
 import { useEffect, useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
-import { Button, Card } from '@nextdo/ui';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useAppInsets } from '@/lib/use-app-insets';
+import { useAppTheme, type ThemePreference } from '@/lib/theme';
+import { Button, Card, cn } from '@nextdo/ui';
 import { useCloudSync } from '@/hooks/use-cloud-sync';
+
+const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'light', label: '浅色模式' },
+  { value: 'dark', label: '深色模式' },
+];
 
 const INPUT_CLASS =
   'rounded-md border border-border/80 bg-surface p-3 text-base text-ink placeholder:text-muted shadow-sm focus:border-accent dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
 
 export default function SettingsScreen() {
+  const { preference, updatePreference } = useAppTheme();
   const { state, storedConfig, connect, disconnect } = useCloudSync();
   const [backendUrl, setBackendUrl] = useState('');
   const [endpoint, setEndpoint] = useState('');
   const [token, setToken] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
   // Pre-fill the two address inputs from the stored config when it exists —
   // into EMPTY fields only (a reconnect after 断开 keeps the addresses, so
   // the user never re-types them). `storedConfig` re-reads on every poke, so
@@ -74,17 +84,63 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
-      {/* Header block (matches the other tabs) */}
-      <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
-        设置
-      </Text>
-      <Text className="mt-1 font-sans text-sm text-muted dark:text-muted-dark">
-        设备与云同步。
-      </Text>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      className="flex-1 bg-canvas dark:bg-canvas-dark"
+    >
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingTop: topPadding, paddingHorizontal: 16, paddingBottom: 32 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header block (matches the other tabs) */}
+        <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
+          设置
+        </Text>
+        <Text className="mt-1 font-sans text-sm text-muted dark:text-muted-dark">
+          设备与云同步。
+        </Text>
 
-      {/* Cloud sync block (R6) */}
-      <Card className="mt-4 gap-3 p-3.5">
+        {/* Appearance / Theme block */}
+        <Card className="mt-4 gap-3 p-3.5">
+          <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
+            外观主题
+          </Text>
+          <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+            选择跟随系统设置，或固定使用浅色 / 深色外观。
+          </Text>
+          <View className="flex-row gap-2">
+            {THEME_OPTIONS.map((option) => (
+              <Pressable
+                key={option.value}
+                accessibilityRole="button"
+                accessibilityLabel={`主题：${option.label}`}
+                accessibilityState={{ selected: preference === option.value }}
+                onPress={() => void updatePreference(option.value)}
+                className={cn(
+                  'flex-1 items-center justify-center rounded-lg border py-2.5',
+                  preference === option.value
+                    ? 'border-accent bg-accent/15 dark:border-accent-dark dark:bg-accent-dark/20'
+                    : 'border-border/80 bg-surface dark:border-border-dark dark:bg-surface-dark',
+                )}
+              >
+                <Text
+                  className={cn(
+                    'font-sans text-xs font-semibold',
+                    preference === option.value
+                      ? 'text-accent dark:text-accent-dark'
+                      : 'text-ink dark:text-ink-dark',
+                  )}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </Card>
+
+        {/* Cloud sync block (R6) */}
+        <Card className="mt-4 gap-3 p-3.5">
         <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
           云同步
         </Text>
@@ -179,6 +235,7 @@ export default function SettingsScreen() {
           </View>
         )}
       </Card>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }

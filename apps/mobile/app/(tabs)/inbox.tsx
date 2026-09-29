@@ -24,6 +24,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { useAppInsets } from '@/lib/use-app-insets';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Button, Card, EmptyState, Tag } from '@nextdo/ui';
 import { useInboxItems } from '@/hooks/use-inbox-items';
@@ -108,6 +109,18 @@ function InboxRow({
   );
 }
 
+function GtdTipCard() {
+  return (
+    <Card className="mt-3.5 p-3.5">
+      <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
+        GTD 澄清心法
+      </Text>
+      <Text className="mt-1.5 font-sans text-xs leading-5 text-muted dark:text-muted-dark">
+        收集箱不是待办清单，它是大脑的缓冲区。两分钟内能完成的事立即去做，复杂的转化为项目与下一步。
+      </Text>
+    </Card>
+  );
+}
 export default function InboxScreen() {
   const { data, error } = useInboxItems();
   const { add, error: captureError } = useAddInboxItem();
@@ -116,7 +129,8 @@ export default function InboxScreen() {
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [showQuickCapture, setShowQuickCapture] = useState(true);
-
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
   // R1: the SINGLE handoff for both capture paths (modal onCaptured +
   // inline card) — close the modal (if open) and open the Clarify wizard
   // for the freshly captured item.
@@ -153,7 +167,10 @@ export default function InboxScreen() {
   const mutationError = captureError ?? trashError;
 
   return (
-    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
+    <View
+      style={{ paddingTop: topPadding }}
+      className="flex-1 bg-canvas px-4 pb-4 dark:bg-canvas-dark"
+    >
       {/* Header block (design §2) */}
       <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
         清空大脑
@@ -201,32 +218,26 @@ export default function InboxScreen() {
           </View>
 
           {data.length === 0 ? (
-            <EmptyState
-              title="收件箱是空的"
-              hint="在上方输入并保存，这里会按捕获时间列出你记下的一切。"
-            />
+            <>
+              <EmptyState
+                title="收件箱是空的"
+                hint="在上方输入并保存，这里会按捕获时间列出你记下的一切。"
+              />
+              <GtdTipCard />
+            </>
           ) : (
             <FlatList
               data={data}
               keyExtractor={(item) => item.id}
-              contentContainerClassName="gap-2.5"
+              contentContainerClassName="gap-2.5 pb-6"
               renderItem={({ item }) => (
                 <InboxRow item={item} now={now} onTrash={(id) => void trash(id)} />
               )}
+              ListFooterComponent={<GtdTipCard />}
             />
           )}
         </>
       )}
-
-      {/* Static GTD 澄清心法 card (design §2) */}
-      <Card className="mt-3.5 p-3.5">
-        <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
-          GTD 澄清心法
-        </Text>
-        <Text className="mt-1.5 font-sans text-xs leading-5 text-muted dark:text-muted-dark">
-          收集箱不是待办清单，它是大脑的缓冲区。两分钟内能完成的事立即去做，复杂的转化为项目与下一步。
-        </Text>
-      </Card>
 
       {/* On-launch & triggerable quick capture modal (R1: onCaptured hands
        *  the saved item to the Clarify wizard) */}

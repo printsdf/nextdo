@@ -14,6 +14,7 @@
  */
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
+import { useAppInsets } from '@/lib/use-app-insets';
 import { router } from 'expo-router';
 import { Button, Card, Tag } from '@nextdo/ui';
 import { errorMessage as errorCopy } from '@/lib/error-messages';
@@ -70,7 +71,8 @@ export default function DailyReviewScreen() {
   const { complete, error: completeError } = useCompleteAction();
   const { snooze, error: snoozeError } = useSnoozeAction();
   const { add, error: recordError } = useAddReviewRecord();
-
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
   const [choices, setChoices] = useState<Record<string, RowChoice>>({});
   const [dateInputs, setDateInputs] = useState<Record<string, string>>({});
   const [dateHints, setDateHints] = useState<Record<string, string | null>>({});
@@ -225,7 +227,10 @@ export default function DailyReviewScreen() {
     .filter((item): item is NonNullable<typeof item> => item !== undefined);
 
   return (
-    <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">
+    <View
+      style={{ paddingTop: topPadding }}
+      className="flex-1 bg-canvas px-4 pb-4 dark:bg-canvas-dark"
+    >
       <ScrollView className="flex-1" contentContainerClassName="gap-4">
         <View className="flex-row items-center justify-between">
           <Button label="← 回顾" variant="ghost" onPress={() => goBack('/(tabs)/review')} />

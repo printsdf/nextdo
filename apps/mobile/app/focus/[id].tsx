@@ -15,6 +15,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
+import { useAppInsets } from '@/lib/use-app-insets';
 import { Button, Card, Tag } from '@nextdo/ui';
 import { FOCUS_PRESET_MINUTES } from '@nextdo/core';
 import type { ActionKind } from '@nextdo/db';
@@ -231,5 +232,14 @@ export default function FocusScreen() {
 }
 
 function Shell({ children }: { children: ReactNode }) {
-  return <View className="flex-1 bg-canvas p-4 dark:bg-canvas-dark">{children}</View>;
+  const insets = useAppInsets();
+  const topPadding = Math.max(insets.top, 16);
+  return (
+    <View
+      style={{ paddingTop: topPadding }}
+      className="flex-1 bg-canvas px-4 pb-4 dark:bg-canvas-dark"
+    >
+      {children}
+    </View>
+  );
 }
