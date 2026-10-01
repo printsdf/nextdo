@@ -29,6 +29,24 @@
         "projectId": "7b5502cd-d681-4840-95e3-69d11104cd2b"
       }
     },
-    "owner": "printsdf"
+    "owner": "printsdf",
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#ffffff",
+          "sounds": ["./assets/sounds/important.wav", "./assets/sounds/alarm.wav"]
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "manifestPermissions": ["SCHEDULE_EXACT_ALARM", "USE_EXACT_ALARM"]
+          }
+        }
+      ]
+    ]
   }
 }

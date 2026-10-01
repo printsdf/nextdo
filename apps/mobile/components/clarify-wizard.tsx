@@ -56,6 +56,7 @@ import { useActionTitle } from '@/hooks/use-action-title';
 import { useContexts } from '@/hooks/use-contexts';
 import { useProjects } from '@/hooks/use-projects';
 import { errorMessage } from '@/lib/error-messages';
+import { maybeRequestNotificationPermission } from '@/lib/reminders/permission';
 import { formatDueLabel, formatLocalDate, formatLocalDateTime } from '@/lib/format';
 import {
   buildDoNowSubmission,
@@ -312,6 +313,13 @@ export function WizardBody({
           now,
         });
         dispatch({ type: 'done', result: { outcome: result.outcome, createdIds: result.createdIds } });
+      }
+      // Calendar targets may create a reminder row (startsAt within the
+      // next 60 min — the db-layer rule) → the contextual permission ask
+      // (D4 / R5), the same trigger as the snooze path. Fire-and-forget:
+      // a denial never blocks the submission.
+      if ('startsAt' in submission.target) {
+        void maybeRequestNotificationPermission();
       }
       setSubmitError(null);
     } catch (err: unknown) {

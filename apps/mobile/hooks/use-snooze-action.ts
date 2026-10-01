@@ -10,6 +10,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { usePowerSync } from '@powersync/react';
 import { snoozeAction, wrapDb, type ActionKind } from '@nextdo/db';
 import { logger } from '@nextdo/core';
+import { maybeRequestNotificationPermission } from '@/lib/reminders/permission';
 import { useAppClock } from './use-app-clock';
 
 export interface SnoozeArgs {
@@ -35,6 +36,11 @@ export function useSnoozeAction(): UseSnoozeActionResult {
       try {
         await snoozeAction(db, { ...args, now });
         setError(null);
+        // Contextual permission ask (D4 / R5): the snooze just created a
+        // reminder row — this is the FIRST time the device needs to
+        // deliver one. Fire-and-forget: a denial never blocks the snooze
+        // (the row exists; delivery is just skipped until granted).
+        void maybeRequestNotificationPermission();
         return true;
       } catch (err: unknown) {
         logger.error('snooze action failed', err instanceof Error ? err : new Error(String(err)));

@@ -40,6 +40,13 @@ jest.mock('@powersync/react', () => {
   };
 });
 
+// The wizard's calendar submission triggers the contextual permission ask
+// (task 09-30 D4) — the native adapter drives expo-notifications (jest
+// runs as Platform 'ios'); mocked with the idle OS state.
+jest.mock('expo-notifications', () => mockExpoNotifications);
+
+import { mockExpoNotifications } from './mocks/expo-notifications';
+
 // Q2b's project list — one active (attachable) + one on-hold (filtered
 // out by the wizard). proj-1 is act-1's current project (reclarify marker).
 jest.mock('@/hooks/use-projects', () => ({ useProjects: jest.fn() }));

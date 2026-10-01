@@ -72,6 +72,7 @@ export default tseslint.config(
         __filename: 'readonly',
         process: 'readonly',
         Buffer: 'readonly',
+        console: 'readonly',
       },
     },
     rules: {
@@ -86,6 +87,7 @@ export default tseslint.config(
         process: 'readonly',
         URL: 'readonly',
         Buffer: 'readonly',
+        console: 'readonly',
       },
     },
   },

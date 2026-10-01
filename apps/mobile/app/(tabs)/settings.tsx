@@ -1,8 +1,15 @@
 /**
  * The Settings tab (prod-deploy R6 — cloud sync is OPTIONAL; OSS
  * task 09-28 — the server addresses are USER-CONFIGURED): the 5th tab.
- * v1 hosts ONE block: cloud sync.
+ * v1 hosts TWO blocks: notifications (task 09-30 R5 — the delivery
+ * status, ABOVE cloud sync: notifications are the execution core) and
+ * cloud sync.
  *
+ * - notifications: the OS permission state through `useReminderPermission`
+ *   (never the platform modules — component-guidelines): undetermined /
+ *   granted / denied per platform; denied on iOS → 「去系统设置」 button,
+ *   denied on Android → text guidance (no API to jump there in v1);
+ *   tauri → "follows the system settings"; plain web → "not supported".
  * - disconnected (no owner token): explains local-only mode + three inputs
  *   (backend address, sync-stream address, owner token — REQUIRED: an
  *   empty token is refused by connect() with an inline error before any
@@ -26,6 +33,7 @@ import { useAppInsets } from '@/lib/use-app-insets';
 import { useAppTheme, type ThemePreference } from '@/lib/theme';
 import { Button, Card, cn } from '@nextdo/ui';
 import { useCloudSync } from '@/hooks/use-cloud-sync';
+import { useReminderPermission } from '@/hooks/use-reminder-permission';
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
   { value: 'system', label: '跟随系统' },
@@ -39,6 +47,7 @@ const INPUT_CLASS =
 export default function SettingsScreen() {
   const { preference, updatePreference } = useAppTheme();
   const { state, storedConfig, connect, disconnect } = useCloudSync();
+  const { state: notificationPermission, openSystemSettings } = useReminderPermission();
   const [backendUrl, setBackendUrl] = useState('');
   const [endpoint, setEndpoint] = useState('');
   const [token, setToken] = useState('');
@@ -137,6 +146,54 @@ export default function SettingsScreen() {
               </Pressable>
             ))}
           </View>
+        </Card>
+
+        {/* Notifications block (task 09-30 R5 — the delivery status;
+         *  above cloud sync: notifications are the execution core) */}
+        <Card className="mt-4 gap-3 p-3.5">
+          <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
+            提醒通知
+          </Text>
+          {notificationPermission === null ? (
+            <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+              检查中…
+            </Text>
+          ) : notificationPermission.platform === 'web' ? (
+            <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+              浏览器环境不支持通知。
+            </Text>
+          ) : notificationPermission.platform === 'tauri' ? (
+            <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+              桌面通知跟随系统设置（当前
+              {notificationPermission.status === 'granted' ? '可用' : '不可用'}
+              ）。应用关闭期间不会提醒。
+            </Text>
+          ) : notificationPermission.status === 'granted' ? (
+            <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+              已授权 — 稍后与日历提醒会按时通知。
+            </Text>
+          ) : notificationPermission.status === 'denied' ? (
+            <View className="gap-3">
+              <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+                通知已被拒绝 — 稍后与日历行动仍会记录，但不会在设定时刻提醒。
+              </Text>
+              {Platform.OS === 'ios' ? (
+                <Button
+                  label="去系统设置"
+                  variant="secondary"
+                  onPress={openSystemSettings}
+                />
+              ) : (
+                <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+                  可在「系统设置 → 应用 → Nextdo → 通知」中重新允许。
+                </Text>
+              )}
+            </View>
+          ) : (
+            <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+              尚未授权 — 首次「稍后」或创建限时日历行动时，会请求通知权限。
+            </Text>
+          )}
         </Card>
 
         {/* Cloud sync block (R6) */}

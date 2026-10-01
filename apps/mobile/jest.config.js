@@ -19,6 +19,9 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/$1',
     '\\.css$': '<rootDir>/test/css-mock.js',
   },
+  // Shared mock fixtures live under __tests__/mocks/ — excluded so jest's
+  // default testMatch (anything under __tests__/) doesn't run them as suites.
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/__tests__/mocks/'],
   transformIgnorePatterns: [
     'node_modules/(?!\\.pnpm|((jest-)?react-native|@react-native|@react-native-community|expo|@expo|react-navigation|@react-navigation|standard-navigation|nativewind|react-native-css-interop|@powersync|@journeyapps|comlink|kysely))',
   ],
