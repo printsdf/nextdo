@@ -463,3 +463,39 @@ Audited and overhauled mobile UI ergonomics in a dedicated worktree: added safe 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 13: 提醒通知投递、稍后提醒与厘清返回体验优化
+<!-- trellis-session: v=2 fp=43293e2623de49b3 -->
+
+**Date**: 2026-10-01
+**Task**: 提醒通知投递、稍后提醒与厘清返回体验优化
+**Branch**: `feature/reminder-notification-delivery`
+
+### Summary
+
+完成了提醒通知本地投递与桌面诊断链路、稍后提醒自定义时间滚轮选择器重构，以及厘清向导逐步返回上一步历史栈支持。
+
+### Main Changes
+
+- 桌面端与移动端提醒通知投递及现场诊断链路（tauri-plugin-notification 与 expo-notifications）
+- 稍后提醒浮层重构为「10分钟后」常用档位与「自定义时间」组合
+- 跨平台 DateTimePicker 滚轮选择器（7天日期条 + 时分滚轮 + 相对时间距离）
+- 厘清向导逐步返回（← 上一步）历史栈机制与表单回退
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `771b026` | feat(reminders): field diagnostics and desktop notification delivery hardening |
+| `16b7b84` | feat(mobile): custom datetime picker with wheel selector and snooze sheet overhaul |
+| `4c35b76` | feat(clarify): step-by-step back navigation with wizard history stack |
+
+### Testing
+
+- [OK] pnpm test 全绿（25 test suites, 290 tests）
+- [OK] pnpm typecheck 与 eslint 全绿
+
+### Status
+
+[OK] **Completed**
