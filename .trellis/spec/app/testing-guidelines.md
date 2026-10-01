@@ -41,7 +41,14 @@ await waitFor(() => expect(view.getPathname()).toBe('/review')); // back() lande
 
 - The mock factory must provide **every** `@nextdo/db` export the mounted tree
   touches — a screen reached via a tab mounts that tab's hooks too
-  (e.g. `reviewRecordsWatchQuery` once the Review tab renders).
+  (e.g. `reviewRecordsWatchQuery` once the Review tab renders). When a new
+  root-layout hook adds a db query or a `powersync.onChange` call, update the
+  shared `@nextdo/db` / `@powersync/react` mock factories accordingly.
+- Shared platform-module fixtures live in `apps/mobile/__tests__/mocks/`
+  (e.g. `mocks/expo-notifications.ts`) and are excluded from test discovery via
+  `testPathIgnorePatterns` in `jest.config.js`; each test file opts in with one
+  `jest.mock('expo-notifications', () => require('../mocks/expo-notifications'))`
+  line (file-per-factory pattern, no `setupFiles` global injection).
 - `wrapDb: () => ({})` is enough for hooks that call the mocked query
   functions (they ignore the db argument). Watch queries are consumed by the
   mocked `useQuery`, which never executes them — a `{ compile, execute }` stub
