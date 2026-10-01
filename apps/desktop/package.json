@@ -5,7 +5,7 @@
   "description": "Nextdo — Tauri v2 desktop shell. A thin native window that loads the @nextdo/mobile web build (expo export --platform web); no React code lives in this workspace.",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "node scripts/cleanup-stale-dmg-mounts.cjs && tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
