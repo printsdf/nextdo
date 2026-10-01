@@ -4,8 +4,8 @@
  * append-only history (newest first — the tab's list query orders by
  * `at` ascending, so the trail is reversed client-side).
  */
-import { Button, Card, EmptyState, Tag } from '@nextdo/ui';
-import { FlatList, Text, View } from 'react-native';
+import { Card, EmptyState, Tag } from '@nextdo/ui';
+import { FlatList, Pressable, Text, View } from 'react-native';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { router } from 'expo-router';
 import type { ReviewRecord } from '@nextdo/core';
@@ -43,24 +43,43 @@ export default function ReviewScreen() {
 
       {/* Two Prominent Action Cards */}
       <View className="flex-row gap-3">
-        <View className="flex-1">
-          <Button
-            size="md"
-            label="今日回顾"
-            variant="primary"
-            className="w-full shadow-xs"
-            onPress={() => router.push('/review/daily')}
-          />
-        </View>
-        <View className="flex-1">
-          <Button
-            size="md"
-            label="本周回顾"
-            variant="secondary"
-            className="w-full shadow-xs"
-            onPress={() => router.push('/review/weekly')}
-          />
-        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="今日回顾"
+          onPress={() => router.push('/review/daily')}
+          className="flex-1 rounded-2xl border border-border/80 bg-surface p-3.5 shadow-2xs active:bg-surface-container dark:border-border-dark dark:bg-surface-dark dark:active:bg-surface-container-dark"
+        >
+          <View className="flex-row items-center justify-between">
+            <Text className="font-sans text-base font-semibold text-ink dark:text-ink-dark">
+              今日回顾
+            </Text>
+            <View className="h-5 w-5 items-center justify-center rounded-full bg-accent/10 dark:bg-accent-dark/20">
+              <Text className="text-xs font-bold text-accent dark:text-accent-dark">→</Text>
+            </View>
+          </View>
+          <Text className="mt-1 font-sans text-xs text-muted dark:text-muted-dark">
+            清点完成 · 规划明日
+          </Text>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="本周回顾"
+          onPress={() => router.push('/review/weekly')}
+          className="flex-1 rounded-2xl border border-border/80 bg-surface p-3.5 shadow-2xs active:bg-surface-container dark:border-border-dark dark:bg-surface-dark dark:active:bg-surface-container-dark"
+        >
+          <View className="flex-row items-center justify-between">
+            <Text className="font-sans text-base font-semibold text-ink dark:text-ink-dark">
+              本周回顾
+            </Text>
+            <View className="h-5 w-5 items-center justify-center rounded-full bg-accent/10 dark:bg-accent-dark/20">
+              <Text className="text-xs font-bold text-accent dark:text-accent-dark">→</Text>
+            </View>
+          </View>
+          <Text className="mt-1 font-sans text-xs text-muted dark:text-muted-dark">
+            纵览项目 · 检视等待
+          </Text>
+        </Pressable>
       </View>
 
       <View className="mt-6 flex-1">
