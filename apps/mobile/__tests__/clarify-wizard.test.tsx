@@ -247,6 +247,53 @@ describe('WizardBody — step walking (clarify)', () => {
     await waitFor(() => expect(screen.getByText('已整理为「项目 + 首个行动」')).toBeTruthy());
   });
 
+  describe('WizardBody — step back navigation & neutral options', () => {
+    it('options have neutral styling without primary bias and support stepping back', () => {
+      renderWizard();
+      // At Q1: options have neutral secondary style (border border-border)
+      const actionBtn = screen.getByLabelText('可以，是行动');
+      const noBtn = screen.getByLabelText('不行');
+      expect(actionBtn.props.className).toContain('border-border');
+      expect(noBtn.props.className).toContain('border-border');
+
+      // Click "可以，是行动" to go to Q2
+      fireEvent.press(actionBtn);
+      expect(screen.getAllByText('需要多个步骤才能完成吗？').length).toBeGreaterThan(0);
+
+      // At Q2, both card bottom and header have "← 上一步"
+      const backButtons = screen.getAllByText('← 上一步');
+      expect(backButtons.length).toBeGreaterThan(0);
+
+      // Pressing back returns to Q1
+      fireEvent.press(backButtons[0]!);
+      expect(screen.getAllByText('可以变成下一步行动吗？').length).toBeGreaterThan(0);
+
+      // Go to Q1b
+      fireEvent.press(screen.getByText('不行'));
+      expect(screen.getAllByText('那它更接近哪一类？').length).toBeGreaterThan(0);
+
+      // Step back from Q1b to Q1
+      const backFromQ1b = screen.getAllByText('← 上一步');
+      fireEvent.press(backFromQ1b[0]!);
+      expect(screen.getAllByText('可以变成下一步行动吗？').length).toBeGreaterThan(0);
+    });
+
+    it('form step supports stepping back to the previous question', () => {
+      renderWizard();
+      fireEvent.press(screen.getByText('可以，是行动'));
+      fireEvent.press(screen.getByText('否，一步能完成'));
+      fireEvent.press(screen.getByText('新建项目'));
+
+      // Now at project form
+      expect(screen.getAllByText('新建项目').length).toBeGreaterThan(0);
+      expect(screen.getByText('上一步')).toBeTruthy();
+
+      // Press "上一步" in form
+      fireEvent.press(screen.getByText('上一步'));
+      expect(screen.getAllByText('它属于哪个项目？').length).toBeGreaterThan(0);
+    });
+  });
+
   it('q2 yes → q2b: attach to the existing project submits a project-attach action', async () => {
     mockedApplyClarify.mockResolvedValue({
       inboxId: 'inbox-1',

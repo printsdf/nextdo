@@ -532,6 +532,7 @@ describe('reducer mechanics', () => {
         { id: 'q1', question: '可以变成下一步行动吗？', answer: '不行' },
         { id: 'q1b', question: '那它更接近哪一类？', answer: '有空再说' },
       ],
+      history: form.history,
       step: 'done',
       result,
     });
@@ -874,5 +875,107 @@ describe('outcomeLabel (Chinese summary for the done step)', () => {
     expect(outcomeLabel({ kind: 'next-action', source: 'clarified' })).toBe('下一步行动');
     expect(outcomeLabel({ kind: 'next-action', source: 'two-minute' })).toBe('下一步行动');
     expect(outcomeLabel({ kind: 'next-action', source: 'project-attach' })).toBe('项目行动（挂接已有项目）');
+  });
+});
+
+describe('step-by-step back navigation (history stack)', () => {
+  it('clarify mode: steps back from q2 to q1, resetting answered and depth', () => {
+    const q1 = createWizardState('clarify', TITLE);
+    const q2 = clarifyReducer(q1, { type: 'answer-q1', actionable: true });
+    expect(q2.step).toBe('q2');
+    expect(q2.depth).toBe(1);
+    expect(q2.answered).toHaveLength(1);
+    expect(q2.history).toHaveLength(1);
+
+    const backToQ1 = clarifyReducer(q2, { type: 'back' });
+    expect(backToQ1.step).toBe('q1');
+    expect(backToQ1.depth).toBe(0);
+    expect(backToQ1.answered).toEqual([]);
+    expect(backToQ1.history).toEqual([]);
+  });
+
+  it('clarify mode: steps back along q1 -> q1b -> form -> back to q1b -> back to q1', () => {
+    const q1 = createWizardState('clarify', TITLE);
+    const q1b = clarifyReducer(q1, { type: 'answer-q1', actionable: false });
+    expect(q1b.step).toBe('q1b');
+
+    const form = clarifyReducer(q1b, { type: 'answer-q1b', kind: 'reference' });
+    expect(form.step).toBe('form');
+    expect(form.history).toHaveLength(2);
+
+    const back1 = clarifyReducer(form, { type: 'back' });
+    expect(back1.step).toBe('q1b');
+    expect(back1.depth).toBe(1);
+    expect(back1.answered).toEqual([{ id: 'q1', question: '可以变成下一步行动吗？', answer: '不行' }]);
+
+    const back2 = clarifyReducer(back1, { type: 'back' });
+    expect(back2.step).toBe('q1');
+    expect(back2.depth).toBe(0);
+    expect(back2.answered).toEqual([]);
+    expect(back2.history).toEqual([]);
+  });
+
+  it('clarify mode: steps back along deep chain q5 -> q4 -> q3 -> q2b -> q2 -> q1', () => {
+    let state = createWizardState('clarify', TITLE);
+    state = clarifyReducer(state, { type: 'answer-q1', actionable: true });
+    state = clarifyReducer(state, { type: 'answer-q2', multipleSteps: false });
+    state = clarifyReducer(state, { type: 'answer-q2b', choice: 'none' });
+    state = clarifyReducer(state, { type: 'answer-q3', twoMinutes: false });
+    state = clarifyReducer(state, { type: 'answer-q4', myResponsibility: true });
+    state = clarifyReducer(state, { type: 'answer-q5', fixedTime: false });
+    expect(state.step).toBe('form');
+    expect(state.depth).toBe(6);
+
+    state = clarifyReducer(state, { type: 'back' });
+    expect(state.step).toBe('q5');
+    expect(state.depth).toBe(5);
+
+    state = clarifyReducer(state, { type: 'back' });
+    expect(state.step).toBe('q4');
+    expect(state.depth).toBe(4);
+
+    state = clarifyReducer(state, { type: 'back' });
+    expect(state.step).toBe('q3');
+    expect(state.depth).toBe(3);
+
+    state = clarifyReducer(state, { type: 'back' });
+    expect(state.step).toBe('q2b');
+    expect(state.depth).toBe(2);
+
+    state = clarifyReducer(state, { type: 'back' });
+    expect(state.step).toBe('q2');
+    expect(state.depth).toBe(1);
+
+    state = clarifyReducer(state, { type: 'back' });
+    expect(state.step).toBe('q1');
+    expect(state.depth).toBe(0);
+    expect(state.answered).toEqual([]);
+  });
+
+  it('reclarify mode: cannot back from initial q2 (history empty)', () => {
+    const initial = createWizardState('reclarify', TITLE);
+    expect(initial.step).toBe('q2');
+    expect(initial.history).toEqual([]);
+    const stayed = clarifyReducer(initial, { type: 'back' });
+    expect(stayed).toBe(initial);
+  });
+
+  it('preview step: back action restores form with fields preserved', () => {
+    const atForm = formState(
+      walkTo(
+        createWizardState('clarify', TITLE),
+        { type: 'answer-q1', actionable: true },
+        ...TO_ACTION_FORM,
+      ),
+    );
+    const withNote = clarifyReducer(atForm, { type: 'field', field: 'note', value: '测试备注' });
+    const submission = buildFormSubmission('clarify', 'action', formState(withNote).fields, false);
+    const preview = clarifyReducer(withNote, { type: 'preview', submission });
+
+    const restoredForm = clarifyReducer(preview, { type: 'back' });
+    expect(restoredForm.step).toBe('form');
+    if (restoredForm.step === 'form') {
+      expect(restoredForm.fields.note).toBe('测试备注');
+    }
   });
 });
