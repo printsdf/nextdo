@@ -23,6 +23,7 @@
 
 use std::sync::Mutex;
 use tauri::Manager;
+use tauri_plugin_notification::NotificationExt;
 
 /// Loopback port of the release-build frontend server. It must match
 /// `build.frontendDist` in `tauri.conf.json` — that match is what makes
@@ -40,10 +41,18 @@ const FRONTEND_URL: &str = "http://127.0.0.1:52123";
 /// - Serves `root` (the `frontend-dist` resource dir inside the .app) with
 ///   the SPA fallback: unknown paths WITHOUT a file extension get
 ///   `index.html` (expo-router client-side routing); everything else 404s.
+/// - `NEXTDO_NOTIFY_DEBUG=1` (field diagnostics, task 09-30): additionally
+///   accepts `POST /__log` and appends each JSON body line to `log_path`
+///   (the web bundle's delivery hook posts reconcile/send outcomes there —
+///   see `apps/mobile/lib/reminders/debug-log.ts`). Without the env the
+///   endpoint answers 204 and discards the body.
 /// - Runs on its own thread; the thread outlives the process (no stop
 ///   hook needed — the server dies with the app).
 #[cfg(not(dev))]
-fn start_frontend_server(app: &tauri::AppHandle) -> tauri::Result<()> {
+fn start_frontend_server(
+    app: &tauri::AppHandle,
+    log_path: Option<std::path::PathBuf>,
+) -> tauri::Result<()> {
     let root = app
         .path()
         .resource_dir()
@@ -88,7 +97,7 @@ fn start_frontend_server(app: &tauri::AppHandle) -> tauri::Result<()> {
     let server = server.expect("bind loop always yields a server");
     std::thread::spawn(move || {
         for request in server.incoming_requests() {
-            if let Err(err) = serve_file_request(&root, request) {
+            if let Err(err) = serve_file_request(&root, request, &log_path) {
                 eprintln!("nextdo frontend server: {err}");
             }
         }
@@ -97,7 +106,30 @@ fn start_frontend_server(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 #[cfg(not(dev))]
-fn serve_file_request(root: &std::path::Path, request: tiny_http::Request) -> Result<(), String> {
+fn serve_file_request(
+    root: &std::path::Path,
+    mut request: tiny_http::Request,
+    log_path: &Option<std::path::PathBuf>,
+) -> Result<(), String> {
+    // Diagnostics endpoint (NEXTDO_NOTIFY_DEBUG, see the fn docs): the web
+    // bundle's delivery hook POSTs one JSON line per reconcile / send.
+    if request.method() == &tiny_http::Method::Post && request.url() == "/__log" {
+        if let Some(path) = log_path {
+            // tiny_http 0.12: the body is a `dyn Read` reader (no `data`
+            // field) — trait-object methods resolve without a use.
+            let mut line = String::new();
+            if request.as_reader().read_to_string(&mut line).is_ok() {
+                line.push('\n');
+                use std::io::Write;
+                if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                    let _ = file.write_all(line.as_bytes());
+                }
+            }
+        }
+        return request
+            .respond(tiny_http::Response::empty(204))
+            .map_err(|_| "respond failed".to_string());
+    }
     let mut path = request.url().to_string();
     if let Some(query) = path.find('?') {
         path.truncate(query);
@@ -245,8 +277,20 @@ pub fn run() {
             // loads, which is why the window is created HERE instead of in
             // tauri.conf.json `app.windows` (config windows are created
             // before setup runs).
+            //
+            // Field diagnostics (task 09-30): with NEXTDO_NOTIFY_DEBUG=1 the
+            // server additionally appends the web bundle's delivery
+            // diagnostics (reconcile decisions, send outcomes) to a JSONL
+            // file in the app data dir.
             #[cfg(not(dev))]
-            start_frontend_server(app.handle())?;
+            let log_path = if std::env::var("NEXTDO_NOTIFY_DEBUG").is_ok() {
+                Some(data_dir.join("nextdo-notify-debug.jsonl"))
+            } else {
+                None
+            };
+
+            #[cfg(not(dev))]
+            start_frontend_server(app.handle(), log_path)?;
 
             // Label MUST stay "main" — capabilities/default.json grants the
             // Stronghold permissions to that window label.
@@ -264,6 +308,32 @@ pub fn run() {
                     .inner_size(1200.0, 800.0)
                     .build()?;
             }
+
+            // Notification self-check (field diagnostics, task 09-30): with
+            // NEXTDO_NOTIFY_PROBE=1, send exactly ONE notification ~2 s
+            // after the window opens. A visible banner proves the Rust
+            // plugin + macOS permission layer end-to-end, independent of
+            // the JS delivery path (snooze → tick → notify invoke).
+            if std::env::var("NEXTDO_NOTIFY_PROBE").is_ok() {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    // Plugin manager API (tauri-plugin-notification 2.4.0):
+                    // `notification()` via NotificationExt, builder().show()
+                    // delivers immediately through notify-rust.
+                    match handle
+                        .notification()
+                        .builder()
+                        .title("Nextdo 通知自检")
+                        .body("看到这条 = 桌面通知链路正常")
+                        .show()
+                    {
+                        Ok(()) => eprintln!("[probe] notification sent"),
+                        Err(e) => eprintln!("[probe] notification FAILED: {e}"),
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

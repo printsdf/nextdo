@@ -14,15 +14,30 @@
  *   (grace window in `reminder-scheduler.ts`). **The reminder never
  *   fires while the app is closed** — the v1 desktop limitation
  *   (documented; the Now screen shows the overdue action instead).
- * - Only `isPermissionGranted` / `sendNotification` are registered
- *   desktop commands. `pending` / `cancel` / `channels` / `
- *   onNotificationReceived` / … would reject with "command not found" —
- *   the API whitelist below is EXHAUSTIVE: do not add calls here.
+ * - The Rust side registers exactly three commands: `notify` /
+ *   `request_permission` / `is_permission_granted`. This adapter uses
+ *   `isPermissionGranted` (plugin JS — a proper IPC invoke) and the
+ *   `notify` command INVOKED DIRECTLY (see `tauriInvoke`). `pending` /
+ *   `cancel` / `channels` / `onNotificationReceived` / … would reject
+ *   with "command not found" — do not add calls here.
+ * - The plugin JS `sendNotification` is deliberately NOT used: in
+ *   2.4.0 it does `new window.Notification(...)` and relies on the
+ *   plugin's init script having replaced that constructor with a
+ *   fire-and-forget IPC call — the constructor's async IIFE is never
+ *   returned, so `await sendNotification(...)` can NEVER reject (the
+ *   "confirmed send" contract below would be dead code), and with the
+ *   init script absent it throws a synchronous TypeError instead. The
+ *   direct invoke below is the SAME command the init script calls,
+ *   with a real promise: success means the command accepted the
+ *   notification, failure reaches the catch and retries within the
+ *   grace window.
  * - No click event and no payload read-back on desktop → tapping the
  *   notification just focuses/launches the app (D2's desktop
  *   degradation — no deep-link to the action).
  */
-import { isPermissionGranted, sendNotification } from '@tauri-apps/plugin-notification';
+import { isPermissionGranted } from '@tauri-apps/plugin-notification';
+import { logger } from '@nextdo/core';
+import { postDebugLog } from '../debug-log';
 import type { ReconcileOutput } from '../reminder-scheduler';
 import type { DeliveryAdapter, ReminderPermissionState } from './types';
 import { KIND_TITLES } from './types';
@@ -36,12 +51,49 @@ import { KIND_TITLES } from './types';
 const FIRED_IDS_MAX = 500;
 
 /**
+ * Failure-warning throttle (per reminder id): a persistently failing send
+ * (e.g. notifications disabled in macOS Settings) would otherwise log once
+ * per 30 s tick for the whole 5 min grace window.
+ */
+const FAILURE_LOG_GAP_MS = 60_000;
+
+/**
  * Session state, module level (the adapter is a module singleton — a
  * hook remount in dev must not reset the dedupe set and re-fire): the ids
- * delivered this launch + the launch moment.
+ * delivered this launch + the launch moment + the last failure-warning
+ * moment per id.
  */
 const firedIds = new Set<string>();
+const lastFailureLoggedAt = new Map<string, number>();
 let sessionStart: Date | null = null;
+
+/**
+ * The Tauri v2 IPC bridge, injected into the webview as a window global
+ * by the shell (the same access pattern `packages/db` uses for its
+ * stronghold commands — no `@tauri-apps/api` import, which would drag
+ * the IPC layer into the bundle graph; see `adapters/index.ts`).
+ */
+interface TauriInternals {
+  invoke(command: string, args?: Record<string, unknown>): Promise<unknown>;
+}
+
+function tauriInvoke(
+  command: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const internals = (
+    globalThis as { window?: { __TAURI_INTERNALS__?: TauriInternals } }
+  ).window?.__TAURI_INTERNALS__;
+  if (internals === undefined) {
+    // Unreachable in practice — the adapter is only created when
+    // isTauriRuntime() saw the bridge — but a real rejection is what the
+    // "confirmed send" contract needs (never a silent success).
+    return Promise.reject(
+      new Error('Tauri IPC bridge missing (not running in the desktop shell)'),
+    );
+  }
+  return internals.invoke(command, args);
+}
 
 function rememberFired(ids: string[]): void {
   for (const id of ids) firedIds.add(id);
@@ -76,11 +128,42 @@ export function createTauriAdapter(): DeliveryAdapter {
         // `sound` is intentionally NOT mapped (PRD R3): notify-rust's
         // desktop sound handling is platform-fragile — v1 plays the OS
         // default for every intensity tier.
-        sendNotification({
-          title: KIND_TITLES[item.row.kind],
-          body: item.title,
-        });
-        rememberFired([item.row.id]);
+        try {
+          // The Rust `notify` command (same one the plugin's init script
+          // calls — see the module doc for why the plugin JS wrapper is
+          // bypassed): the arg shape is `{ options: NotificationData }`
+          // (tauri-plugin-notification 2.4.0 `src/commands.rs`).
+          await tauriInvoke('plugin:notification|notify', {
+            options: {
+              title: KIND_TITLES[item.row.kind],
+              body: item.title,
+            },
+          });
+          // Only a CONFIRMED send counts as delivered: a failed send
+          // (permission denied in macOS Settings, IPC error) is retried
+          // by the next tick while the row is still inside the grace
+          // window, instead of being silently lost for the session.
+          rememberFired([item.row.id]);
+          lastFailureLoggedAt.delete(item.row.id);
+          postDebugLog({ kind: 'send', ok: true, reminderId: item.row.id, title: item.title });
+        } catch (error) {
+          const nowMs = Date.now();
+          const last = lastFailureLoggedAt.get(item.row.id);
+          if (last === undefined || nowMs - last >= FAILURE_LOG_GAP_MS) {
+            lastFailureLoggedAt.set(item.row.id, nowMs);
+            logger.warn(
+              'tauri notify invoke failed (will retry within the grace window)',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+          postDebugLog({
+            kind: 'send',
+            ok: false,
+            reminderId: item.row.id,
+            title: item.title,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     },
 

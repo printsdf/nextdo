@@ -37,6 +37,7 @@ import { usePowerSync } from '@powersync/react';
 import { listScheduledReminders, wrapDb } from '@nextdo/db';
 import { logger } from '@nextdo/core';
 import { getDeliveryAdapter, type ReminderPermissionState } from '@/lib/reminders/adapters';
+import { postDebugLog } from '@/lib/reminders/debug-log';
 import { computeReconcile } from '@/lib/reminders/reminder-scheduler';
 
 /** The tables whose rows feed `listScheduledReminders` or its title joins
@@ -96,6 +97,17 @@ export function useReminderDelivery(): UseReminderDeliveryResult {
           ...(tauriContext !== undefined
             ? { firedIds: tauriContext.firedIds, sessionStart: tauriContext.sessionStart }
             : {}),
+        });
+        // Field diagnostics for the desktop delivery path (no-op outside
+        // the release loopback origin — see lib/reminders/debug-log).
+        postDebugLog({
+          kind: 'reconcile',
+          platform: adapter.platform,
+          now: new Date().toISOString(),
+          rows: rows.length,
+          toSchedule: output.toSchedule.length,
+          toCancel: output.toCancel.length,
+          toFireNow: output.toFireNow.map((item) => item.row.id),
         });
         if (output.toSchedule.length > 0 || output.toCancel.length > 0 || output.toFireNow.length > 0) {
           await adapter.apply(output);

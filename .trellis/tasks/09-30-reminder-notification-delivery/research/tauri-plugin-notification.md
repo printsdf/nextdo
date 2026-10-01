@@ -172,3 +172,29 @@ tauri::async_runtime::spawn(async move { let _ = notification.show(); });
 - **官方文档**：v2.tauri.app/plugin/notification（平台表：Windows "Only works for installed apps. Shows powershell name & icon in development"；默认权限集/权限表）；Apple UNUserNotificationCenter（scheduled 通知与点击激活行为）、WinRT toast activation。
 - **GitHub issues**：tauri-apps/plugins-workspace#2143、tauri-apps/tauri#4965（macOS dev 通知不显示）。
 - **本 app 现状文件**：`apps/desktop/package.json`（api 2.11.1 / cli 2.11.5）、`apps/desktop/src-tauri/Cargo.toml` + `Cargo.lock`（tauri 2.11.6）、`src/lib.rs`（Builder 链）、`tauri.conf.json`（identifier com.nextdo.desktop）、`capabilities/default.json`（现有权限）。
+
+---
+
+## 8. 附录（2026-10-01 补充）：`sendNotification` 的 JS 包装层是「静默失败」陷阱 —— 桌面改用直接 invoke
+
+**现象**：release 包桌面提醒不弹、jsonl 无 `send` 记录、`sendNotification` 也不报错。
+
+**根因（源码级，2.4.0）**：`@tauri-apps/plugin-notification` 的 JS `sendNotification` **不直接 invoke IPC**，而是 `new window.Notification(options.title, options)`。它依赖插件 **init 脚本**（crate `src/init-iife.js`，`init()` 注入）把 `window.Notification` 构造器**替换**成一个内部 fire-and-forget 调 `invoke('plugin:notification|notify', { options })` 的 IIFE。关键缺陷：
+
+```js
+// init-iife.js（压缩后还原）
+window.Notification = function (title, options) {
+  const o = Object.assign(options || {}, { title });
+  (async (n) => {                       // ← 立即执行、不 return
+    await window.__TAURI_INTERNALS__.invoke('plugin:notification|notify', { options: n });
+  })(o);                                //   → 构造器同步返回 undefined
+};
+```
+
+- `sendNotification` 是同步函数、返回 undefined；那个 `async IIFE` 的 Promise **从不被 return**，因此 `await sendNotification(...)` **永远 resolve、永不 reject** → 适配器「确认发送才 `rememberFired`」的重试契约是死代码：IPC 失败（权限被系统关闭、command 缺失等）被吞掉，提醒直接丢失、无日志、无重试。
+- 若 init 脚本未注入（或 webview 里 `window.Notification` 为 undefined），`new window.Notification(...)` 抛**同步 TypeError** → 被 catch 记一条失败，但仍每 tick 重试到 grace 耗尽，始终弹不出。
+- 权限侧同源：`isPermissionGranted()` 也先读 `window.Notification.permission`（init 脚本已置 granted），非 default 直接返回、否则才 invoke —— 桌面恒 granted，行为无害，保留用插件 JS 版即可。
+
+**修复（已实现，见 design §4.2 / prd R3）**：适配器**绕过插件 JS 包装**，经 Tauri 注入的裸桥接 `window.__TAURI_INTERNALS__.invoke('plugin:notification|notify', { options: { title, body } })` 直调 Rust `notify` 命令（`src/commands.rs` 已确认该命令 + 参数形 `{ options: NotificationData }`；capabilities `notification:default` 含 `allow-notify`）。这是 init 脚本内部**调的同一个命令**，但拿到真实 Promise：成功 = 命令已受理 → 记 fired；失败 → 进 catch → grace 窗口内下 tick 重试 + jsonl 错误可见。裸桥接访问与 `packages/db` 的 stronghold 命令同款（不引入 `@tauri-apps/api` 依赖，不污染 native bundle —— metro 仍把整个 `@tauri-apps/plugin-notification` stub 掉）。
+
+**对「桌面不响」排查的含义**：本修复保证 **JS→Rust** 一跳有真实错误反馈；若重建 release 后仍不弹，问题必在 **Rust→macOS** 一跳（notify-rust / UNUserNotificationCenter：系统设置里 com.nextdo.desktop 的通知开关、dev 签名身份漂移、DND/专注模式）—— 用 lib.rs 的 `NEXTDO_NOTIFY_PROBE=1` 自检通知 + `NEXTDO_NOTIFY_DEBUG=1` 的 jsonl 二分定位（probe 弹 = macOS 层 OK，问题在 JS；probe 不弹 = macOS 权限/归属问题）。

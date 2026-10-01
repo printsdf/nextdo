@@ -29,7 +29,7 @@
 - **桌面端三平台（macOS/Windows/Linux）均不能原生调度未来通知**（源码级确认：插件桌面 `show()` 只立即投递，`schedule` 字段从不被读取）→ 桌面端只能靠 app 运行期间的 JS 定时器到点投递；app 关闭期间桌面不响（v1 固有限制）。
 - 桌面端插件无点击回调/payload（`onNotificationClick` 不存在）→ 桌面点通知只能聚焦 app，无法 deep-link（macOS release / Windows 安装版可拉起/聚焦；macOS dev 模式通知归属 com.apple.Terminal，验收必须 release 构建）。
 - expo 侧：`getAllScheduledNotificationsAsync()` 可列出 pending 通知并拿 `identifier` + `content.data`；`scheduleNotificationAsync` 支持自定义 `identifier` → 用 reminder 行 ID 做 reconcile；iOS/Android 的 scheduled 通知均 OS 层持久化（强杀后仍到点响）；Android 12+ 不加 exact-alarm 权限会静默降级为非精确闹钟（时刻漂移）；iOS 可 per-notification 自定义声音（wav ≤30s，app.json 插件声明），Android 声音/振动只能渠道级。
-- 桌面端权限恒 granted、无弹窗；桌面分支只可调 `isPermissionGranted` / `sendNotification`（调 pending/cancel/channels 会 command not found）。
+- 桌面端权限恒 granted、无弹窗；桌面分支只可调 `isPermissionGranted` + 直接 invoke `plugin:notification|notify`（调 pending/cancel/channels 会 command not found）。**不用插件 JS 的 `sendNotification`**：2.4.0 里它走 `new window.Notification(...)` + init 脚本替换，`await` 永远不 reject（失败不重试、错误不可见）——2026-10-01 桌面不响的根因，详见 research 附录与 design §4.2。
 
 ## Decisions（brainstorm 已收敛，用户拍板 2026-09-30）
 
@@ -37,12 +37,13 @@
 - **D2 通知交互 = 仅 deep-link**：点通知 → 启动/聚焦 app 落到 Now 屏（原生可 deep-link 到 `/now` tab；桌面只能聚焦 app，无 payload）；通知内直接操作（完成/推迟/跳过）不做，列 follow-up。
 - **D3 多设备 = 每台都投**：不做设备仲裁，每台设备对自己本地的 scheduled 提醒负责；同一条提醒在多台在线设备各响一次是预期行为。
 - **D4 权限 = 情境式 + 设置页状态块**：第一次产生提醒行时（首次 snooze / 首次创建带提醒的日历行动）请求权限；设置页展示通知状态（未请求/已授权/已拒绝，拒绝时 iOS 给「去系统设置」入口）；权限被拒不阻塞业务流程（reminders 行照常写，只是不投递）。
+- **D5 snooze 选项 = 一个常用档 + 自定义（验收反馈，用户拍板 2026-10-01）**：原四固定档（10 分钟 / 30 分钟 / 今晚 20:00 / 明天 08:00，09-22 design §4.7）→ 只留「10 分钟后」常用档 +「自定义时间」（DateTimePicker 新增 `datetime` 模式：7 天窗口 + 时 + 分）；自定义时刻早于当前 → 内联报错不提交。详见 design.md §10。
 
 ## Requirements
 
 - **R1 调度核心（纯逻辑，平台无关）**：消费本地 `reminders` 表中 `state='scheduled'` 且行动仍存活的行，与 OS 侧 pending 通知做 reconcile——未来行缺调度则补排（native 用 reminder 行 ID 当通知 identifier）、pending 中无对应行的孤儿取消。触发时机：app 启动、回到前台、reminders 相关表本地变更（含 sync 流入，`db.onChange` + 防抖）。
 - **R2 原生投递（iOS/Android）**：`expo-notifications@57.0.21`；OS 层持久化调度（强杀后到点仍响）；通知内容 = 类型标题 + 行动标题，`data` 带 reminderId/actionKind/actionId；intensity 映射（iOS per-notification 声音：normal 默认 / important、alarm 自定义 wav；Android 三渠道分级）；Android 12+ exact-alarm 权限（expo-build-properties 注入 manifest）。
-- **R3 桌面投递（Tauri）**：`tauri-plugin-notification@2.4.0`（Rust 插件 + capabilities + JS 依赖）；app 运行期间 30s tick 扫描，grace 窗口内到点的行立即 `sendNotification`；fired 记录会话内内存去重；app 关闭期间不响（v1 固有限制，文档注明）；点击 = 聚焦 app（无 deep-link）。
+- **R3 桌面投递（Tauri）**：`tauri-plugin-notification@2.4.0`（Rust 插件 + capabilities + JS 依赖）；app 运行期间 30s tick 扫描，grace 窗口内到点的行立即投递（直接 invoke `plugin:notification|notify`，**不用**插件 JS `sendNotification` 包装——见 Constraints 根因条目）；发送**确认**后才记 fired（invoke 失败 → 不记 → grace 内重试）；fired 记录会话内内存去重；app 关闭期间不响（v1 固有限制，文档注明）；点击 = 聚焦 app（无 deep-link）。
 - **R4 deep-link**：原生点通知（含 terminated 冷启动）→ 路由到 Now tab；桌面点通知 → 聚焦 app（D2 的桌面退化形态）。
 - **R5 权限流程（D4）**：提醒行首次产生时情境式请求（snooze 成功 / 日历行动创建后）；设置页「通知」状态块（未请求 / 已授权 / 已拒绝 + iOS 拒绝时「去系统设置」按钮）；被拒时提醒行照常写入、投递静默跳过。
 - **R6 纯 web（非 Tauri）**：no-op 适配器，snooze/日历流程不受影响，设置页显示「浏览器环境不支持通知」。
@@ -59,8 +60,14 @@
 - [ ] **AC6 权限（D4）**：全新设备首次 snooze 弹系统权限框；拒绝后 snooze 流程照常（reminders 行存在、无投递）；设置页状态块正确显示「已拒绝」，iOS 点「去系统设置」能进系统设置页。
 - [ ] **AC7 reconcile 幂等**：反复 启动/回前台 3 次 → pending 通知数不增（无重复调度）；另一设备产生的孤儿 pending 行在本设备 reconcile 后被取消（单测覆盖纯函数；手动验跨设备）。
 - [ ] **AC8 多设备各投一次（D3）**：两台设备在线，同一条提醒各响一次（手动，记录即可）。
-- [ ] **AC9 质量门**：纯 reconcile 函数单测（补排/孤儿取消/过去行/tauri grace 窗口）+ `trashAction` cancel 单测 + 权限状态助手单测；根级 `pnpm test && pnpm typecheck && pnpm lint` 全绿；`expo export --platform web` 成功（桌面壳依赖）；`tauri build`（macOS）成功。
+- [x] **AC9 质量门**：纯 reconcile 函数单测（补排/孤儿取消/过去行/tauri grace 窗口）+ `trashAction` cancel 单测 + 权限状态助手单测；根级 `pnpm test && pnpm typecheck && pnpm lint` 全绿；`expo export --platform web` 成功（桌面壳依赖）；`tauri build`（macOS）成功。（check 轮亲自重跑通过：db 225 / core 157 / mobile 267 / server 69 全绿）
 - [ ] **AC10 纯 web no-op**：浏览器 dev 环境 snooze 全流程无报错、无通知副作用（R6）。
+
+### 验收状态（2026-10-01）
+
+- **已验证**：AC9（质量门 + 单测）。
+- **待验证（桌面，用户 Mac，release 包路径 `apps/desktop/src-tauri/target/release/bundle/macos/Nextdo.app`）**：AC1 桌面半（snooze 10 分钟 → ±35s 内响）、AC3 桌面半（点击聚焦）、AC4/AC5 桌面半（完成/删除后不再响）、AC10（浏览器 dev no-op）。注意：D5（snooze 选项简化）改动了 sheet UI，验收需走 2026-10-01 重建的 release 包。
+- **延期（无 iOS/Android 硬件，用户决定 2026-10-01）**：AC1/AC2/AC3/AC6 的 iOS 侧、AC8 双设备。延期理由记录在案：本地通知的 OS 持久化（AC2）与权限弹窗（AC6）只能在原生端验；计划随首个 iOS release build（backlog P0-2 iOS 分发任务）一并实机验收。桌面端无法覆盖的部分由单测兜底（权限状态映射、reconcile 纯函数、cancel 事务）。
 
 ## Out of Scope
 

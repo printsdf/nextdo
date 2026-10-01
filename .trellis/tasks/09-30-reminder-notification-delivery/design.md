@@ -14,7 +14,7 @@ apps/mobile/lib/reminders/
   reminder-scheduler.ts   纯 reconcile 函数（无平台依赖，单测核心）
   adapters/
     native.ts             expo-notifications（iOS/Android，OS 持久化调度）
-    tauri.ts              30s tick + sendNotification（桌面，会话内投递）
+    tauri.ts              30s tick + 直接 invoke `plugin:notification|notify`（桌面，会话内投递）
     noop.ts               纯 web
   index.ts                平台选择 + 统一 DeliveryAdapter 接口
         ▲
@@ -119,6 +119,7 @@ interface ReconcileOutput {
 - JS：`@tauri-apps/plugin-notification@2.4.0` 加到 **apps/mobile** deps（仅 web 分支惰性使用）；检测用 `typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__`，命中才 `import()` 插件（不污染 native bundle）。
 - tick：hook 内 `setInterval(30_000)` 触发 reconcile（tauri 分支）；`firedIds` 模块级 Set（上限 500，超出清最老）。
 - 权限：只调 `isPermissionGranted()`（恒 true，无弹窗）；**不得**调 pending/cancel/channels 系列（桌面 command not found，research 已确认）。
+- **投递走直接 invoke（2026-10-01 根因修复）**：不用插件 JS 的 `sendNotification`——它在 2.4.0 里是 `new window.Notification(...)`，依赖插件 init 脚本把该构造器替换成 fire-and-forget 的 IPC 调用；构造器的 async IIFE 从不 return，`await sendNotification` **永远不 reject**（「确认发送才标记 fired」的重试契约成为死代码），init 脚本缺失时更是同步 TypeError。改为经 `window.__TAURI_INTERNALS__.invoke('plugin:notification|notify', { options: { title, body } })` 直调 Rust 命令（init 脚本内部调的也是它；与 `packages/db` stronghold 同款裸桥接模式，不引入 `@tauri-apps/api` 依赖）。真实 promise → 失败进 catch → grace 窗口内下 tick 重试 + jsonl 错误可见。
 - 窗口聚焦触发 reconcile：`window` focus 事件 + Tauri 的 `onFocus`（`@tauri-apps/api/window`，若已装；否则 web focus 事件足够）。
 - 固有限制（文档注明）：app 关闭期间不响；macOS dev 模式通知归属 com.apple.Terminal → 验收走 release 构建。
 
@@ -176,3 +177,15 @@ await tx.updateTable('reminders')
 **apps/mobile**：`package.json`（+3 依赖）、`app.json`（通知 plugin + build properties）、`assets/sounds/{important,alarm}.wav`（新）、`lib/reminders/{reminder-scheduler.ts,adapters/{native,tauri,noop}.ts,index.ts}`（新）、`lib/reminders/reminder-scheduler.test.ts`（新）、`hooks/use-reminder-delivery.ts`（新）、`app/_layout.tsx`（挂 hook）、`app/(tabs)/settings.tsx`（状态块）、`hooks/use-snooze-action.ts`（权限触发）、`components/clarify-wizard.tsx` 或其提交 hook（日历路径权限触发）。
 
 **apps/desktop**：`src-tauri/Cargo.toml`、`src-tauri/src/lib.rs`、`src-tauri/capabilities/default.json`。
+
+## 10. 验收反馈变更：snooze 选项（2026-10-01，用户拍板）
+
+原方案（09-22-app-ui-screens design §4.7）：四固定档 `[10 分钟后, 30 分钟后, 今晚 20:00, 明天 08:00]`。
+验收反馈：「稍后提醒应该自定义设置，最多给一个常用的时间」→ 收敛为：
+
+- `lib/snooze-options.ts`：`commonSnoozeOption(now)`（唯一常用档 `10 分钟后`）+ `customSnoozeSeed(now)`（自定义 picker 种子 = now+1h，`'YYYY-MM-DDTHH:mm'` device-local 字符串）+ `parseLocalDateTimeString`（显式本地构造器解析——**不用** `new Date(string)`，无时区偏移输入的解释是引擎相关的）。
+- `components/datetime-picker.tsx` 新增 `mode: 'datetime'`：日（7 天窗口：今天/明天/后天/周X，seed 超窗 clamp 到 0..6）+ 时 + 分，复用既有 chip 网格与 a11y 惯例；confirm 契约 `'YYYY-MM-DDTHH:mm'`。周X 标签而非 M月D日（固定宽 cell 装不下 5 字符）。
+- **验收反馈 2026-10-01 第二轮**：时/分 ± 步进器弃用（改 1 分钟要点 59 次、样式与 app 其他 chip 网格不统一）→ 时/分改用与 mode `'time'` 相同的 chip 网格（24 时 + 60 分，任意分钟可选）；日 chip 改两行（今天/明天/后天/周X + M月D日 副标签——周X 单行看不出是哪一周）。snooze-sheet 测试同步改写（步进器用例 → chip 点击用例）。
+- `components/snooze-sheet.tsx`：两行（常用档 + 自定义时间）；自定义早于当前时刻 → 内联报错不提交（过去 reminder 行会在桌面 grace 窗口内立即触发 / native OS 调度拒收——R7：过去行永不补排）；`open` 翻转时重置 picker 瞬态状态（sheet 常驻挂载）。
+- 测试：`lib/snooze-options.test.ts` 重写 + 新增 `__tests__/snooze-sheet.test.tsx`（chip 流 / 过去时间拒收 / 两种取消语义）。
+- 验收影响：桌面 AC1/AC3/AC4/AC5 桌面半需用**重建的 release 包**重走（包路径不变）。
