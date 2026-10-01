@@ -36,7 +36,7 @@ import '../global.css';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Stack } from 'expo-router';
-import { Platform, StatusBar, Text, View } from 'react-native';
+import { StatusBar, Text, View } from 'react-native';
 import { useAppTheme } from '@/lib/theme';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
@@ -103,16 +103,6 @@ const WEB_FONT_FACES: ReadonlyArray<readonly [family: string, source: number | s
 
 type WebFontCtor = new (family: string, source: string) => { load(): Promise<unknown> };
 
-interface WebDocumentHost {
-  document?: {
-    documentElement?: {
-      classList: {
-        add(token: string): void;
-        remove(token: string): void;
-      };
-    };
-  };
-}
 /** Load ONE face with the FontFace API and register it in
  *  document.fonts so `fontFamily: 'Epilogue'` & co. resolve. Rejects on
  *  network/decode failure (a hung fetch is bounded by the caller's
@@ -425,21 +415,12 @@ export default function RootLayout() {
     ? webFontsReady
     : (epilogueLoaded || epilogueError !== null) &&
       (jakartaLoaded || jakartaError !== null);
+  // `isDark` drives the StatusBar only. The `<html class="dark">` write that
+  // Tailwind's `darkMode: 'class'` selectors key off is owned by `useAppTheme`
+  // itself (lib/theme.ts) — duplicating it here raced with NativeWind's own
+  // class write and left 「跟随系统」 half-dark.
   const { isDark } = useAppTheme();
 
-  useEffect(() => {
-    if (Platform.OS === 'web') {
-      const host = globalThis as unknown as WebDocumentHost;
-      const root = host.document?.documentElement;
-      if (root !== undefined) {
-        if (isDark) {
-          root.classList.add('dark');
-        } else {
-          root.classList.remove('dark');
-        }
-      }
-    }
-  }, [isDark]);
   if (!fontsReady) {
     return (
       <SafeAreaProvider>

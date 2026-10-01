@@ -4,13 +4,39 @@
  * Supports 'system' (default) | 'light' | 'dark'.
  * - Persisted via `expo-secure-store` on native, `localStorage` on web,
  *   in-memory fallback on plain Node / Jest.
- * - Synchronizes with NativeWind's `useColorScheme().setColorScheme(...)`.
+ * - Synchronizes with NativeWind's `useColorScheme().setColorScheme(...)`
+ *   and, on web, the `dark` class on <html> that Tailwind's
+ *   `darkMode: 'class'` emits (`.dark *` selectors).
+ *
+ * WHY the scheme is RESOLVED here instead of handing 'system' to NativeWind
+ * (regression — this is what made 「跟随系统」 render half-dark):
+ *
+ * `react-native-css-interop`'s web `setColorScheme` treats any value other
+ * than 'dark' as "remove the dark class", so `setColorScheme('system')`
+ * unconditionally STRIPS `<html class="dark">` — even when the OS is in dark
+ * mode. The `dark:` Tailwind variants then go inert while JS-side inline
+ * styles (the tab bar reads `colors.surfaceDark`) stay dark: a dark tab bar
+ * over washed-out light content.
+ *
+ * The old workaround (an effect in `_layout.tsx` re-adding the class from
+ * `isDark`) could not repair it, because the failing transition is
+ * dark → 'system' **on a dark OS**, where `isDark` stays `true` and the
+ * effect never re-runs.
+ *
+ * So this hook owns the whole chain: it resolves the preference against the
+ * live system scheme (`resolveColorScheme`), pushes only the CONCRETE
+ * 'light' | 'dark' to NativeWind, and is the single writer of the web `dark`
+ * class. NativeWind's own class write then agrees with ours instead of
+ * fighting it.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useColorScheme as useSystemColorScheme, type ColorSchemeName } from 'react-native';
 import { useColorScheme as useNativeWindColorScheme } from 'nativewind';
 import { isReactNativeRuntime } from '@nextdo/db';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
+/** What the UI actually renders — 'system' is always resolved away. */
+export type ResolvedColorScheme = 'light' | 'dark';
 
 export const THEME_PREFERENCE_KEY = 'nextdo.settings.theme-preference';
 
@@ -70,42 +96,125 @@ function createStorage(): KeyValue {
 
 const storage = createStorage();
 
-export function useAppTheme() {
-  const { colorScheme, setColorScheme } = useNativeWindColorScheme();
-  const [preference, setPreference] = useState<ThemePreference>('system');
-  const [loaded, setLoaded] = useState(false);
+/* ---------------- Preference store ----------------
+ *
+ * Module-level (not per-hook-instance) because `useAppTheme` is called from
+ * three places (root layout, tab layout, Settings). Per-instance state meant
+ * three independent storage reads racing to call `setColorScheme`, so the
+ * rendered scheme could depend on which effect resolved last. One cached
+ * value + one read, fanned out through `useSyncExternalStore`.
+ */
 
-  useEffect(() => {
-    let cancelled = false;
-    storage.getItem(THEME_PREFERENCE_KEY).then((stored) => {
-      if (cancelled) return;
-      if (stored === 'light' || stored === 'dark' || stored === 'system') {
-        setPreference(stored);
-        setColorScheme(stored);
-      }
-      setLoaded(true);
+let cachedPreference: ThemePreference | null = null;
+let loadStarted = false;
+const listeners = new Set<() => void>();
+
+function emitPreferenceChange(): void {
+  for (const listener of Array.from(listeners)) listener();
+}
+
+function subscribePreference(listener: () => void): () => void {
+  listeners.add(listener);
+  if (!loadStarted) {
+    loadStarted = true;
+    void storage.getItem(THEME_PREFERENCE_KEY).then((stored) => {
+      // A fresh install has no stored value, and a corrupted one may hold
+      // junk: both resolve to 'system' (the default the UI shows first).
+      // The OLD code only called setColorScheme inside the matching branch,
+      // so a missing value left NativeWind's observable parked on its
+      // module-init `initialColor` (always 'light' — the class is absent at
+      // import time) and its `systemColorScheme` fallback was never reached.
+      const next: ThemePreference =
+        stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+      if (next === cachedPreference) return;
+      cachedPreference = next;
+      emitPreferenceChange();
     });
-    return () => {
-      cancelled = true;
+  }
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function getPreferenceSnapshot(): ThemePreference | null {
+  return cachedPreference;
+}
+
+interface WebDocumentHost {
+  document?: {
+    documentElement?: {
+      classList: {
+        add(token: string): void;
+        remove(token: string): void;
+      };
     };
-  }, [setColorScheme]);
+  };
+}
 
-  const updatePreference = useCallback(
-    async (next: ThemePreference) => {
-      setPreference(next);
-      setColorScheme(next);
-      await storage.setItem(THEME_PREFERENCE_KEY, next);
-    },
-    [setColorScheme],
+/** The single writer of `<html class="dark">`. No-ops off web (native has no
+ *  document; NativeWind resolves `dark:` variants from its observable there). */
+function applyWebDarkClass(isDark: boolean): void {
+  const root = (globalThis as unknown as WebDocumentHost).document?.documentElement;
+  if (root === undefined) return;
+  if (isDark) {
+    root.classList.add('dark');
+  } else {
+    root.classList.remove('dark');
+  }
+}
+
+/** Pure: fold a stored preference + the live system scheme into what the UI
+ *  renders. `null` preference means "not loaded yet" → follow the system, so
+ *  the first paint is already correct instead of flashing light.
+ *
+ *  `systemScheme` is RN's `ColorSchemeName` ('light' | 'dark' |
+ *  'unspecified'); 'unspecified' means "no preference" and renders light. */
+export function resolveColorScheme(
+  preference: ThemePreference | null,
+  systemScheme: ColorSchemeName,
+): ResolvedColorScheme {
+  if (preference === 'light' || preference === 'dark') return preference;
+  return systemScheme === 'dark' ? 'dark' : 'light';
+}
+
+export function useAppTheme() {
+  const { setColorScheme } = useNativeWindColorScheme();
+  const preference = useSyncExternalStore(
+    subscribePreference,
+    getPreferenceSnapshot,
+    getPreferenceSnapshot,
   );
+  const systemScheme = useSystemColorScheme();
 
+  // Derived in render (hook-guidelines rule 3), not synced by an effect.
+  const colorScheme = resolveColorScheme(preference, systemScheme);
   const isDark = colorScheme === 'dark';
 
+  useEffect(() => {
+    try {
+      // Only ever a concrete scheme — see the module doc for why 'system'
+      // must never reach NativeWind.
+      setColorScheme(colorScheme);
+    } catch {
+      // NativeWind throws when darkMode isn't 'class' or when there is no
+      // window (jest). The class below is the web source of truth anyway.
+    }
+    applyWebDarkClass(isDark);
+  }, [colorScheme, isDark, setColorScheme]);
+
+  const updatePreference = useCallback(async (next: ThemePreference) => {
+    cachedPreference = next;
+    emitPreferenceChange();
+    await storage.setItem(THEME_PREFERENCE_KEY, next);
+  }, []);
+
   return {
-    preference,
+    /** The stored PREFERENCE (what the Settings row highlights). `null`
+     *  until the first read lands; reported as 'system' meanwhile. */
+    preference: preference ?? 'system',
     isDark,
     colorScheme,
     updatePreference,
-    loaded,
+    loaded: preference !== null,
   };
 }
