@@ -19,7 +19,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { router } from 'expo-router';
-import { Button, Card, ContextChip, EmptyState, Tag } from '@nextdo/ui';
+import { Button, Card, ContextChip, EmptyState, Tag, cn } from '@nextdo/ui';
 import type { CandidateKind } from '@nextdo/core';
 import { useNow, shouldOfferReclarify, type NowEligible } from '@/hooks/use-now';
 import { useAppClock } from '@/hooks/use-app-clock';
@@ -38,14 +38,110 @@ import { KIND_LABELS } from '@/lib/kind-labels';
 import { formatLocalDate, formatLocalDateTime, formatDueLabel } from '@/lib/format';
 import { SnoozeSheet } from '@/components/snooze-sheet';
 
-const TIME_CHIPS = [15, 30, 60, 120];
+const TIME_CHIPS = [15, 30, 60, 120] as const;
 
 const INPUT_CLASS =
-  'rounded-xl border border-border/80 bg-surface p-2 text-sm text-ink placeholder:text-muted dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
+  'rounded-md border border-border/80 bg-surface p-2 text-sm text-ink placeholder:text-muted dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
 
-/** The engine-context bar (scene chips + time chips, design.md §4.1.1).
- *  The settings instance is OWNED by NowScreen (single source of truth —
- *  the pool in `useNow` must recompute on chip changes). */
+/** Row label + right-side mode hint (multi vs single) — keeps the two
+ *  engine dimensions legible without a separate legend. */
+function EngineDimLabel({ title, hint }: { title: string; hint: string }) {
+  return (
+    <View className="mb-1.5 flex-row items-baseline justify-between gap-2">
+      <Text className="font-sans text-xs font-semibold text-ink dark:text-ink-dark">{title}</Text>
+      <Text className="font-sans text-[11px] text-muted dark:text-muted-dark">{hint}</Text>
+    </View>
+  );
+}
+
+/** 「任意」 — clears the multi-select (empty contextIds = all scenes). */
+function AnySceneChip({ active, onPress }: { active: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="任意"
+      accessibilityState={{ selected: active }}
+      hitSlop={{ top: 11, bottom: 11, left: 4, right: 4 }}
+      onPress={onPress}
+      className={cn(
+        'h-[22px] items-center justify-center rounded-full px-2.5',
+        active
+          ? 'bg-secondary-fixed dark:bg-secondary-fixed-dark'
+          : 'border border-border/80 bg-surface dark:border-border-dark dark:bg-surface-dark',
+      )}
+    >
+      <Text
+        className={cn(
+          'text-[11px] font-medium',
+          active
+            ? 'text-accent dark:text-accent-dark'
+            : 'text-muted dark:text-muted-dark',
+        )}
+      >
+        任意
+      </Text>
+    </Pressable>
+  );
+}
+
+/** Dashed “add scene” affordance — not a selection chip. */
+function AddSceneChip({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="添加场景"
+      hitSlop={{ top: 11, bottom: 11, left: 4, right: 4 }}
+      onPress={onPress}
+      className="h-[22px] items-center justify-center rounded-full border border-dashed border-border px-2.5 dark:border-border-dark"
+    >
+      <Text className="text-[11px] font-medium text-muted dark:text-muted-dark">＋</Text>
+    </Pressable>
+  );
+}
+
+/** Connected single-select time strip — reads as radio, not multi-toggle. */
+function TimeSegment({
+  minutes,
+  active,
+  isFirst,
+  onPress,
+}: {
+  minutes: number;
+  active: boolean;
+  isFirst: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={String(minutes)}
+      accessibilityState={{ selected: active }}
+      hitSlop={{ top: 8, bottom: 8, left: 0, right: 0 }}
+      onPress={onPress}
+      className={cn(
+        'h-8 flex-1 items-center justify-center',
+        !isFirst && 'border-l border-border/80 dark:border-border-dark',
+        active ? 'bg-accent dark:bg-accent-dark' : 'bg-surface dark:bg-surface-dark',
+      )}
+    >
+      <Text
+        className={cn(
+          'font-sans text-xs',
+          active
+            ? 'font-semibold text-on-accent dark:text-on-accent-dark'
+            : 'font-medium text-ink dark:text-ink-dark',
+        )}
+      >
+        {minutes}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** The engine-context bar (scene multi-select OR + time single-select).
+ *  Visually distinct from the list-area filter chips further down — earth
+ *  ContextChips + a connected time strip, not the floating accent Chip.
+ *  Settings are OWNED by NowScreen (single source of truth for `useNow`). */
 function EngineContextBar({
   settings,
   update,
@@ -59,6 +155,7 @@ function EngineContextBar({
 
   const contextIds = settings?.contextIds ?? [];
   const availableMinutes = settings?.availableMinutes ?? 60;
+  const anyActive = contextIds.length === 0;
 
   const toggleContext = (id: string) => {
     const next = contextIds.includes(id)
@@ -77,63 +174,73 @@ function EngineContextBar({
   };
 
   return (
-    <Card className="gap-3 p-3.5">
-      <View>
-        <Text className="mb-2 font-sans text-xs font-semibold text-muted dark:text-muted-dark">
-          当前场景
+    <Card className="gap-0 overflow-hidden p-0">
+      <View className="border-b border-border/70 bg-surface-container px-3.5 py-2 dark:border-border-dark dark:bg-surface-container-dark">
+        <Text className="font-display text-xs font-semibold tracking-tight text-ink dark:text-ink-dark">
+          推荐条件
         </Text>
-        <View className="flex-row flex-wrap gap-2">
-          <Chip
-            label="任意"
-            active={contextIds.length === 0}
-            onPress={() => void update({ contextIds: [] })}
-          />
-          {(contexts ?? []).map((context) => (
-            <Chip
-              key={context.id}
-              label={context.name}
-              active={contextIds.includes(context.id)}
-              onPress={() => toggleContext(context.id)}
-            />
-          ))}
-          {adding ? (
-            <View className="flex-row items-center gap-1.5">
-              <TextInput
-                className={INPUT_CLASS}
-                value={newName}
-                onChangeText={setNewName}
-                placeholder="新场景"
-                onSubmitEditing={createContext}
-              />
-              <Button size="sm" label="加" variant="secondary" onPress={createContext} />
-            </View>
-          ) : (
-            <Chip label="＋" active={false} onPress={() => setAdding(true)} />
-          )}
-        </View>
       </View>
-      <View>
-        <Text className="mb-2 font-sans text-xs font-semibold text-muted dark:text-muted-dark">
-          可用时间（分钟）
-        </Text>
-        <View className="flex-row flex-wrap items-center gap-2">
-          {TIME_CHIPS.map((minutes) => (
-            <Chip
-              key={minutes}
-              label={String(minutes)}
-              active={availableMinutes === minutes}
-              onPress={() => void update({ availableMinutes: minutes })}
+
+      <View className="gap-3 px-3.5 py-3">
+        <View>
+          <EngineDimLabel title="当前场景" hint="多选 · 匹配任一" />
+          <View className="flex-row flex-wrap items-center gap-1.5">
+            <AnySceneChip
+              active={anyActive}
+              onPress={() => void update({ contextIds: [] })}
             />
-          ))}
-          <CustomMinutesInput
-            onApply={(minutes) => void update({ availableMinutes: minutes })}
-          />
+            {(contexts ?? []).map((context) => (
+              <ContextChip
+                key={context.id}
+                name={context.name}
+                active={!anyActive && contextIds.includes(context.id)}
+                onPress={() => toggleContext(context.id)}
+              />
+            ))}
+            {adding ? (
+              <View className="flex-row items-center gap-1.5">
+                <TextInput
+                  accessibilityLabel="新场景名称"
+                  className={cn(INPUT_CLASS, 'min-w-24 py-1')}
+                  value={newName}
+                  onChangeText={setNewName}
+                  placeholder="新场景"
+                  onSubmitEditing={createContext}
+                />
+                <Button size="sm" label="加" variant="secondary" onPress={createContext} />
+              </View>
+            ) : (
+              <AddSceneChip onPress={() => setAdding(true)} />
+            )}
+          </View>
+        </View>
+
+        <View className="border-t border-border/60 pt-3 dark:border-border-dark">
+          <EngineDimLabel title="可用时间（分钟）" hint="单选" />
+          <View className="flex-row items-center gap-2">
+            <View className="min-w-0 flex-1 flex-row overflow-hidden rounded-md border border-border/80 dark:border-border-dark">
+              {TIME_CHIPS.map((minutes, index) => (
+                <TimeSegment
+                  key={minutes}
+                  minutes={minutes}
+                  isFirst={index === 0}
+                  active={availableMinutes === minutes}
+                  onPress={() => void update({ availableMinutes: minutes })}
+                />
+              ))}
+            </View>
+            <CustomMinutesInput
+              active={!(TIME_CHIPS as readonly number[]).includes(availableMinutes)}
+              onApply={(minutes) => void update({ availableMinutes: minutes })}
+            />
+          </View>
         </View>
       </View>
     </Card>
   );
 }
 
+/** List-area filter chip only — do not reuse for the engine bar. */
 function Chip({
   label,
   active,
@@ -169,11 +276,22 @@ function Chip({
   );
 }
 
-function CustomMinutesInput({ onApply }: { onApply: (minutes: number) => void }) {
+function CustomMinutesInput({
+  active,
+  onApply,
+}: {
+  active: boolean;
+  onApply: (minutes: number) => void;
+}) {
   const [custom, setCustom] = useState('');
   return (
     <TextInput
-      className={`${INPUT_CLASS} h-8 w-20 p-1 text-center`}
+      accessibilityLabel="自定义可用分钟"
+      className={cn(
+        INPUT_CLASS,
+        'h-8 w-16 p-1 text-center text-xs',
+        active && 'border-accent dark:border-accent-dark',
+      )}
       placeholder="自定义"
       keyboardType="number-pad"
       value={custom}
