@@ -6,6 +6,10 @@
 //!   * the native window (created in `setup` — see `start_frontend_server`
 //!     for why the URL is dynamic),
 //!   * the Stronghold plugin (encrypted local secrets),
+//!   * the Notification plugin (local reminder delivery, task 09-30 —
+//!     the web bundle's tauri adapter calls sendNotification /
+//!     isPermissionGranted; desktop has no native scheduling, so the
+//!     app's 30 s JS tick drives in-session delivery),
 //!   * a minimal owner-token command seam (scaffold; see below), and
 //!   * (release builds only) a loopback static file server, because the
 //!     PowerSync web client needs a REAL http origin: it runs its SQLite
@@ -210,6 +214,11 @@ fn stronghold_snapshot_path(app: tauri::AppHandle) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(OwnerTokenStore::default())
+        // Local reminder delivery (task 09-30): registers the notify /
+        // is_permission_granted / request_permission commands + the JS
+        // init script. `init()` needs no extra setup code (unlike the
+        // Stronghold builder, which runs in `setup` below).
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // Initialize the Stronghold plugin with the Argon2 password-hash.
             // The salt lives in the app-local data dir so the derived key is
