@@ -21,6 +21,7 @@ import { FIXTURE_IDS, FIXTURE_NOW } from './fixtures';
 
 const A = FIXTURE_IDS.actions;
 const H = FIXTURE_IDS.habits;
+const R = FIXTURE_IDS.reminders;
 
 let env: TestDb | null = null;
 afterEach(async () => {
@@ -366,6 +367,30 @@ describe('snoozeAction', () => {
       await close();
     }
   });
+
+  it('a re-snooze cancels the previous scheduled Reminder in the same transaction', async () => {
+    const { db, close } = await open(true);
+    try {
+      // A.snoozed carries the fixture scheduled reminder R.snooze.
+      const first = new Date(FIXTURE_NOW.getTime() + 3600_000);
+      const second = new Date(FIXTURE_NOW.getTime() + 2 * 3600_000);
+      await snoozeAction(db, { actionKind: 'next', actionId: A.snoozed, snoozedUntil: first, now: FIXTURE_NOW });
+      await snoozeAction(db, { actionKind: 'next', actionId: A.snoozed, snoozedUntil: second, now: FIXTURE_NOW });
+      const reminders = await db
+        .selectFrom('reminders')
+        .selectAll()
+        .where('action_id', '=', A.snoozed)
+        .orderBy('created_at')
+        .execute();
+      // Exactly one scheduled row survives (the newest target time).
+      const scheduled = reminders.filter((reminder) => reminder.state === 'scheduled');
+      expect(scheduled).toHaveLength(1);
+      expect(scheduled[0]?.fires_at).toBe(toIso(second));
+      expect(reminders.filter((reminder) => reminder.state === 'cancelled')).toHaveLength(2);
+    } finally {
+      await close();
+    }
+  });
 });
 
 describe('trashAction', () => {
@@ -389,6 +414,44 @@ describe('trashAction', () => {
       await expect(trashAction(db, { actionKind: 'next', actionId: A.a, now: FIXTURE_NOW })).rejects.toMatchObject({
         code: 'action.not-found',
       });
+    } finally {
+      await close();
+    }
+  });
+
+  it('cancels the action scheduled Reminders in the same transaction (R8)', async () => {
+    const { db, close } = await open(true);
+    try {
+      // R.snooze is the fixture scheduled reminder pointing at A.snoozed.
+      await trashAction(db, { actionKind: 'next', actionId: A.snoozed, now: FIXTURE_NOW });
+      const reminder = await db
+        .selectFrom('reminders')
+        .selectAll()
+        .where('id', '=', R.snooze)
+        .executeTakeFirst();
+      expect(reminder?.state).toBe('cancelled');
+      expect(reminder?.updated_at).toBe(toIso(FIXTURE_NOW));
+      // The action row is soft-deleted in the same transaction.
+      const row = await db.selectFrom('next_actions').selectAll().where('id', '=', A.snoozed).executeTakeFirst();
+      expect(row?.deleted_at).toBe(toIso(FIXTURE_NOW));
+    } finally {
+      await close();
+    }
+  });
+
+  it('a reminder created by a snooze is cancelled when the action is later trashed', async () => {
+    const { db, close } = await open(true);
+    try {
+      const target = new Date(FIXTURE_NOW.getTime() + 3600_000);
+      await snoozeAction(db, { actionKind: 'next', actionId: A.a, snoozedUntil: target, now: FIXTURE_NOW });
+      await trashAction(db, { actionKind: 'next', actionId: A.a, now: FIXTURE_NOW });
+      const reminders = await db
+        .selectFrom('reminders')
+        .selectAll()
+        .where('action_id', '=', A.a)
+        .execute();
+      expect(reminders).toHaveLength(1);
+      expect(reminders[0]?.state).toBe('cancelled');
     } finally {
       await close();
     }

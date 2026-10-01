@@ -97,16 +97,26 @@ export async function updateCalendarAction(
   return action;
 }
 
-/** Soft delete (Trash = deleted_at set, domain-model.md). */
+/** Soft delete (Trash = deleted_at set, domain-model.md). Cancels the
+ *  action's scheduled Reminders in the same transaction — the
+ *  `trashAction` R8 pattern (a deleted action must never notify). */
 export async function trashCalendarAction(
   db: NextdoDb,
   args: { id: string; now: Date },
 ): Promise<void> {
   const nowIso = toIso(args.now);
   await loadRow(db, args.id);
-  await db
-    .updateTable('calendar_actions')
-    .set({ deleted_at: nowIso, updated_at: nowIso })
-    .where('id', '=', args.id)
-    .execute();
+  await db.transaction().execute(async (tx) => {
+    await tx
+      .updateTable('calendar_actions')
+      .set({ deleted_at: nowIso, updated_at: nowIso })
+      .where('id', '=', args.id)
+      .execute();
+    await tx
+      .updateTable('reminders')
+      .set({ state: 'cancelled', updated_at: nowIso })
+      .where('action_id', '=', args.id)
+      .where('state', '=', 'scheduled')
+      .execute();
+  });
 }

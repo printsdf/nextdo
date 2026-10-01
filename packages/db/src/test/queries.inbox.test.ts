@@ -295,6 +295,51 @@ describe('applyClarify', () => {
     }
   });
 
+  it('calendar-action: startsAt within 60 min → a scheduled Reminder in the same transaction (important, startsAt − 15 min)', async () => {
+    const { db, close } = await open(true);
+    try {
+      const startsAt = new Date(FIXTURE_NOW.getTime() + 30 * 60_000);
+      const result = await applyClarify(db, {
+        inboxId: I.plain,
+        answers: answers({ myResponsibility: true, fixedTime: true }),
+        target: { estMinutes: 60, startsAt: toIso(startsAt) },
+        now: FIXTURE_NOW,
+      });
+      const actionId = result.createdIds[0] as string;
+      const reminder = await db
+        .selectFrom('reminders')
+        .selectAll()
+        .where('action_id', '=', actionId)
+        .executeTakeFirst();
+      expect(reminder).toBeDefined();
+      expect(reminder?.state).toBe('scheduled');
+      expect(reminder?.intensity).toBe('important');
+      expect(reminder?.fires_at).toBe(toIso(new Date(startsAt.getTime() - 15 * 60_000)));
+    } finally {
+      await close();
+    }
+  });
+
+  it('calendar-action: startsAt beyond 60 min → NO reminder', async () => {
+    const { db, close } = await open(true);
+    try {
+      const result = await applyClarify(db, {
+        inboxId: I.plain,
+        answers: answers({ myResponsibility: true, fixedTime: true }),
+        target: { estMinutes: 60, startsAt: toIso(new Date(FIXTURE_NOW.getTime() + 2 * 3600_000)) },
+        now: FIXTURE_NOW,
+      });
+      const reminder = await db
+        .selectFrom('reminders')
+        .selectAll()
+        .where('action_id', '=', result.createdIds[0] as string)
+        .executeTakeFirst();
+      expect(reminder).toBeUndefined();
+    } finally {
+      await close();
+    }
+  });
+
   it('project-attach: NextAction points at the existing project and inherits its value', async () => {
     const { db, close } = await open(true);
     try {
@@ -478,6 +523,39 @@ describe('reclarifyAction', () => {
       // the old row is kept (soft-deleted) for history
       const oldRow = await db.selectFrom('next_actions').selectAll().where('id', '=', A.a).executeTakeFirst();
       expect(oldRow?.deleted_at).toBe(toIso(FIXTURE_NOW));
+    } finally {
+      await close();
+    }
+  });
+
+  it('re-clarify to calendar (startsAt within 60 min): the replacement gets a scheduled Reminder and the old action reminders are cancelled', async () => {
+    const { db, close } = await open(true);
+    try {
+      // A.snoozed carries the fixture scheduled reminder R.snooze.
+      const startsAt = new Date(FIXTURE_NOW.getTime() + 30 * 60_000);
+      const result = await reclarifyAction(db, {
+        actionKind: 'next',
+        actionId: A.snoozed,
+        answers: reclarify({ fixedTime: true }),
+        target: { estMinutes: 30, startsAt: toIso(startsAt) },
+        now: FIXTURE_NOW,
+      });
+      expect(result.outcome).toEqual({ kind: 'calendar-action' });
+      const newId = result.createdIds[0] as string;
+      const newReminder = await db
+        .selectFrom('reminders')
+        .selectAll()
+        .where('action_id', '=', newId)
+        .executeTakeFirst();
+      expect(newReminder?.state).toBe('scheduled');
+      expect(newReminder?.intensity).toBe('important');
+      // The replaced action no longer exists — its reminder is cancelled.
+      const oldReminder = await db
+        .selectFrom('reminders')
+        .selectAll()
+        .where('action_id', '=', A.snoozed)
+        .executeTakeFirst();
+      expect(oldReminder?.state).toBe('cancelled');
     } finally {
       await close();
     }
