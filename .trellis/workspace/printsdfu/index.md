@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
+- **Total Sessions**: 14
 - **Last Active**: 2026-10-01
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~501 | Active |
+| `journal-1.md` | ~540 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-10-01 | Unblock v0.1.2 release: EAS image pin + Babel plugin resolution | `d88585c`, `516cc5d` | `feature/reminder-notification-delivery` |
 | 13 | 2026-10-01 | 提醒通知投递、稍后提醒与厘清返回体验优化 | `771b026`, `16b7b84`, `4c35b76` | `feature/reminder-notification-delivery` |
 | 12 | 2026-09-29 | Mobile UI/UX Ergonomics and Usability Optimization | `5117298`, `aa33c07` | `main` |
 | 11 | 2026-09-29 | Web 返回修复 + 0.1.2 Android 发布 | `6485b2b`, `d4b7bea`, `07fb5a9`, `08c0d99`, `c37f839`, `1e4f65e`, `0691436` | `fix/web-go-back-fallback` |
