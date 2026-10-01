@@ -309,8 +309,7 @@ describe('Now screen', () => {
     expect(screen.getByText('随时')).toBeTruthy();
   });
 
-  it('the empty pool shows the capture hint', async () => {
-    setPool([]);
+  it('the empty pool shows the capture hint', async () => {    setPool([]);
     renderRouter('app', { initialUrl: '/(tabs)/now' });
     await waitFor(() => expect(screen.getByText('执行池是空的')).toBeTruthy());
     expect(screen.getByText(/去收件箱捕获一条/)).toBeTruthy();
@@ -389,7 +388,9 @@ describe('Now screen', () => {
 
     // A 15-minute slot must drop the 25-min action (too-long) — from the
     // hero AND the list; the pool recomputes from the same settings.
-    fireEvent.press(screen.getByRole('button', { name: '15' }));
+    // The engine bar's minutes option is addressed by its a11y label
+    // (the row's underline is the single-select state, not a chip).
+    fireEvent.press(screen.getByRole('button', { name: '设置可用时间：15 分钟' }));
     await waitFor(() => {
       expect(screen.getAllByText('短任务')).toHaveLength(2);
       expect(screen.queryByText('长任务')).toBeNull();
@@ -416,5 +417,104 @@ describe('Now screen', () => {
     // Skipping again wraps back to the top (carousel semantics).
     fireEvent.press(screen.getByRole('button', { name: '换一个' }));
     await waitFor(() => expect(screen.getByText('25 分钟')).toBeTruthy());
+  });
+
+  // ── Engine-context bar (the redone 条件栏) ────────────────────────────
+  // Regression guard for the rejected design: the selector used to reuse
+  // `ContextChip`, whose djb2 name hash gave `office` a warm earth-3 fill
+  // that read as "selected" while it was not. Selection must be the ONLY
+  // thing that changes a scene option's appearance.
+  describe('engine-context bar', () => {
+    it('an unselected scene looks identical whatever its name, and only selection lights up', async () => {
+      ctxRef.current = [
+        context('c-1', 'office'), // the hash that used to fake a selection
+        context('c-2', 'computer'),
+        context('c-3', '厨房'), // a user-created name, longer label
+      ];
+      setPool([nextAction({ id: 'a', title: '任务甲', contextIds: ['c-1'] })]);
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      // Nothing selected yet → the bar reports 任意 and NO scene is lit.
+      // (Wait on a SCENE, not on 任意 — 任意 renders before the context
+      // query resolves, so it is not a readiness signal.)
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: '选择场景：office' })).toBeTruthy(),
+      );
+      expect(screen.getByText('任意')).toBeTruthy();
+      for (const name of ['office', 'computer', '厨房']) {
+        expect(screen.getByRole('button', { name: `选择场景：${name}` })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: `取消场景：${name}` })).toBeNull();
+      }
+      expect(screen.queryByText(/已选 \d+ 个/)).toBeNull();
+
+      // The real guard: an UNSELECTED option's rendered style is byte-identical
+      // across names. The rejected design gave `office` a warmer earth-3
+      // fill purely from `contextTone('office')`, so it read as "selected"
+      // while it was not. Every unselected scene — seed or user-created —
+      // must share one class string.
+      const unselectedClasses = ['office', 'computer', '厨房'].map(
+        (name) => screen.getByRole('button', { name: `选择场景：${name}` }).props.className,
+      );
+      expect(new Set(unselectedClasses).size).toBe(1);
+
+      // …and selection is the one thing that changes it.
+      fireEvent.press(screen.getByRole('button', { name: '选择场景：office' }));
+      await waitFor(() => expect(screen.getByText('已选 1 个')).toBeTruthy());
+      const selectedClass = screen.getByRole('button', { name: '取消场景：office' }).props
+        .className;
+      expect(selectedClass).not.toBe(unselectedClasses[0]);
+      expect(screen.getByRole('button', { name: '选择场景：computer' }).props.className).toBe(
+        unselectedClasses[0],
+      );
+      expect(screen.getByRole('button', { name: '选择场景：厨房' }).props.className).toBe(
+        unselectedClasses[0],
+      );
+
+      expect(screen.getByRole('button', { name: '取消场景：office' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: '选择场景：office' })).toBeNull();
+      // The other two are untouched — `computer` (same earth tone as
+      // before) never gains a selected state.
+      expect(screen.getByRole('button', { name: '选择场景：computer' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '选择场景：厨房' })).toBeTruthy();
+      // 「任意」 is no longer a peer chip in the flow; it is the state
+      // readout, and clearing is a labelled action on it.
+      expect(
+        screen.getByRole('button', { name: '清除场景选择，回到任意' }),
+      ).toBeTruthy();
+
+      fireEvent.press(screen.getByRole('button', { name: '清除场景选择，回到任意' }));
+      await waitFor(() => expect(screen.getByText('任意')).toBeTruthy());
+      expect(screen.queryByText(/已选 \d+ 个/)).toBeNull();    });
+
+    it('scenes are multi-select (OR) and minutes are single-select', async () => {
+      ctxRef.current = [context('c-1', '电脑'), context('c-2', '手机')];
+      setPool([
+        nextAction({ id: 'a', title: '电脑活', contextIds: ['c-1'] }),
+        nextAction({ id: 'b', title: '手机活', contextIds: ['c-2'] }),
+      ]);
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      // Two scenes lit at once — the multi/OR semantics, no hint text.
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: '选择场景：电脑' })).toBeTruthy(),
+      );
+      fireEvent.press(screen.getByRole('button', { name: '选择场景：电脑' }));
+      fireEvent.press(screen.getByRole('button', { name: '选择场景：手机' }));
+      await waitFor(() => expect(screen.getByText('已选 2 个')).toBeTruthy());
+      expect(screen.getByRole('button', { name: '取消场景：电脑' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '取消场景：手机' })).toBeTruthy();
+      // Both tagged actions are eligible under the engine's OR contract.
+      await waitFor(() => expect(screen.getByText('2/2 项')).toBeTruthy());
+
+      // Minutes: picking 120 REPLACES the previous choice (single-select),
+      // and the newly chosen one is the only one reporting selected.
+      fireEvent.press(screen.getByRole('button', { name: '设置可用时间：60 分钟' }));
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: '设置可用时间：120 分钟' })).toBeTruthy(),
+      );
+      // 60 is the default → re-selecting it changes nothing.
+      fireEvent.press(screen.getByRole('button', { name: '设置可用时间：120 分钟' }));
+      await waitFor(() => expect(screen.getByText('2/2 项')).toBeTruthy());
+    });
   });
 });

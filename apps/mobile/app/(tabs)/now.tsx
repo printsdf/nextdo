@@ -38,110 +38,197 @@ import { KIND_LABELS } from '@/lib/kind-labels';
 import { formatLocalDate, formatLocalDateTime, formatDueLabel } from '@/lib/format';
 import { SnoozeSheet } from '@/components/snooze-sheet';
 
-const TIME_CHIPS = [15, 30, 60, 120] as const;
+const TIME_CHIPS = [15, 30, 60, 120];
 
-const INPUT_CLASS =
-  'rounded-md border border-border/80 bg-surface p-2 text-sm text-ink placeholder:text-muted dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
+/** 32px visual chip (h-8) + 6pt vertical hitSlop = 44pt tap target (spec/accessibility).
+ *  4pt left/right ensures adjacent targets don't overlap with 8px (gap-2) spacing. */
+const CHIP_HIT_SLOP = { top: 6, bottom: 6, left: 4, right: 4 } as const;
 
-/** Row label + right-side mode hint (multi vs single) — keeps the two
- *  engine dimensions legible without a separate legend. */
-function EngineDimLabel({ title, hint }: { title: string; hint: string }) {
+/** Extended hitSlop for inputs. */
+const FIELD_HIT_SLOP = { top: 6, bottom: 6 } as const;
+
+const SCENE_UNSELECTED_CLASS =
+  'h-8 flex-row items-center rounded-lg border border-border/80 bg-surface px-3 active:bg-surface-container dark:border-border-dark dark:bg-surface-dark dark:active:bg-surface-container-dark';
+
+const SCENE_SELECTED_CLASS =
+  'h-8 flex-row items-center rounded-lg border border-accent bg-accent px-3 active:opacity-90 dark:border-accent-dark dark:bg-accent-dark';
+
+/** One dimension's heading: a muted label on the left, the current STATE capsule on
+ *  the right. The state capsule is the single place 「任意」 lives — it is a clear-
+ *  selection action, not a peer scene in the options flow. */
+function ConditionLabel({
+  title,
+  state,
+  onClear,
+}: {
+  title: string;
+  state?: string;
+  onClear?: () => void;
+}) {
   return (
-    <View className="mb-1.5 flex-row items-baseline justify-between gap-2">
-      <Text className="font-sans text-xs font-semibold text-ink dark:text-ink-dark">{title}</Text>
-      <Text className="font-sans text-[11px] text-muted dark:text-muted-dark">{hint}</Text>
+    <View className="mb-2.5 flex-row items-center justify-between">
+      <Text className="font-sans text-xs font-semibold text-muted dark:text-muted-dark">
+        {title}
+      </Text>
+      {onClear !== undefined && state !== undefined ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="清除场景选择，回到任意"
+          accessibilityState={{ selected: false }}
+          hitSlop={CHIP_HIT_SLOP}
+          onPress={onClear}
+          className="h-6 flex-row items-center gap-1 rounded-full border border-border/80 bg-surface px-2.5 active:bg-surface-container dark:border-border-dark dark:bg-surface-dark dark:active:bg-surface-container-dark"
+        >
+          <Text className="font-sans text-[11px] font-medium text-accent dark:text-accent-dark">
+            {state}
+          </Text>
+          <Text className="font-sans text-[11px] text-muted dark:text-muted-dark">✕</Text>
+        </Pressable>
+      ) : state !== undefined ? (
+        <View className="h-6 items-center justify-center rounded-full bg-surface-container/70 px-2.5 dark:bg-surface-container-dark/70">
+          <Text className="font-sans text-[11px] font-medium text-muted dark:text-muted-dark">
+            {state}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-/** 「任意」 — clears the multi-select (empty contextIds = all scenes). */
-function AnySceneChip({ active, onPress }: { active: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="任意"
-      accessibilityState={{ selected: active }}
-      hitSlop={{ top: 11, bottom: 11, left: 4, right: 4 }}
-      onPress={onPress}
-      className={cn(
-        'h-[22px] items-center justify-center rounded-full px-2.5',
-        active
-          ? 'bg-secondary-fixed dark:bg-secondary-fixed-dark'
-          : 'border border-border/80 bg-surface dark:border-border-dark dark:bg-surface-dark',
-      )}
-    >
-      <Text
-        className={cn(
-          'text-[11px] font-medium',
-          active
-            ? 'text-accent dark:text-accent-dark'
-            : 'text-muted dark:text-muted-dark',
-        )}
-      >
-        任意
-      </Text>
-    </Pressable>
-  );
-}
-
-/** Dashed “add scene” affordance — not a selection chip. */
-function AddSceneChip({ onPress }: { onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="添加场景"
-      hitSlop={{ top: 11, bottom: 11, left: 4, right: 4 }}
-      onPress={onPress}
-      className="h-[22px] items-center justify-center rounded-full border border-dashed border-border px-2.5 dark:border-border-dark"
-    >
-      <Text className="text-[11px] font-medium text-muted dark:text-muted-dark">＋</Text>
-    </Pressable>
-  );
-}
-
-/** Connected single-select time strip — reads as radio, not multi-toggle. */
-function TimeSegment({
-  minutes,
-  active,
-  isFirst,
+/**
+ * Engine-bar scene option — the MULTI-SELECT (OR) vocabulary:
+ * Clean, serene paper tile when idle; lights up in terracotta with a round
+ * checkmark badge when selected.
+ *
+ * Appearance is a pure function of `selected`: every scene — seed or
+ * user-created, `office` or `厨房` — renders through the exact same class string.
+ * Nothing depends on the name (preventing false selection signals from hash tones).
+ */
+function SceneOption({
+  label,
+  selected,
   onPress,
 }: {
-  minutes: number;
-  active: boolean;
-  isFirst: boolean;
+  label: string;
+  selected: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={String(minutes)}
-      accessibilityState={{ selected: active }}
-      hitSlop={{ top: 8, bottom: 8, left: 0, right: 0 }}
+      accessibilityLabel={`${selected ? '取消场景' : '选择场景'}：${label}`}
+      accessibilityState={{ selected }}
+      hitSlop={CHIP_HIT_SLOP}
       onPress={onPress}
-      className={cn(
-        'h-8 flex-1 items-center justify-center',
-        !isFirst && 'border-l border-border/80 dark:border-border-dark',
-        active ? 'bg-accent dark:bg-accent-dark' : 'bg-surface dark:bg-surface-dark',
-      )}
+      className={selected ? SCENE_SELECTED_CLASS : SCENE_UNSELECTED_CLASS}
     >
+      {selected ? (
+        <View className="mr-1.5 h-3.5 w-3.5 items-center justify-center rounded-full bg-on-accent/25 dark:bg-on-accent-dark/25">
+          <Text className="font-sans text-[10px] font-bold leading-none text-on-accent dark:text-on-accent-dark">
+            ✓
+          </Text>
+        </View>
+      ) : null}
       <Text
+        numberOfLines={1}
         className={cn(
           'font-sans text-xs',
-          active
+          selected
             ? 'font-semibold text-on-accent dark:text-on-accent-dark'
             : 'font-medium text-ink dark:text-ink-dark',
         )}
       >
-        {minutes}
+        {label}
       </Text>
     </Pressable>
   );
 }
 
-/** The engine-context bar (scene multi-select OR + time single-select).
- *  Visually distinct from the list-area filter chips further down — earth
- *  ContextChips + a connected time strip, not the floating accent Chip.
- *  Settings are OWNED by NowScreen (single source of truth for `useNow`). */
+/**
+ * Engine-bar minutes option — the SINGLE-SELECT vocabulary:
+ * A subtle tinted terracotta tile with a radio dot indicator when selected,
+ * clearly contrasting with the multi-select checkmark of the scene row.
+ */
+function MinutesOption({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`设置可用时间：${label} 分钟`}
+      accessibilityState={{ selected }}
+      hitSlop={CHIP_HIT_SLOP}
+      onPress={onPress}
+      className={cn(
+        'h-8 min-w-12 flex-row items-center justify-center rounded-lg px-2.5',
+        selected
+          ? 'border border-accent bg-accent/10 dark:border-accent-dark dark:bg-accent-dark/20'
+          : 'border border-border/80 bg-surface active:bg-surface-container dark:border-border-dark dark:bg-surface-dark dark:active:bg-surface-container-dark',
+      )}
+    >
+      {selected ? (
+        <View className="mr-1.5 h-1.5 w-1.5 rounded-full bg-accent dark:bg-accent-dark" />
+      ) : null}
+      <Text
+        className={cn(
+          'font-sans text-xs',
+          selected
+            ? 'font-semibold text-accent dark:text-accent-dark'
+            : 'font-medium text-ink dark:text-ink-dark',
+        )}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** The free-form minutes field, styled at 32px (h-8) to share the row rhythm. */
+function CustomMinutesInput({
+  value,
+  onApply,
+}: {
+  value: number;
+  onApply: (minutes: number) => void;
+}) {
+  const [custom, setCustom] = useState('');
+  const isCustomActive = !TIME_CHIPS.includes(value);
+
+  const applyCustom = () => {
+    const parsed = Math.round(Number(custom));
+    if (Number.isFinite(parsed) && parsed >= 1) onApply(parsed);
+    setCustom('');
+  };
+
+  return (
+    <TextInput
+      className={cn(
+        'h-8 w-20 rounded-lg px-2 text-center font-sans text-xs text-ink placeholder:text-muted dark:text-ink-dark dark:placeholder:text-muted-dark',
+        isCustomActive
+          ? 'border border-accent bg-accent/10 font-semibold text-accent dark:border-accent-dark dark:bg-accent-dark/20 dark:text-accent-dark'
+          : 'border border-border/80 bg-surface dark:border-border-dark dark:bg-surface-dark',
+      )}
+      hitSlop={FIELD_HIT_SLOP}
+      placeholder="自定义"
+      accessibilityLabel="自定义可用时间（分钟）"
+      keyboardType="number-pad"
+      value={custom}
+      onChangeText={setCustom}
+      onSubmitEditing={applyCustom}
+      onEndEditing={applyCustom}
+    />
+  );
+}
+
+/** The engine-context bar (scene chips + time chips, design.md §4.1.1).
+ *  The settings instance is OWNED by NowScreen (single source of truth —
+ *  the pool in `useNow` must recompute on chip changes). */
 function EngineContextBar({
   settings,
   update,
@@ -155,7 +242,8 @@ function EngineContextBar({
 
   const contextIds = settings?.contextIds ?? [];
   const availableMinutes = settings?.availableMinutes ?? 60;
-  const anyActive = contextIds.length === 0;
+  // Empty selection = 「任意」 = runnable anywhere (engine contract).
+  const anyScene = contextIds.length === 0;
 
   const toggleContext = (id: string) => {
     const next = contextIds.includes(id)
@@ -174,73 +262,113 @@ function EngineContextBar({
   };
 
   return (
-    <Card className="gap-0 overflow-hidden p-0">
-      <View className="border-b border-border/70 bg-surface-container px-3.5 py-2 dark:border-border-dark dark:bg-surface-container-dark">
-        <Text className="font-display text-xs font-semibold tracking-tight text-ink dark:text-ink-dark">
-          推荐条件
-        </Text>
+    <Card className="gap-3.5 p-4">
+      {/* Dimension 1 — scenes, MULTI-select / OR. */}
+      <View>
+        <ConditionLabel
+          title="当前场景"
+          state={anyScene ? '任意' : `已选 ${contextIds.length} 个`}
+          {...(anyScene ? {} : { onClear: () => void update({ contextIds: [] }) })}
+        />
+        <View className="flex-row flex-wrap items-center gap-2">
+          {(contexts ?? []).map((context) => (
+            <SceneOption
+              key={context.id}
+              label={context.name}
+              selected={contextIds.includes(context.id)}
+              onPress={() => toggleContext(context.id)}
+            />
+          ))}
+          {adding ? (
+            <View className="flex-row items-center gap-1.5">
+              <TextInput
+                className="h-8 w-24 rounded-lg border border-accent/80 bg-surface px-2.5 font-sans text-xs text-ink placeholder:text-muted dark:border-accent-dark/80 dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark"
+                hitSlop={FIELD_HIT_SLOP}
+                value={newName}
+                onChangeText={setNewName}
+                placeholder="新场景"
+                accessibilityLabel="新场景名称"
+                onSubmitEditing={createContext}
+                autoFocus
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="添加场景"
+                hitSlop={CHIP_HIT_SLOP}
+                onPress={createContext}
+                className="h-8 items-center justify-center rounded-lg bg-accent px-2.5 active:opacity-85 dark:bg-accent-dark"
+              >
+                <Text className="font-sans text-xs font-semibold text-on-accent dark:text-on-accent-dark">
+                  加
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="取消添加场景"
+                hitSlop={CHIP_HIT_SLOP}
+                onPress={() => {
+                  setAdding(false);
+                  setNewName('');
+                }}
+                className="h-8 items-center justify-center rounded-lg px-1.5 active:bg-surface-container dark:active:bg-surface-container-dark"
+              >
+                <Text className="font-sans text-xs text-muted dark:text-muted-dark">✕</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="新建场景"
+              accessibilityState={{ selected: false }}
+              hitSlop={CHIP_HIT_SLOP}
+              onPress={() => setAdding(true)}
+              className="h-8 flex-row items-center gap-1 rounded-lg border border-border/80 bg-surface px-2.5 active:bg-surface-container dark:border-border-dark dark:bg-surface-dark dark:active:bg-surface-container-dark"
+            >
+              <Text className="font-sans text-sm font-semibold leading-none text-accent dark:text-accent-dark">
+                +
+              </Text>
+              <Text className="font-sans text-xs font-medium text-muted dark:text-muted-dark">
+                场景
+              </Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
-      <View className="gap-3 px-3.5 py-3">
-        <View>
-          <EngineDimLabel title="当前场景" hint="多选 · 匹配任一" />
-          <View className="flex-row flex-wrap items-center gap-1.5">
-            <AnySceneChip
-              active={anyActive}
-              onPress={() => void update({ contextIds: [] })}
-            />
-            {(contexts ?? []).map((context) => (
-              <ContextChip
-                key={context.id}
-                name={context.name}
-                active={!anyActive && contextIds.includes(context.id)}
-                onPress={() => toggleContext(context.id)}
-              />
-            ))}
-            {adding ? (
-              <View className="flex-row items-center gap-1.5">
-                <TextInput
-                  accessibilityLabel="新场景名称"
-                  className={cn(INPUT_CLASS, 'min-w-24 py-1')}
-                  value={newName}
-                  onChangeText={setNewName}
-                  placeholder="新场景"
-                  onSubmitEditing={createContext}
-                />
-                <Button size="sm" label="加" variant="secondary" onPress={createContext} />
-              </View>
-            ) : (
-              <AddSceneChip onPress={() => setAdding(true)} />
-            )}
-          </View>
-        </View>
+      {/* Subtle divider between scene and time dimensions */}
+      <View className="h-px bg-border/40 dark:bg-border-dark/40" />
 
-        <View className="border-t border-border/60 pt-3 dark:border-border-dark">
-          <EngineDimLabel title="可用时间（分钟）" hint="单选" />
-          <View className="flex-row items-center gap-2">
-            <View className="min-w-0 flex-1 flex-row overflow-hidden rounded-md border border-border/80 dark:border-border-dark">
-              {TIME_CHIPS.map((minutes, index) => (
-                <TimeSegment
-                  key={minutes}
-                  minutes={minutes}
-                  isFirst={index === 0}
-                  active={availableMinutes === minutes}
-                  onPress={() => void update({ availableMinutes: minutes })}
-                />
-              ))}
-            </View>
-            <CustomMinutesInput
-              active={!(TIME_CHIPS as readonly number[]).includes(availableMinutes)}
-              onApply={(minutes) => void update({ availableMinutes: minutes })}
+      {/* Dimension 2 — minutes, SINGLE-select. */}
+      <View>
+        <ConditionLabel title="可用时间（分钟）" />
+        <View className="flex-row flex-wrap items-center gap-2">
+          {TIME_CHIPS.map((minutes) => (
+            <MinutesOption
+              key={minutes}
+              label={String(minutes)}
+              selected={availableMinutes === minutes}
+              onPress={() => void update({ availableMinutes: minutes })}
             />
-          </View>
+          ))}
+          <CustomMinutesInput
+            value={availableMinutes}
+            onApply={(minutes) => void update({ availableMinutes: minutes })}
+          />
         </View>
       </View>
     </Card>
   );
 }
 
-/** List-area filter chip only — do not reuse for the engine bar. */
+/**
+ * The LIST-AREA filter chip (the row under the hero card) — and nothing else.
+ *
+ * It stays a soft PILL precisely so it does NOT look like the engine bar's
+ * inputs: the pills down here only trim the list, while the bar's rect tiles
+ * and underlined numbers decide what the engine recommends. The engine bar
+ * must not reuse this component (nor `ContextChip`, whose name-keyed earth
+ * tones fake a "selected" look on an unselected scene).
+ */
 function Chip({
   label,
   active,
@@ -273,35 +401,6 @@ function Chip({
         {label}
       </Text>
     </Pressable>
-  );
-}
-
-function CustomMinutesInput({
-  active,
-  onApply,
-}: {
-  active: boolean;
-  onApply: (minutes: number) => void;
-}) {
-  const [custom, setCustom] = useState('');
-  return (
-    <TextInput
-      accessibilityLabel="自定义可用分钟"
-      className={cn(
-        INPUT_CLASS,
-        'h-8 w-16 p-1 text-center text-xs',
-        active && 'border-accent dark:border-accent-dark',
-      )}
-      placeholder="自定义"
-      keyboardType="number-pad"
-      value={custom}
-      onChangeText={setCustom}
-      onSubmitEditing={() => {
-        const parsed = Math.round(Number(custom));
-        if (Number.isFinite(parsed) && parsed >= 1) onApply(parsed);
-        setCustom('');
-      }}
-    />
   );
 }
 
