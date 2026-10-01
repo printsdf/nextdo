@@ -53,6 +53,9 @@ export {
   trashAction,
   updateNextAction,
 } from './queries/actions';
+// Reminder read (the delivery layer's source of truth — task 09-30).
+export { listScheduledReminders } from './queries/reminders';
+export type { ScheduledReminderRow } from './queries/reminders';
 // Project mutations.
 export { addProject, trashProject, updateProject } from './queries/projects';
 // Waiting / someday / calendar / context lists (review + Now screens).

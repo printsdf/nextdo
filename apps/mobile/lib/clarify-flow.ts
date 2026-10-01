@@ -83,7 +83,11 @@ interface WizardBase {
   depth: number;
   /** The answers given so far, in order (the decision-summary card). */
   answered: AnsweredQuestion[];
+  /** History stack of previous states to support step-by-step back navigation. */
+  history: WizardSnapshot[];
 }
+
+export type WizardSnapshot = Omit<WizardState, 'history'>;
 
 export type WizardState = WizardBase &
   (
@@ -162,6 +166,8 @@ export type WizardAction =
    *  depth/answered unchanged — the preview is the form's confirmation
    *  phase, not a step of its own). */
   | { type: 'back-to-form' }
+  /** Step back to the previous question/step or form phase. */
+  | { type: 'back' }
   | { type: 'form-error'; error: string | null }
   | { type: 'done'; result: WizardResult };
 
@@ -222,6 +228,12 @@ function emptyFields(defaultTitle: string): FormFields {
   };
 }
 
+function toSnapshot(state: WizardState): WizardSnapshot {
+  const snapshot = { ...state };
+  delete (snapshot as { history?: unknown }).history;
+  return snapshot;
+}
+
 /** Entry state: clarify starts at Q1, re-clarify re-enters at Q2.
  *  `initialContextIds` prefills every form's context multi-select
  *  (re-clarify: the existing action's contextIds). */
@@ -236,6 +248,7 @@ export function createWizardState(
     initialContextIds: [...initialContextIds],
     depth: 0,
     answered: [],
+    history: [],
   };
   return mode === 'clarify' ? { ...base, step: 'q1' } : { ...base, step: 'q2' };
 }
@@ -271,19 +284,52 @@ function toForm(
 /** The base fields after a forward move (design §3.1): depth + 1 and the
  *  user's answer recorded (the question title + the button text they
  *  tapped). The caller supplies the destination step. */
-function advanced(state: WizardBase, id: QuestionId, answer: string): WizardBase {
+function advanced(state: WizardState, id: QuestionId, answer: string): WizardBase {
   return {
     mode: state.mode,
     defaultTitle: state.defaultTitle,
     initialContextIds: state.initialContextIds,
     depth: state.depth + 1,
     answered: [...state.answered, { id, question: QUESTION_TITLES[id], answer }],
+    history: [...state.history, toSnapshot(state)],
   };
 }
 
 export function clarifyReducer(state: WizardState, action: WizardAction): WizardState {
   // Terminal — no further navigation within the wizard.
   if (state.step === 'done') return state;
+
+  // Back step: restores previous state from history stack, or exits preview back to form.
+  if (action.type === 'back') {
+    if (state.step === 'preview') {
+      return {
+        mode: state.mode,
+        defaultTitle: state.defaultTitle,
+        initialContextIds: state.initialContextIds,
+        depth: state.depth,
+        answered: state.answered,
+        history: state.history,
+        step: 'form',
+        form: state.form,
+        fields: state.fields,
+        error: null,
+        twoMinute: state.twoMinute,
+        ...(state.projectId !== undefined
+          ? { projectId: state.projectId, projectTitle: state.projectTitle }
+          : {}),
+      };
+    }
+    if (state.history.length > 0) {
+      const previous = state.history[state.history.length - 1];
+      const nextHistory = state.history.slice(0, -1);
+      return {
+        ...previous,
+        history: nextHistory,
+      } as WizardState;
+    }
+    return state;
+  }
+
   // 'done' can be dispatched from ANY step (the form steps, the preview
   // step, and the do-now path straight from q3b) — the screen submits the
   // db transaction first.
@@ -297,6 +343,7 @@ export function clarifyReducer(state: WizardState, action: WizardAction): Wizard
       // The do-now YES button never parks in a form — its answer lands
       // here (design §3.1).
       answered: isDoNow ? [...state.answered, DO_NOW_ANSWER] : state.answered,
+      history: state.history,
       step: 'done',
       result: action.result,
     };
@@ -392,6 +439,7 @@ export function clarifyReducer(state: WizardState, action: WizardAction): Wizard
             initialContextIds: state.initialContextIds,
             depth: state.depth,
             answered: state.answered,
+            history: state.history,
             step: 'preview',
             form: state.form,
             fields: state.fields,
@@ -416,6 +464,7 @@ export function clarifyReducer(state: WizardState, action: WizardAction): Wizard
           initialContextIds: state.initialContextIds,
           depth: state.depth,
           answered: state.answered,
+          history: state.history,
           step: 'form',
           form: state.form,
           fields: state.fields,

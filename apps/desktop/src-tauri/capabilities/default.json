@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the Nextdo desktop main window: core Tauri permissions plus the Stronghold plugin commands needed to store/read the owner token.",
+  "description": "Default capability for the Nextdo desktop main window: core Tauri permissions, the Stronghold plugin commands needed to store/read the owner token, and the notification plugin commands for local reminder delivery (task 09-30).",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "stronghold:default",
-    "stronghold:allow-remove-store-record"
+    "stronghold:allow-remove-store-record",
+    "notification:default"
   ]
 }

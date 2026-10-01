@@ -233,13 +233,18 @@ A rule generating a recurring action (Proposal §7).
   | `tonight` | 21:00 device-local today; if `now ≥ 21:00`, 21:00 next day |
   | `tomorrow` | 09:00 device-local next day |
 - **Platform capability matrix** — the snooze/skip/complete transactions are
-  identical on every platform; only delivery differs:
+  identical on every platform; only delivery differs (v1 implementation,
+  task 09-30-reminder-notification-delivery):
   | Platform | Delivery | In-notification actions |
   |----------|----------|-------------------------|
-  | Mobile (iOS/Android) | expo-notifications (local) | 完成 / 推迟 / 跳过 buttons |
-  | Desktop (Tauri) | Web Notification API (display only — the API has no notification action buttons) | none: the notification deep-links into the app and the user acts in-app via the same transactions |
-  Missed delivery on any platform: the `Reminder` row stays the source of truth and
-  the item surfaces as "due" on the Now screen.
+  | Mobile (iOS/Android) | expo-notifications (local, OS-persisted — survives force-kill; the reminder row ID is the OS notification `identifier`, reconciled on launch/foreground/row change) | none in v1: tap deep-links to the Now tab (完成 / 推迟 / 跳过 from the notification is post-MVP) |
+  | Desktop (Tauri) | tauri-plugin-notification 2.4.0 — **no native future scheduling on any desktop OS** (verified in the plugin source): a 30s in-app tick fires due rows while the app runs; nothing fires while the app is closed (v1 limitation) | none: click only focuses the app (the plugin has no desktop click callback) |
+  Every device delivers its own scheduled rows (no cross-device arbitration —
+  one reminder may fire on each online device). Missed delivery on any
+  platform: the `Reminder` row stays the source of truth and the item
+  surfaces as "due" on the Now screen. The delivery layer never writes
+  `state = "fired"` (the OS fires while the app is terminated); rows stay
+  `scheduled` until a business transaction cancels them.
 
 ### FocusSession (Proposal §9)
 - `actionId`, `actionKind`, `mode: "preset" | "free"`,
@@ -310,6 +315,16 @@ the DB layer applies, atomically, in one transaction per user intent.
 All five steps in one local transaction (synced in the background — see
 app/state-management.md). Project action coverage is **not** updated here; it is
 derived on query.
+
+**Reminder-cancel is a property of every action-exit path** (task
+09-30-reminder-notification-delivery): any transaction that deletes or
+replaces an action must cancel its `scheduled` Reminders in the same
+transaction — `completeAction` (step 4), `trashAction` (next/habit/calendar
+via `ACTION_TABLES`), `trashCalendarAction`, the re-clarify replace path
+(soft-deletes the old action and does not go through `completeAction`, so it
+cancels explicitly), and re-snooze (replaces the reminder). The reconcile
+loop on each device is the safety net for cross-device races, not the
+primary mechanism.
 
 ## Invariants
 

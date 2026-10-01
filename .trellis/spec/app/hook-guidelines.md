@@ -52,6 +52,10 @@
    it on the screen from the app clock — precedent: `isProjectStalled(card,
    now)` in `use-project-cards.ts` (wraps the db-layer `isStalled` predicate;
    the watch mapper must not tick).
+   **Documented exception**: sub-minute delivery/timing loops that the app
+   clock (1/min) cannot express may read `new Date()` inside a dedicated
+   background hook — the module doc must state the exception (precedent:
+   `use-reminder-delivery.ts`, desktop 30s tick).
 5. A hook must be safe to call unconditionally (rules of hooks); conditional logic goes
    inside the hook.
 6. PowerSync watch results: `@powersync/react` types `useQuery`'s `error` as

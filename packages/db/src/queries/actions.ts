@@ -231,9 +231,11 @@ export async function skipAction(
 }
 
 /**
- * Snooze: sets snoozedUntil + lastSnoozedAt, resets consecutiveSkips, and
- * creates the matching Reminder (domain-model.md: "Snooze is a DB-only
- * state"; reminder row = source of truth for delivery).
+ * Snooze: sets snoozedUntil + lastSnoozedAt, resets consecutiveSkips,
+ * cancels the action's still-scheduled Reminders, and creates the matching
+ * new Reminder (domain-model.md: "Snooze is a DB-only state"; reminder row
+ * = source of truth for delivery — a re-snooze replaces the previous
+ * scheduled reminder so only the new target time ever fires).
  */
 export async function snoozeAction(
   db: NextdoDb,
@@ -256,6 +258,15 @@ export async function snoozeAction(
       })
       .where('id', '=', actionId)
       .execute();
+    // The previous scheduled reminder (if any) is cancelled in the same
+    // transaction — otherwise a re-snooze would keep the old target time
+    // armed alongside the new one.
+    await tx
+      .updateTable('reminders')
+      .set({ state: 'cancelled', updated_at: nowIso })
+      .where('action_id', '=', actionId)
+      .where('state', '=', 'scheduled')
+      .execute();
     await tx
       .insertInto('reminders')
       .values({
@@ -273,7 +284,14 @@ export async function snoozeAction(
   });
 }
 
-/** Soft delete (Trash = deleted_at set, domain-model.md). */
+/**
+ * Soft delete (Trash = deleted_at set, domain-model.md).
+ *
+ * The action's scheduled Reminders are cancelled in the SAME transaction
+ * (the `completeAction` step-4 pattern) — a trashed action must never
+ * notify at its scheduled time (task 09-30 R8: before this fix the
+ * notification kept firing for deleted actions).
+ */
 export async function trashAction(
   db: NextdoDb,
   args: { actionKind: ActionKind; actionId: string; now: Date },
@@ -282,9 +300,17 @@ export async function trashAction(
   const nowIso = toIso(now);
   const table = ACTION_TABLES[actionKind];
   await loadActionRow(db, actionKind, actionId);
-  await db
-    .updateTable(table)
-    .set({ deleted_at: nowIso, updated_at: nowIso })
-    .where('id', '=', actionId)
-    .execute();
+  await db.transaction().execute(async (tx) => {
+    await tx
+      .updateTable(table)
+      .set({ deleted_at: nowIso, updated_at: nowIso })
+      .where('id', '=', actionId)
+      .execute();
+    await tx
+      .updateTable('reminders')
+      .set({ state: 'cancelled', updated_at: nowIso })
+      .where('action_id', '=', actionId)
+      .where('state', '=', 'scheduled')
+      .execute();
+  });
 }

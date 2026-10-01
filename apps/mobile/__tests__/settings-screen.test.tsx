@@ -131,6 +131,9 @@ jest.mock('@nextdo/db', () => {
     },
     subscribeAppStream: async () => undefined,
     wrapDb: () => ({}),
+    // The delivery hook's source query (task 09-30 — the root layout
+    // mounts useReminderDelivery in every renderRouter test).
+    listScheduledReminders: async () => [],
     seedDefaultContexts: async () => 0,
     isReactNativeRuntime: () => false,
     queryEnginePool: async () => ({ actions: [], calendar: [], projects: [] }),
@@ -162,6 +165,9 @@ jest.mock('@powersync/react', () => {
     init: async () => undefined,
     connect: () => Promise.resolve(undefined),
     close: async () => undefined,
+    // The delivery hook subscribes to local changes (task 09-30) — a
+    // no-op subscription in tests (the mocked queries never fire it).
+    onChange: () => () => undefined,
   };
   // Stable identity across renders (the useQuery mock must not loop
   // recompute effects — same note as tabs.smoke.test.tsx).
@@ -179,6 +185,13 @@ jest.mock('@powersync/react', () => {
     useStatus: () => ({ status: 'synced', isSynced: true }),
   };
 });
+
+// The root layout mounts the delivery engine (task 09-30) — jest runs as
+// Platform 'ios', so the real native adapter drives expo-notifications
+// (mocked: idle OS state — nothing pending, permission undetermined).
+jest.mock('expo-notifications', () => mockExpoNotifications);
+
+import { mockExpoNotifications } from './mocks/expo-notifications';
 
 import { render } from '@testing-library/react-native';
 import { act, fireEvent, renderRouter, screen } from 'expo-router/testing-library';
@@ -220,6 +233,14 @@ beforeEach(() => {
   mockFetchCalls = 0;
   mockConnectorConfigs = [];
   hook = null;
+  // Idle OS permission state (the notifications block tests override it
+  // per case — task 09-30 R5).
+  mockExpoNotifications.getPermissionsAsync.mockResolvedValue({
+    status: 'undetermined',
+    granted: false,
+    canAskAgain: true,
+    expires: 'never',
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -476,6 +497,51 @@ describe('settings cloud-sync block', () => {
     expect(mockFetchCalls).toBe(0); // zero network round-trips
     expect(mockAuth.storedToken).toBeNull();
     expect(mockAuth.storedConfig).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Settings — notifications block (task 09-30 R5): the OS permission
+ * state through useReminderPermission (the idle mock = undetermined;
+ * per-case overrides drive the other two states).
+ * ------------------------------------------------------------------ */
+describe('settings notifications block (task 09-30 R5)', () => {
+  it('undetermined → the 尚未授权 copy, no 去系统设置 button', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    expect(screen.getByText('提醒通知')).toBeTruthy();
+    expect(screen.getByText(/尚未授权/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '去系统设置' })).toBeNull();
+  });
+
+  it('granted → the 已授权 copy', async () => {
+    mockExpoNotifications.getPermissionsAsync.mockResolvedValue({
+      status: 'granted',
+      granted: true,
+      canAskAgain: true,
+      expires: 'never',
+    });
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    expect(screen.getByText(/已授权/)).toBeTruthy();
+    expect(screen.queryByText(/尚未授权/)).toBeNull();
+  });
+
+  it('denied (iOS) → the 通知已被拒绝 copy + the 去系统设置 button', async () => {
+    mockExpoNotifications.getPermissionsAsync.mockResolvedValue({
+      status: 'denied',
+      granted: false,
+      canAskAgain: false,
+      expires: 'never',
+    });
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    expect(screen.getByText(/通知已被拒绝/)).toBeTruthy();
+    // iOS under jest: the button (not the Android text guidance) renders.
+    expect(screen.getByRole('button', { name: '去系统设置' })).toBeTruthy();
   });
 });
 

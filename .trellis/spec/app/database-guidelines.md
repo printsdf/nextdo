@@ -23,7 +23,8 @@ UI:
   endpoint's apply logic; never in `packages/db`.)
 - One file per aggregate in `packages/db/src/queries/` (`actions.ts`, `calendar.ts`,
   `contexts.ts`, `focus.ts`, `habits.ts`, `inbox.ts`, `pool.ts`, `projects.ts`,
-  `references.ts`, `reviews.ts`, `someday.ts`, `waiting.ts`, `watch-queries.ts`),
+  `references.ts`, `reminders.ts`, `reviews.ts`, `someday.ts`, `waiting.ts`,
+  `watch-queries.ts`),
   exporting named query functions with fully typed parameters and return types
   (Kysely infers row types from `schema.ts`).
 - Query functions take a `db` handle (injected) so they are testable against a fixture
@@ -246,7 +247,11 @@ UI:
   Sync Stream name and subscription setup live in `packages/db/src/powersync.ts`;
   each React watch-query subscription is owned and cleaned up by the data hook
   that creates it (per Hook Guidelines). The instance, connector, schema, and
-  SQL stay exclusively in `packages/db`.
+  SQL stay exclusively in `packages/db`. App-level background subscriptions may
+  call `powersync.onChange(handler, { tables })` on the `usePowerSync()`
+  instance — handler takes the `{ onChange }` object form, returns a dispose
+  function owned by the mounting hook (precedent: `use-reminder-delivery.ts`,
+  mounted at the root layout for reminder delivery).
 - **Offline from first launch**: the client schema exists locally before the first
   successful sync; the full app works with no network; queued uploads flush on
   reconnect.

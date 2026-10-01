@@ -45,6 +45,11 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     // The native build uses @powersync/react-native; the web SDK (wasm +
     // worker) is never loaded.
     return { type: 'empty' };
+  } else if (moduleName === '@tauri-apps/plugin-notification') {
+    // The native build never instantiates the tauri adapter (platform
+    // selection in lib/reminders/adapters) — stub the desktop-only
+    // notification plugin (task 09-30) out of the native bundle.
+    return { type: 'empty' };
   }
   // Ensure the default resolver still runs.
   return context.resolveRequest(context, moduleName, platform);

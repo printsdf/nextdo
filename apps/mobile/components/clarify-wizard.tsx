@@ -56,6 +56,7 @@ import { useActionTitle } from '@/hooks/use-action-title';
 import { useContexts } from '@/hooks/use-contexts';
 import { useProjects } from '@/hooks/use-projects';
 import { errorMessage } from '@/lib/error-messages';
+import { maybeRequestNotificationPermission } from '@/lib/reminders/permission';
 import { formatDueLabel, formatLocalDate, formatLocalDateTime } from '@/lib/format';
 import {
   buildDoNowSubmission,
@@ -313,6 +314,13 @@ export function WizardBody({
         });
         dispatch({ type: 'done', result: { outcome: result.outcome, createdIds: result.createdIds } });
       }
+      // Calendar targets may create a reminder row (startsAt within the
+      // next 60 min — the db-layer rule) → the contextual permission ask
+      // (D4 / R5), the same trigger as the snooze path. Fire-and-forget:
+      // a denial never blocks the submission.
+      if ('startsAt' in submission.target) {
+        void maybeRequestNotificationPermission();
+      }
       setSubmitError(null);
     } catch (err: unknown) {
       setSubmitError(errorMessage(err));
@@ -369,6 +377,15 @@ export function WizardBody({
   const insets = useAppInsets();
   const topPadding = Math.max(insets.top, 16);
 
+  const canGoBack = state.step === 'preview' || (state.history !== undefined && state.history.length > 0);
+  function handleBack() {
+    if (canGoBack) {
+      dispatch({ type: 'back' });
+    } else {
+      goBack(backFallback);
+    }
+  }
+
   return (
     <View
       style={{ paddingTop: topPadding }}
@@ -380,8 +397,18 @@ export function WizardBody({
       <ScrollView className="flex-1" keyboardShouldPersistTaps="handled">
       {/* 1. header row: the back button + the status tag */}
       <View className="mb-3.5 flex-row items-center justify-between">
-        <Button label="← 返回" variant="ghost" onPress={() => goBack(backFallback)} />
-        <Tag label={mode === 'clarify' ? '正在澄清' : '重新明晰'} tone="accent" dot />
+        <Button label={canGoBack ? '← 上一步' : '← 返回'} variant="ghost" onPress={handleBack} />
+        <View className="flex-row items-center gap-2">
+          {canGoBack ? (
+            <Button
+              label="退出"
+              variant="ghost"
+              size="sm"
+              onPress={() => goBack(backFallback)}
+            />
+          ) : null}
+          <Tag label={mode === 'clarify' ? '正在澄清' : '重新明晰'} tone="accent" dot />
+        </View>
       </View>
 
       {state.step === 'done' ? (
@@ -438,6 +465,8 @@ export function WizardBody({
                 dispatch={dispatch}
                 onDoNow={handleDoNow}
                 disabled={submitting}
+                canGoBack={canGoBack}
+                onBack={handleBack}
                 projects={activeProjects}
                 currentProjectId={currentProjectId}
               />
@@ -448,6 +477,9 @@ export function WizardBody({
                 <Button label="资料（留个参考）" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q1b', kind: 'reference' })} disabled={submitting} />
                 <Button label="有空再说" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q1b', kind: 'someday' })} disabled={submitting} />
                 <Button label="删除" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q1b', kind: 'trash' })} disabled={submitting} />
+                {canGoBack ? (
+                  <Button label="← 上一步" variant="ghost" onPress={handleBack} disabled={submitting} />
+                ) : null}
               </View>
             )}
             {state.step === 'form' && (
@@ -457,6 +489,8 @@ export function WizardBody({
                 now={now}
                 onField={setField}
                 onContextIds={setContextIds}
+                canGoBack={canGoBack}
+                onBack={handleBack}
                 onSubmit={() => handleFormSubmit(state.form, state.fields, state.twoMinute, state.projectId)}
                 disabled={submitting}
               />
@@ -566,6 +600,8 @@ interface QuestionCardProps {
   dispatch: Dispatch<WizardAction>;
   onDoNow: () => void;
   disabled: boolean;
+  canGoBack: boolean;
+  onBack: () => void;
   /** Q2b only: the active (attachable) projects. */
   projects: Project[];
   /** Q2b only (reclarify): the action's current project — gets the
@@ -586,22 +622,28 @@ function Question({ title, sub }: { title: string; sub?: string }) {
   );
 }
 
-function QuestionCard({ state, dispatch, onDoNow, disabled, projects, currentProjectId }: QuestionCardProps) {
+function QuestionCard({ state, dispatch, onDoNow, disabled, canGoBack, onBack, projects, currentProjectId }: QuestionCardProps) {
   switch (state.step) {
     case 'q1':
       return (
         <View className="gap-4">
           <Question title="可以变成下一步行动吗？" sub="这件事能由你做成一件具体的事吗？" />
-          <Button label="可以，是行动" size="lg" onPress={() => dispatch({ type: 'answer-q1', actionable: true })} disabled={disabled} />
+          <Button label="可以，是行动" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q1', actionable: true })} disabled={disabled} />
           <Button label="不行" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q1', actionable: false })} disabled={disabled} />
+          {canGoBack ? (
+            <Button label="← 上一步" variant="ghost" onPress={onBack} disabled={disabled} />
+          ) : null}
         </View>
       );
     case 'q2':
       return (
         <View className="gap-4">
           <Question title="需要多个步骤才能完成吗？" />
-          <Button label="是，拆成项目" size="lg" onPress={() => dispatch({ type: 'answer-q2', multipleSteps: true })} disabled={disabled} />
+          <Button label="是，拆成项目" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q2', multipleSteps: true })} disabled={disabled} />
           <Button label="否，一步能完成" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q2', multipleSteps: false })} disabled={disabled} />
+          {canGoBack ? (
+            <Button label="← 上一步" variant="ghost" onPress={onBack} disabled={disabled} />
+          ) : null}
         </View>
       );
     case 'q2b':
@@ -648,38 +690,53 @@ function QuestionCard({ state, dispatch, onDoNow, disabled, projects, currentPro
           {state.multipleSteps ? null : (
             <Button label="不属于项目" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q2b', choice: 'none' })} disabled={disabled} />
           )}
+          {canGoBack ? (
+            <Button label="← 上一步" variant="ghost" onPress={onBack} disabled={disabled} />
+          ) : null}
         </View>
       );
     case 'q3':
       return (
         <View className="gap-4">
           <Question title="大约 2 分钟内能完成吗？" />
-          <Button label="是，2 分钟内" size="lg" onPress={() => dispatch({ type: 'answer-q3', twoMinutes: true })} disabled={disabled} />
+          <Button label="是，2 分钟内" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q3', twoMinutes: true })} disabled={disabled} />
           <Button label="否" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q3', twoMinutes: false })} disabled={disabled} />
+          {canGoBack ? (
+            <Button label="← 上一步" variant="ghost" onPress={onBack} disabled={disabled} />
+          ) : null}
         </View>
       );
     case 'q3b':
       return (
         <View className="gap-4">
           <Question title="现在就做掉吗？" sub="做完直接记为完成，不再排队。" />
-          <Button label="是，现在就做完" size="lg" onPress={onDoNow} disabled={disabled} />
+          <Button label="是，现在就做完" size="lg" variant="secondary" onPress={onDoNow} disabled={disabled} />
           <Button label="否，记成行动" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q3b', completedOnTheSpot: false })} disabled={disabled} />
+          {canGoBack ? (
+            <Button label="← 上一步" variant="ghost" onPress={onBack} disabled={disabled} />
+          ) : null}
         </View>
       );
     case 'q4':
       return (
         <View className="gap-4">
           <Question title="应该由你完成吗？" />
-          <Button label="是，我的事" size="lg" onPress={() => dispatch({ type: 'answer-q4', myResponsibility: true })} disabled={disabled} />
+          <Button label="是，我的事" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q4', myResponsibility: true })} disabled={disabled} />
           <Button label="否，在等别人" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q4', myResponsibility: false })} disabled={disabled} />
+          {canGoBack ? (
+            <Button label="← 上一步" variant="ghost" onPress={onBack} disabled={disabled} />
+          ) : null}
         </View>
       );
     case 'q5':
       return (
         <View className="gap-4">
           <Question title="必须在固定日期/时间执行吗？" />
-          <Button label="是，固定时间" size="lg" onPress={() => dispatch({ type: 'answer-q5', fixedTime: true })} disabled={disabled} />
+          <Button label="是，固定时间" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q5', fixedTime: true })} disabled={disabled} />
           <Button label="否，普通行动" size="lg" variant="secondary" onPress={() => dispatch({ type: 'answer-q5', fixedTime: false })} disabled={disabled} />
+          {canGoBack ? (
+            <Button label="← 上一步" variant="ghost" onPress={onBack} disabled={disabled} />
+          ) : null}
         </View>
       );
   }
@@ -700,6 +757,8 @@ interface FormCardProps {
    *  `field: 'contextIds'` string[] action via `onContextIds`. */
   onField: (field: Exclude<keyof FormFields, 'contextIds'>, value: string | number | null) => void;
   onContextIds: (value: string[]) => void;
+  canGoBack: boolean;
+  onBack: () => void;
   onSubmit: () => void;
   disabled: boolean;
 }
@@ -707,7 +766,17 @@ interface FormCardProps {
 /** The forms that offer the context multi-select (design §3.2.6). */
 const CONTEXT_FORMS: readonly FormKind[] = ['action', 'calendar', 'project'];
 
-function FormCard({ state, contexts, now, onField, onContextIds, onSubmit, disabled }: FormCardProps) {
+function FormCard({
+  state,
+  contexts,
+  now,
+  onField,
+  onContextIds,
+  canGoBack,
+  onBack,
+  onSubmit,
+  disabled,
+}: FormCardProps) {
   const { form, fields } = state;
 
   function toggleContext(contextId: string) {
@@ -915,11 +984,25 @@ function FormCard({ state, contexts, now, onField, onContextIds, onSubmit, disab
           </View>
         </Field>
       ) : null}
-      <Button
-        label={form === 'trash' ? '确认删除' : '保存'}
-        onPress={onSubmit}
-        disabled={disabled}
-      />
+      <View className="flex-row gap-2.5">
+        {canGoBack ? (
+          <View className="flex-1">
+            <Button
+              label="上一步"
+              variant="secondary"
+              onPress={onBack}
+              disabled={disabled}
+            />
+          </View>
+        ) : null}
+        <View className="flex-1">
+          <Button
+            label={form === 'trash' ? '确认删除' : '保存'}
+            onPress={onSubmit}
+            disabled={disabled}
+          />
+        </View>
+      </View>
     </View>
   );
 }

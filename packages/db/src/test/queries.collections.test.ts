@@ -172,6 +172,14 @@ describe('CalendarAction', () => {
       ).rejects.toMatchObject({ code: 'calendarAction.not-found' });
       await trashCalendarAction(db, { id: FIXTURE_IDS.calendar.soon, now: FIXTURE_NOW });
       expect(await listCalendarActions(db)).toHaveLength(2);
+      // The R8 pattern: the action's scheduled reminder (R.soon) is
+      // cancelled in the same transaction — a deleted action never notifies.
+      const reminder = await db
+        .selectFrom('reminders')
+        .selectAll()
+        .where('id', '=', FIXTURE_IDS.reminders.soon)
+        .executeTakeFirst();
+      expect(reminder?.state).toBe('cancelled');
     } finally {
       await close();
     }

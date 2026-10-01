@@ -29,7 +29,9 @@ import {
   assertValidReferenceItem,
   assertValidSomedayMaybeItem,
   assertValidWaitingForItem,
+  calendarActionReminderSpec,
   classifyInboxItem,
+  parseIso,
   toIso,
   ulid,
   type ActionCategory,
@@ -58,6 +60,7 @@ import {
   waitingForItemToRow,
   type Database,
 } from '../schema';
+import type { Transaction } from 'kysely';
 import { completeAction, loadActionRow } from './actions';
 import type { ActionKind, NextdoDb } from '../types';
 
@@ -302,6 +305,38 @@ function buildCalendarAction(
 }
 
 /**
+ * The Reminder creation rule (domain-model.md "Reminder") applied to the
+ * clarify / re-clarify calendar paths: a CalendarAction whose `startsAt`
+ * is within the next 60 minutes gets a scheduled Reminder in the SAME
+ * transaction (fires `startsAt − 15 min`, important) — the same rule
+ * `addCalendarAction` applies (queries/calendar.ts). No-op when the start
+ * is further out or already past.
+ */
+async function insertCalendarReminderIfDue(
+  tx: Transaction<Database>,
+  action: CalendarAction,
+  nowIso: string,
+  now: Date,
+): Promise<void> {
+  const spec = calendarActionReminderSpec(parseIso(action.startsAt), now);
+  if (spec === null) return;
+  await tx
+    .insertInto('reminders')
+    .values({
+      id: ulid(now),
+      created_at: nowIso,
+      updated_at: nowIso,
+      deleted_at: null,
+      action_kind: 'calendar',
+      action_id: action.id,
+      fires_at: spec.firesAt,
+      intensity: spec.intensity,
+      state: 'scheduled',
+    })
+    .execute();
+}
+
+/**
  * Resolve an InboxItem through the Clarify decision table.
  *
  * ONE transaction: create the target row(s) (all-or-nothing — a Project and
@@ -428,6 +463,7 @@ export async function applyClarify(
         assertValidCalendarAction(action);
         createdIds.push(action.id);
         await tx.insertInto('calendar_actions').values({ id: action.id, ...calendarActionToRow(action) }).execute();
+        await insertCalendarReminderIfDue(tx, action, nowIso, now);
         break;
       }
       case 'next-action': {
@@ -583,6 +619,7 @@ export async function reclarifyAction(
         assertValidCalendarAction(action);
         createdIds.push(action.id);
         await tx.insertInto('calendar_actions').values({ id: action.id, ...calendarActionToRow(action) }).execute();
+        await insertCalendarReminderIfDue(tx, action, nowIso, now);
         break;
       }
       case 'next-action': {
@@ -616,6 +653,15 @@ export async function reclarifyAction(
       .updateTable(table)
       .set({ deleted_at: nowIso, updated_at: nowIso })
       .where('id', '=', actionId)
+      .execute();
+    // The replaced action no longer exists — its scheduled Reminders are
+    // cancelled in the same transaction (the trashAction R8 pattern;
+    // without this they would fire for a soft-deleted row).
+    await tx
+      .updateTable('reminders')
+      .set({ state: 'cancelled', updated_at: nowIso })
+      .where('action_id', '=', actionId)
+      .where('state', '=', 'scheduled')
       .execute();
   });
 

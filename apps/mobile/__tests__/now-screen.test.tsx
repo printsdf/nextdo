@@ -42,6 +42,9 @@ jest.mock('@nextdo/db', () => {
     }),
     subscribeAppStream: async () => undefined,
     wrapDb: () => ({}),
+    // The delivery hook's source query (task 09-30 — the root layout
+    // mounts useReminderDelivery in every renderRouter test).
+    listScheduledReminders: async () => [],
     seedDefaultContexts: async () => 0,
     isReactNativeRuntime: () => false,
     queryEnginePool: async () => poolRef.current,
@@ -64,6 +67,9 @@ jest.mock('@powersync/react', () => {
     init: async () => undefined,
     connect: () => Promise.resolve(undefined),
     close: async () => undefined,
+    // The delivery hook subscribes to local changes (task 09-30) — a
+    // no-op subscription in tests (the mocked queries never fire it).
+    onChange: () => () => undefined,
   };
   const queryResult = {
     data: [],
@@ -80,7 +86,13 @@ jest.mock('@powersync/react', () => {
   };
 });
 
+// The root layout mounts the delivery engine (task 09-30) — jest runs as
+// Platform 'ios', so the real native adapter drives expo-notifications
+// (mocked: idle OS state — nothing pending, permission undetermined).
+jest.mock('expo-notifications', () => mockExpoNotifications);
+
 import { fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
+import { mockExpoNotifications } from './mocks/expo-notifications';
 import type { NextCandidate } from '@nextdo/core';
 import { __setEngineContextStoreForTests } from '@/lib/engine-context';
 

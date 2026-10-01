@@ -463,3 +463,78 @@ Audited and overhauled mobile UI ergonomics in a dedicated worktree: added safe 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 13: 提醒通知投递、稍后提醒与厘清返回体验优化
+<!-- trellis-session: v=2 fp=43293e2623de49b3 -->
+
+**Date**: 2026-10-01
+**Task**: 提醒通知投递、稍后提醒与厘清返回体验优化
+**Branch**: `feature/reminder-notification-delivery`
+
+### Summary
+
+完成了提醒通知本地投递与桌面诊断链路、稍后提醒自定义时间滚轮选择器重构，以及厘清向导逐步返回上一步历史栈支持。
+
+### Main Changes
+
+- 桌面端与移动端提醒通知投递及现场诊断链路（tauri-plugin-notification 与 expo-notifications）
+- 稍后提醒浮层重构为「10分钟后」常用档位与「自定义时间」组合
+- 跨平台 DateTimePicker 滚轮选择器（7天日期条 + 时分滚轮 + 相对时间距离）
+- 厘清向导逐步返回（← 上一步）历史栈机制与表单回退
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `771b026` | feat(reminders): field diagnostics and desktop notification delivery hardening |
+| `16b7b84` | feat(mobile): custom datetime picker with wheel selector and snooze sheet overhaul |
+| `4c35b76` | feat(clarify): step-by-step back navigation with wizard history stack |
+
+### Testing
+
+- [OK] pnpm test 全绿（25 test suites, 290 tests）
+- [OK] pnpm typecheck 与 eslint 全绿
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 14: Unblock v0.1.2 release: EAS image pin + Babel plugin resolution
+<!-- trellis-session: v=2 fp=2950fd04714ead97 -->
+
+**Date**: 2026-10-01
+**Task**: Unblock v0.1.2 release: EAS image pin + Babel plugin resolution
+**Branch**: `feature/reminder-notification-delivery`
+
+### Summary
+
+Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers that each failed the EAS Android legs.
+
+### Main Changes
+
+- Pin the EAS Android build image to ubuntu-26.04-jdk-17-ndk-r27b-sdk-57 — EAS 'auto' resolution picked the legacy ubuntu-22.04-jdk-11-ndk-r21e image (Java 11) for this SDK 57 project, but Gradle on RN 0.86 requires JVM 17+, so every Android leg died at the Gradle step.
+- Declare @babel/plugin-transform-react-jsx (7.29.7) in apps/mobile devDependencies. nativewind/babel delegates to react-native-css-interop/babel, which returns the plugin as a bare string; Babel resolves string plugin names from the config's directory, and react-native-css-interop does not list it in its own dependencies, so pnpm's strict layout left apps/mobile/node_modules/@babel empty and :app:createBundleReleaseJsAndAssets failed with 'Cannot find module @babel/plugin-transform-react-jsx'. Desktop legs were unaffected because the web platform does not go through this preset.
+- Apply both fixes to main via a clean worktree so the in-flight feature/reminder-notification-delivery working tree was left untouched; move tag v0.1.2 to the fix commit and re-run the release.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d88585c` | fix(mobile): pin EAS Android build image to JDK 17 for SDK 57 |
+| `516cc5d` | fix(mobile): declare @babel/plugin-transform-react-jsx explicitly |
+
+### Testing
+
+- [OK] pnpm install --frozen-lockfile passes; apps/mobile/node_modules/@babel/plugin-transform-react-jsx is generated (the exact path EAS was missing); expo export --platform android succeeds on a clean origin/main worktree.
+- [OK] GitHub Actions run 36848026921: all 8 jobs success, including Build Android (EAS) for arm64-v8a, armeabi-v7a, x86 and x86_64. Release published with 10 assets.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Desktop version is still 0.1.1 in apps/desktop/package.json and apps/desktop/src-tauri/tauri.conf.json while mobile is 0.1.2, so published desktop artifacts are named Nextdo_0.1.1_*. Bump both desktop files together next time the version changes; fixing it later needs a desktop-only rebuild (no EAS Android quota cost).
+- EAS Free plan allows 15 Android builds per billing period (resets on the 1st). This cycle used 4 of 15.

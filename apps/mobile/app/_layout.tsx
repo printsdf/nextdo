@@ -52,6 +52,7 @@ import {
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 import { PowerSyncContext } from '@powersync/react';
+import { useReminderDelivery } from '@/hooks/use-reminder-delivery';
 import {
   clearOwnerToken,
   createPowerSyncConnector,
@@ -242,7 +243,25 @@ function PowerSyncProvider({ children }: { children: ReactNode }) {
     };
   }, [powersync]);
 
-  return <PowerSyncContext.Provider value={powersync}>{children}</PowerSyncContext.Provider>;
+  return (
+    <PowerSyncContext.Provider value={powersync}>
+      <ReminderDelivery />
+      {children}
+    </PowerSyncContext.Provider>
+  );
+}
+
+/**
+ * The reminder delivery engine (task 09-30 design §5): mounted inside the
+ * PowerSync provider (the reconcile reads the local DB through the
+ * provider's instance) and outside the Stack (no route state is needed —
+ * a notification tap routes to the Now tab via the router). Renders
+ * nothing — the hook IS the UI (its permission state is read by the
+ * Settings screen through its own hook).
+ */
+function ReminderDelivery() {
+  useReminderDelivery();
+  return null;
 }
 
 export default function RootLayout() {

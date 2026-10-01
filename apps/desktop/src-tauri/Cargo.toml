@@ -15,6 +15,13 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2.11.6", features = [] }
 tauri-plugin-stronghold = "2.3.2"
+# Local reminder delivery (task 09-30): the desktop webview calls
+# sendNotification / isPermissionGranted through this plugin. 2.4.0 is
+# the version pair for tauri 2.11 (2.5.0 would force a core 2.12 upgrade);
+# research in .trellis/tasks/09-30-reminder-notification-delivery/research/
+# documents the desktop constraints (no native scheduling — the app's JS
+# tick drives delivery).
+tauri-plugin-notification = "2.4.0"
 # Loopback static file server for release builds (see lib.rs module docs —
 # the PowerSync module worker needs a real http origin, not tauri://).
 tiny_http = "0.12"
