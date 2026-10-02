@@ -6,6 +6,12 @@
  *
  * `fetch` is mocked; the function takes the owner token as an argument,
  * so no storage backend is involved.
+ *
+ * 10-02-simplify-sync-setup: a 200 body may also carry `endpoint` — the
+ * deployment's NEXTDO_SYNC_ENDPOINT. It is ADOPTED when it is an absolute
+ * http(s) URL, and simply OMITTED when it is missing or malformed (the
+ * caller falls back to its own config). A bad endpoint NEVER downgrades a
+ * 200 to `invalid`: token and endpoint have different failure semantics.
  */
 import { fetchCredentialsOnce, type NextdoPowerSyncConfig } from '../powersync';
 
@@ -40,12 +46,60 @@ describe('fetchCredentialsOnce — 200 with a token', () => {
     });
   });
 
-  it('ignores non-contractual extra fields in the body', async () => {
-    mockFetch(200, { token: 'ps-service-jwt', endpoint: 'http://ignored', extra: 1 });
+  it('adopts a server-supplied endpoint (10-02: the deployment owns the path layout)', async () => {
+    mockFetch(200, {
+      token: 'ps-service-jwt',
+      endpoint: 'https://custom.example.com/stream',
+      extra: 1,
+    });
+
+    const result = await fetchCredentialsOnce(CONFIG, 'owner-token-1');
+
+    expect(result).toEqual({
+      ok: true,
+      token: 'ps-service-jwt',
+      endpoint: 'https://custom.example.com/stream',
+    });
+  });
+
+  it('omits endpoint when the server did not send one (old server — the caller falls back)', async () => {
+    mockFetch(200, { token: 'ps-service-jwt' });
+
+    const result = await fetchCredentialsOnce(CONFIG, 'owner-token-1');
+
+    // No `endpoint` key at all, NOT `endpoint: undefined` — so the caller
+    // can distinguish "not sent" from "sent something".
+    expect(result).toEqual({ ok: true, token: 'ps-service-jwt' });
+    expect('endpoint' in result).toBe(false);
+  });
+
+  it.each([
+    ['a non-http(s) scheme', 'ftp://bad'],
+    ['a relative value', '/sync'],
+    ['a bare host with no scheme', 'custom.example.com/stream'],
+    ['an empty string', ''],
+    ['a whitespace-only string', '   '],
+    ['a non-string value', 42],
+    ['null', null],
+  ])('omits endpoint when it is malformed (%s) — and does NOT fail the handshake', async (
+    _label,
+    value,
+  ) => {
+    mockFetch(200, { token: 'ps-service-jwt', endpoint: value });
 
     const result = await fetchCredentialsOnce(CONFIG, 'owner-token-1');
 
     expect(result).toEqual({ ok: true, token: 'ps-service-jwt' });
+  });
+
+  it('trims a server endpoint with surrounding whitespace', async () => {
+    mockFetch(200, { token: 'ps-service-jwt', endpoint: '  https://custom.example.com/stream \n' });
+
+    await expect(fetchCredentialsOnce(CONFIG, 'owner-token-1')).resolves.toEqual({
+      ok: true,
+      token: 'ps-service-jwt',
+      endpoint: 'https://custom.example.com/stream',
+    });
   });
 });
 

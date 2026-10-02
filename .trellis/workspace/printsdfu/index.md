@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
-- **Last Active**: 2026-10-01
+- **Total Sessions**: 15
+- **Last Active**: 2026-10-02
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~540 | Active |
+| `journal-1.md` | ~565 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-10-02 | 简化云同步连接：单地址 + 服务端下发 endpoint | `bb4d7a8`, `d4508cb`, `e3c4208`, `5e6188c` | `main` |
 | 14 | 2026-10-01 | Unblock v0.1.2 release: EAS image pin + Babel plugin resolution | `d88585c`, `516cc5d` | `feature/reminder-notification-delivery` |
 | 13 | 2026-10-01 | 提醒通知投递、稍后提醒与厘清返回体验优化 | `771b026`, `16b7b84`, `4c35b76` | `feature/reminder-notification-delivery` |
 | 12 | 2026-09-29 | Mobile UI/UX Ergonomics and Usability Optimization | `5117298`, `aa33c07` | `main` |

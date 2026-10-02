@@ -11,9 +11,11 @@
  * - `createPowerSyncConnector(config)` — the v2 connector the app passes
  *   to `powersync.connect(connector)`:
  *     * `fetchCredentials()` reads the owner token (owner-token.ts) and
- *       calls `fetchCredentialsOnce()` → `{ token, endpoint }`.
- *       Returns null when no owner token is stored (SDK: not signed in);
- *       throws on network failure / non-2xx (SDK retries).
+ *       calls `fetchCredentialsOnce()` → `{ token, endpoint? }` — the
+ *       endpoint the SDK receives is the one the SERVER sent (its
+ *       NEXTDO_SYNC_ENDPOINT) when there was one, else the injected
+ *       config's. Returns null when no owner token is stored (SDK: not
+ *       signed in); throws on network failure / non-2xx (SDK retries).
  *     * `uploadData(database)` is invoked by the SDK in a loop — never
  *       call it directly. Each call takes ONE crud transaction
  *       (`getNextCrudTransaction()`), POSTs its ops to
@@ -25,11 +27,12 @@
  *       the queue for the SDK's retry (official guidance).
  * - `fetchCredentialsOnce(config, ownerToken)` — the ONE place the
  *   `/credentials` wire protocol lives (Bearer GET + response token
- *   check), exported as a pure function: the connector maps its result
- *   back to the null/throw contract, and the app's ConnectGate + startup
- *   pre-check (apps/mobile) call it directly — the PowerSync v2 SDK
- *   swallows credential rejections in its retry loop, so token validity
- *   is checked BEFORE `connect()` (prod-deploy design R3).
+ *   check + the OPTIONAL server-supplied `endpoint`), exported as a pure
+ *   function: the connector maps its result back to the null/throw
+ *   contract, and the app's ConnectGate + startup pre-check (apps/mobile)
+ *   call it directly — the PowerSync v2 SDK swallows credential
+ *   rejections in its retry loop, so token validity is checked BEFORE
+ *   `connect()` (prod-deploy design R3).
  *
  * Upload protocol (consumed by server/app `/upload`): the body is
  * `{ ops: [{ op, id, table, opData }] }` — one entry per ps_crud op
@@ -203,18 +206,45 @@ function errorMessage(error: unknown): string {
  * kind means (the connector maps it to its null/throw contract; the
  * app's Gate maps it to user-facing errors).
  *
- * - `ok` — 2xx with a non-empty token string.
+ * - `ok` — 2xx with a non-empty token string. `endpoint` is present ONLY
+ *   when the server actually sent one AND it is an absolute http(s) URL
+ *   (`NEXTDO_SYNC_ENDPOINT`): the deployment owns the path layout, so it
+ *   hands the real stream URL to every device. A missing or malformed
+ *   `endpoint` is simply ABSENT — the caller falls back to the locally
+ *   derived/stored value, which is what keeps old servers working.
  * - `rejected` — non-2xx (401 = wrong owner token; 5xx = server problem).
  * - `invalid` — 2xx but the body is unparseable or has no token
  *   (a server/protocol bug, distinct from a rejected token).
  * - `network` — the fetch itself failed (offline / DNS / connection
  *   refused); retryable. `detail` carries the underlying error message.
+ *
+ * The asymmetry between `token` and `endpoint` is deliberate: a bad TOKEN
+ * means the handshake failed (`invalid`), a bad ENDPOINT is an optional
+ * enhancement that is simply ignored.
  */
 export type FetchCredentialsOnceResult =
-  | { ok: true; token: string }
+  | { ok: true; token: string; endpoint?: string }
   | { ok: false; kind: 'rejected'; status: number }
   | { ok: false; kind: 'invalid' }
   | { ok: false; kind: 'network'; detail?: string };
+
+/** An endpoint from the wire is adopted only when it is a non-empty
+ *  absolute http(s) URL — the same rule `setStoredBackendConfig` enforces,
+ *  so a bad server value can never reach the SDK. */
+function adoptEndpoint(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed === '') return undefined;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      return trimmed;
+    }
+  } catch {
+    /* fall through — not an absolute URL */
+  }
+  return undefined;
+}
 
 /**
  * One Bearer `GET {backendUrl}/credentials` + response-token check — the
@@ -241,11 +271,20 @@ export async function fetchCredentialsOnce(
   if (!res.ok) {
     return { ok: false, kind: 'rejected', status: res.status };
   }
-  const data = (await res.json().catch(() => null)) as { token?: unknown } | null;
+  const data = (await res.json().catch(() => null)) as {
+    token?: unknown;
+    endpoint?: unknown;
+  } | null;
   if (data === null || typeof data.token !== 'string' || data.token === '') {
     return { ok: false, kind: 'invalid' };
   }
-  return { ok: true, token: data.token };
+  // `endpoint` is optional on BOTH sides: absent (old server) or malformed
+  // (bad deploy) → omitted from the result, and every caller falls back to
+  // config.endpoint. It NEVER downgrades a 200 to `invalid`.
+  const endpoint = adoptEndpoint(data.endpoint);
+  return endpoint === undefined
+    ? { ok: true, token: data.token }
+    : { ok: true, token: data.token, endpoint };
 }
 
 /** Build the v2 connector for the injected config (see file header). */
@@ -265,7 +304,12 @@ export function createPowerSyncConnector(config: NextdoPowerSyncConfig): PowerSy
       // never throws — each kind maps back to the SDK's contract below).
       const result = await fetchCredentialsOnce(config, ownerToken);
       if (result.ok) {
-        return { endpoint: config.endpoint, token: result.token };
+        // The server's endpoint wins when it sent one: the SDK re-reads
+        // credentials every ~15 min, so a deployment that FIXES its path
+        // layout (NEXTDO_SYNC_ENDPOINT) is picked up on the next refresh
+        // without the user re-entering anything. Absent/invalid → the
+        // locally stored value, which is what keeps old servers working.
+        return { endpoint: result.endpoint ?? config.endpoint, token: result.token };
       }
       if (result.kind === 'network') {
         // Network failure — temporary; the SDK retries with backoff.

@@ -22,7 +22,7 @@ import {
   POWER_SYNC_JWT_TTL_SECONDS,
 } from '../src/credentials.js';
 import { createApp } from '../src/app.js';
-import { createMockPool, JWT_SECRET, OWNER_TOKEN } from './helpers.js';
+import { createMockPool, JWT_SECRET, OWNER_TOKEN, SYNC_ENDPOINT } from './helpers.js';
 
 const OTHER_SECRET = Buffer.from('a-different-secret-of-enough-bytes!!', 'utf8').toString(
   'base64url',
@@ -118,6 +118,7 @@ describe('GET /credentials endpoint', () => {
       pool,
       ownerToken: OWNER_TOKEN,
       jwtSecret: JWT_SECRET,
+      syncEndpoint: SYNC_ENDPOINT,
     });
     const t0 = Date.now();
     const res = await app.request('/credentials', {
@@ -138,5 +139,55 @@ describe('GET /credentials endpoint', () => {
     expect(iat).toBeGreaterThanOrEqual(Math.floor(t0 / 1000));
     expect(iat).toBeLessThanOrEqual(Math.floor(t1 / 1000));
     expect(exp).toBe(iat + 900);
+  });
+
+  it('carries the deployment syncEndpoint verbatim (10-02 — clients stop guessing the path)', async () => {
+    const { pool } = createMockPool();
+    const app = createApp({
+      pool,
+      ownerToken: OWNER_TOKEN,
+      jwtSecret: JWT_SECRET,
+      syncEndpoint: 'https://custom.example.com/stream',
+    });
+    const res = await app.request('/credentials', {
+      headers: { Authorization: `Bearer ${OWNER_TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { token: string; endpoint: string };
+    expect(body.endpoint).toBe('https://custom.example.com/stream');
+  });
+
+  it('echoes whatever NEXTDO_SYNC_ENDPOINT resolved to — no path rewriting', async () => {
+    const { pool } = createMockPool();
+    // A subdomain deployment has no /sync suffix at all: the server must
+    // hand back EXACTLY what the operator configured, never a derived URL.
+    const endpoint = 'https://sync.example.test';
+    const app = createApp({
+      pool,
+      ownerToken: OWNER_TOKEN,
+      jwtSecret: JWT_SECRET,
+      syncEndpoint: endpoint,
+    });
+    const res = await app.request('/credentials', {
+      headers: { Authorization: `Bearer ${OWNER_TOKEN}` },
+    });
+    const body = (await res.json()) as { endpoint: string };
+    expect(body.endpoint).toBe(endpoint);
+  });
+
+  it('the endpoint is NOT leaked on a 401 (auth stays the whole gate)', async () => {
+    const { pool } = createMockPool();
+    const app = createApp({
+      pool,
+      ownerToken: OWNER_TOKEN,
+      jwtSecret: JWT_SECRET,
+      syncEndpoint: SYNC_ENDPOINT,
+    });
+    const res = await app.request('/credentials', {
+      headers: { Authorization: 'Bearer wrong-token' },
+    });
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { endpoint?: unknown };
+    expect(body.endpoint).toBeUndefined();
   });
 });

@@ -2,7 +2,8 @@
  * The Hono app (spec: app/database-guidelines.md "App backend").
  *
  * Two endpoints:
- *   GET  /credentials → { token: <15-min PowerSync service JWT> }
+ *   GET  /credentials → { token: <15-min PowerSync service JWT>,
+ *                         endpoint: <NEXTDO_SYNC_ENDPOINT> }
  *   POST /upload      → applies one ps_crud batch to Postgres, synchronously,
  *                        in one transaction (2xx-on-rejection protocol —
  *                        see upload.ts).
@@ -10,7 +11,8 @@
  * Both endpoints require the owner token (401 otherwise — no anonymous
  * access; a real account flow is post-MVP). The token is env-only and
  * immutable for the process's life (src/owner-token.ts refuses to boot
- * without it).
+ * without it), and so is the sync endpoint (src/sync-endpoint.ts refuses
+ * to boot without NEXTDO_SYNC_ENDPOINT).
  *
  * @nextdo/server is the PowerSync protocol boundary: it imports NOTHING
  * from the monorepo (spec: project/directory-structure.md Rule 1). The
@@ -48,6 +50,11 @@ export interface ServerConfig {
   ownerToken: string;
   /** base64url shared secret the PowerSync service verifies with (JWT_SECRET). */
   jwtSecret: string;
+  /** The public PowerSync stream URL — `NEXTDO_SYNC_ENDPOINT`, required at
+   *  boot (src/sync-endpoint.ts refuses to start without it). Handed to
+   *  every client with `/credentials`, so the deployment owns the path
+   *  layout and devices never have to guess it. */
+  syncEndpoint: string;
   /** Injectable clock — defaults to the process clock. */
   now?: () => Date;
 }
@@ -79,9 +86,16 @@ export function createApp(config: ServerConfig): Hono {
     requireAuth,
     async (c) => {
       const token = await mintPowerSyncJwt({ secret: config.jwtSecret, now: now() });
-      // The client reads ONLY `data.token` (endpoint comes from its own
-      // injected config) — nothing else in the body is contractual.
-      return c.json({ token });
+      // `token` is the 15-min PowerSync JWT the client hands to the SDK;
+      // `endpoint` is the deployment's public stream URL (NEXTDO_SYNC_ENDPOINT).
+      // The endpoint carries NO authority — the PowerSync service
+      // authenticates the JWT itself — so handing it to every device is
+      // safe, and it lets the deployer fix the path layout once instead of
+      // every device guessing `/sync`. `endpoint` is contractual since
+      // 10-02-simplify-sync-setup: a client that does not understand it
+      // falls back to its own derived/stored value (backward compatible
+      // both ways — see design.md "向后兼容矩阵").
+      return c.json({ token, endpoint: config.syncEndpoint });
     },
   );
 

@@ -10,7 +10,7 @@
  */
 import { createApp } from '../src/app.js';
 import type { Hono } from 'hono';
-import { createMockPool, JWT_SECRET, NOW, OWNER_TOKEN } from './helpers.js';
+import { createMockPool, JWT_SECRET, NOW, OWNER_TOKEN, SYNC_ENDPOINT } from './helpers.js';
 
 function buildApp(): Hono {
   const { pool } = createMockPool();
@@ -18,6 +18,7 @@ function buildApp(): Hono {
     pool,
     ownerToken: OWNER_TOKEN,
     jwtSecret: JWT_SECRET,
+    syncEndpoint: SYNC_ENDPOINT,
     now: () => NOW,
   });
 }

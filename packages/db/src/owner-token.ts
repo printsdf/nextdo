@@ -417,6 +417,78 @@ export async function clearStoredBackendConfig(): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ *
+ * Deriving the config from ONE server address (10-02-simplify-sync-setup)
+ *
+ * The Settings tab asks for a single 「服务器地址」; the two URLs the
+ * connector needs follow mechanically from the deployment's path layout
+ * (`/api` for the app backend, `/sync` for the PowerSync service). This
+ * rule lives NEXT TO `setStoredBackendConfig` on purpose: the validation
+ * below and the derivation must never disagree about what a valid config
+ * is, and `apps/mobile` only calls it + renders.
+ *
+ * The server may also hand back its own `endpoint` from /credentials
+ * (NEXTDO_SYNC_ENDPOINT) — a client without one falls back to the value
+ * derived here, which is why this stays.
+ * ------------------------------------------------------------------ */
+
+/** Path segments stripped from the user's input before re-appending, so
+ *  pasting a full address (`.../api`, `.../sync`) cannot produce
+ *  `.../api/api`. Order matters: the longest first. */
+const TOLERATED_SUFFIXES = ['/api', '/sync'] as const;
+
+/**
+ * Derive `{ backendUrl, endpoint }` from a single server address.
+ *
+ *   https://x.example.com        → { …/api,  …/sync }
+ *   https://x.example.com/       → same (trailing slash stripped)
+ *   https://x.example.com/api    → same (`/api` stripped, not doubled)
+ *   https://x.example.com/sync   → same (`/sync` stripped, not doubled)
+ *
+ * Uses `new URL()` + pathname segment handling — never a regex, which
+ * cannot see query strings, fragments or ports correctly. Every decision
+ * is made on `url.origin` / `url.pathname`, never on the raw input
+ * string: a pasted `.../api?ref=x` therefore still loses its `/api`
+ * (a raw-string comparison would see `?ref=x` and emit `/api/api`).
+ *
+ * @throws ValidationNextdoError `sync.invalid-backend-url` when the input
+ * is not an absolute http(s) URL (the same code `setStoredBackendConfig`
+ * uses, so the UI has one message for the whole family).
+ */
+export function deriveSyncConfig(serverAddress: string): StoredBackendConfig {
+  const trimmed = serverAddress.trim();
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new ValidationNextdoError(
+      'sync.invalid-backend-url',
+      'server address must be an absolute http(s) URL',
+    );
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new ValidationNextdoError(
+      'sync.invalid-backend-url',
+      'server address must be an absolute http(s) URL',
+    );
+  }
+  // Work on the PARSED origin + pathname: `origin` is already
+  // case-normalized by the URL parser, and the query string / fragment
+  // the user pasted are simply not part of it (they belong to neither
+  // endpoint).
+  let prefix = url.pathname.replace(/\/+$/, '');
+  for (const suffix of TOLERATED_SUFFIXES) {
+    if (prefix.endsWith(suffix)) {
+      prefix = prefix.slice(0, -suffix.length);
+      break; // at most ONE suffix — `.../api/sync` is not a base we can repair
+    }
+  }
+  return {
+    backendUrl: `${url.origin}${prefix}/api`,
+    endpoint: `${url.origin}${prefix}/sync`,
+  };
+}
+
+/* ------------------------------------------------------------------ *
  * Owner-token change notification (sign-in / sign-out)
  *
  * The app's PowerSync provider subscribes here to drive connect()/

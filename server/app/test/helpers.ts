@@ -60,6 +60,9 @@ export const OWNER_TOKEN = 'owner-token-test-abc123';
 export const JWT_SECRET = Buffer.from('unit-test-jwt-secret-0123456789', 'utf8').toString(
   'base64url',
 );
+/** The public sync-stream URL the fake deployment hands to clients
+ *  (`NEXTDO_SYNC_ENDPOINT`) — echoed verbatim by GET /credentials. */
+export const SYNC_ENDPOINT = 'https://sync.example.test/sync';
 
 /** Fixed clock (convention: no tests assert on real time). */
 export const NOW = new Date('2026-09-21T12:00:00.000Z');

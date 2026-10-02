@@ -75,7 +75,10 @@ UI:
   holds `createPowerSyncDatabase()`, `subscribeAppStream()`, and the stream-name
   constant `SYNC_STREAM_NAME = 'all'`):
   - `fetchCredentials()` → app backend credential endpoint → returns
-    `{ token: JWT, endpoint: service URL }`. The SDK caches credentials and
+    `{ token: JWT, endpoint: service URL }`. The `endpoint` is the one the
+    SERVER sent (its `NEXTDO_SYNC_ENDPOINT`), falling back to the injected
+    `config.endpoint` when the response carries none — see "Server-downstream
+    endpoint" below. The SDK caches credentials and
     pre-fetches when the JWT has < 30 s left; expiry/401 re-fetches automatically.
     v1 (single user, Proposal §10): the backend mints a short-TTL (15 min)
     PowerSync JWT on request — refresh is automatic. There is **no static
@@ -121,11 +124,87 @@ UI:
   is post-MVP, the seam stays):
   - `GET /credentials` → verifies the owner token, mints a 15-min PowerSync JWT
     (signed with `jose` HS256; the old `powersync-jwt` package was removed in the
-    2026-07 SDK v2 revamp);
+    2026-07 SDK v2 revamp), **and returns the deployment's sync endpoint** —
+    response shape is `{ token, endpoint }`. `endpoint` comes from
+    `NEXTDO_SYNC_ENDPOINT`, which is **REQUIRED**: `src/sync-endpoint.ts`
+    refuses the boot when it is missing, empty, or not an absolute http(s) URL
+    (same refuse-the-boot style as `owner-token.ts`; the error names the
+    variable + the `.env` location). **No auto-derivation fallback** — a
+    silently derived-but-wrong path yields clients that "connect" and never
+    sync, which is far harder to diagnose than a refused boot. The endpoint
+    carries **no authority** (the PowerSync service authenticates the JWT
+    itself), so handing it to every device is safe; the point is that the
+    *deployment* owns the path layout (configured once) instead of every
+    device guessing `/sync`;
   - `POST /upload` → verifies the owner token, applies the ps_crud batch to Postgres
     (upserts; 2xx for validation-level rejections).
   Without the owner token the endpoints return 401 for every request shape —
-  there is no anonymous access.
+  there is no anonymous access (the 401 body carries no `endpoint`).
+
+  **Server-downstream endpoint — the `/credentials` compatibility matrix.**
+  `endpoint` is contractual since 10-02-simplify-sync-setup and is OPTIONAL
+  on the client side:
+
+  | Server | Client | Behavior |
+  |--------|--------|----------|
+  | old (no `endpoint` in the body) | new | `fetchCredentialsOnce` omits `endpoint` → the locally derived / stored value wins → **works** |
+  | new | new | the server's `endpoint` wins (persisted + handed to the SDK) → **the target path** |
+  | new | old | the old client ignores the extra field → its own config → **works** (degraded: path from local config) |
+  | old | old | as before |
+
+  All four combinations work; there is no breaking pair. The asymmetry inside
+  `FetchCredentialsOnceResult` is deliberate: **a bad `token` is `invalid`**
+  (the handshake failed) while **a bad `endpoint` is simply omitted** (an
+  optional enhancement that is ignored — never an error, never upgraded to
+  `invalid`). `fetchCredentialsOnce` adopts `endpoint` only when it is a
+  non-empty absolute http(s) URL; malformed values are dropped exactly like
+  absent ones. Because the SDK re-reads credentials every ~15 min, a
+  corrected `NEXTDO_SYNC_ENDPOINT` reaches every device on the next refresh
+  with no re-entry.
+
+  **Client-side derivation (`deriveSyncConfig`)** — the Settings tab asks for
+  ONE server address; `deriveSyncConfig(serverAddress)` (in
+  `packages/db/src/owner-token.ts`, exported from `packages/db`) turns it into
+  `{ backendUrl: base + '/api', endpoint: base + '/sync' }`. Rules: whitespace
+  + trailing `/` trimmed; a trailing `/api` or `/sync` suffix is stripped first
+  (so pasting a full URL never yields `/api/api`); a sub-path prefix is
+  preserved; a query string / fragment is dropped. It parses with `new URL()`
+  + pathname segments — **never a regex** — and throws
+  `ValidationNextdoError('sync.invalid-backend-url')` on a non-absolute /
+  non-http(s) input, the SAME code `setStoredBackendConfig` rejects with (one
+  message family for the whole UI). It lives next to `setStoredBackendConfig`
+  on purpose: derivation and write-time validation must never disagree (a test
+  asserts every derived config is accepted by the store).
+
+  **The suffix must be matched against the PARSED `url.pathname`, never the
+  raw input string.** A string comparison cannot see past a query string or
+  fragment, so `https://host/api?ref=readme` would fail the `endsWith('/api')`
+  check and emit `.../api/api` — the exact `/api/api` duplication the rule
+  exists to prevent. `url.origin` also supplies the canonical (case-folded)
+  host for free. Any change that reintroduces raw-string matching here must
+  keep the `?ref=` / `#frag` cases green.
+
+  **Connection strings** — ONE parser, `parseConnectionString` in
+  `apps/mobile/lib/sync-connection.ts` (pure, no platform deps, same tier as
+  `snooze-options.ts`), with two accepted shapes:
+  - plaintext: `<base address>|<token>` — terminal copy-paste; a `|` is
+    unambiguous where base64's `+/=` is not;
+  - deep link: `nextdo://sync?s=<url-encoded base>&t=<url-encoded token>` —
+    `app.json` already registers `"scheme": "nextdo"`; the route is
+    `apps/mobile/app/sync.tsx`.
+
+  It returns `null` for a **bare owner token**, and the caller then falls back
+  to the pre-existing "this field is just the token" behavior (a user who only
+  has the token can still paste it). A half-filled string (a pipe with one
+  side, a link missing `t`) is NOT parsed: silently treating the address half
+  as a token would produce a confusing 「token 不正确」 instead of a clear
+  failure. `app/sync.tsx` is a THIN route — it calls the same
+  `useCloudSync().connect()` the Settings tab calls (two connection paths
+  would mean two sets of validation and two sets of copy, which drift);
+  success → `router.replace('/(tabs)/now')`, failure → the Settings tab with
+  `?syncError=…` rendered as its inline error (a deep link never fails
+  silently). Tauri desktop registers no system protocol: desktop users paste
+  the plaintext form.
 
   File layout (`server/app/src/`): `app.ts` (`createApp(config)` — the
   side-effect-free Hono app with the two routes, unit-testable via `app.request()`
@@ -137,7 +216,10 @@ UI:
   mutable / insert-only append-only / soft-delete), `owner-token.ts`
   (boot resolution: `NEXTDO_OWNER_TOKEN` required — non-empty after trim;
   missing/empty refuses the boot, the error names the generation command +
-  the .env location; the token never reaches a log line),
+  the .env location; the token never reaches a log line), `sync-endpoint.ts`
+  (boot resolution: `NEXTDO_SYNC_ENDPOINT` required — non-empty after trim AND
+  an absolute http(s) URL; anything else refuses the boot with the same
+  actionable style),
   `db.ts` (pg pool + the
   14-table column catalog — a re-declaration of `packages/db/src/schema.ts`;
   a test asserts the two stay in lockstep), `logger.ts`. Tests live in
@@ -151,11 +233,15 @@ UI:
   at deploy time (deploy-owned — `openssl rand -hex 32` in
   `server/deploy/.env`; REQUIRED, the server refuses to boot without it).
   The client stores it — **and the user's sync-server config** (`{ backendUrl,
-  endpoint }`, entered in the Settings tab; the OSS default is empty =
-  pure-local) — per platform. Two keys travel together in the SAME store:
-  `nextdo.auth.owner-token` (a secret) and `nextdo.sync.config` (a JSON
-  string, **not** a secret, but per-device configuration). `expo-secure-store`
-  exists only on native, so:
+  endpoint }`; the OSS default is empty = pure-local). The stored SHAPE is
+  unchanged since 09-28: two keys, `{ backendUrl, endpoint }`, so existing
+  devices need **zero migration** — only the way it gets filled changed
+  (one server address, or a connection string, instead of two hand-typed
+  URLs), and the `endpoint` may additionally be refreshed from the server's
+  `/credentials` response on every connect. They travel together in the SAME
+  store: `nextdo.auth.owner-token` (a secret) and `nextdo.sync.config` (a JSON
+  string, **not** a secret, but per-device configuration) — per platform.
+  `expo-secure-store` exists only on native, so:
 
   | Platform | Owner-token + sync-config storage |
   |----------|-----------------------------------|

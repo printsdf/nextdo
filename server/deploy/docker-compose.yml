@@ -7,7 +7,8 @@
 #
 # Run from server/deploy:
 #   cp .env.example .env      # fill in POSTGRES_*, NEXTDO_OWNER_TOKEN,
-#                             #   JWT_SECRET, PS_ADMIN_TOKEN (all required)
+#                             #   NEXTDO_SYNC_ENDPOINT, JWT_SECRET,
+#                             #   PS_ADMIN_TOKEN (all required)
 #   docker compose up -d --build
 #
 # One Postgres, two databases: POSTGRES_DB (the app's source DB that the
@@ -101,6 +102,12 @@ services:
       # and entered on every device's Settings tab; an empty value makes
       # the api container refuse to start.
       NEXTDO_OWNER_TOKEN: ${NEXTDO_OWNER_TOKEN:?set NEXTDO_OWNER_TOKEN in .env (openssl rand -hex 32)}
+      # REQUIRED — the PUBLIC sync-stream URL every device receives from
+      # GET /credentials (e.g. https://your.domain/sync). The api refuses
+      # to start without it, so add it to .env BEFORE upgrading an
+      # existing deployment. Set it to what your reverse proxy serves the
+      # PowerSync service under — not the container's 127.0.0.1:8080.
+      NEXTDO_SYNC_ENDPOINT: ${NEXTDO_SYNC_ENDPOINT:?set NEXTDO_SYNC_ENDPOINT in .env (e.g. https://your.domain/sync)}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (same value PS_JWT_SECRET)}
 
 volumes:

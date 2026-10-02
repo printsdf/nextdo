@@ -10,12 +10,17 @@
  *   granted / denied per platform; denied on iOS → 「去系统设置」 button,
  *   denied on Android → text guidance (no API to jump there in v1);
  *   tauri → "follows the system settings"; plain web → "not supported".
- * - disconnected (no owner token): explains local-only mode + three inputs
- *   (backend address, sync-stream address, owner token — REQUIRED: an
+ * - disconnected (no owner token): explains local-only mode + TWO inputs —
+ *   ONE 「服务器地址」 (the `/api` + `/sync` paths are derived from it by
+ *   `deriveSyncConfig`, in `packages/db`) and ONE 「连接串 / owner token」
+ *   field that accepts either a pasted connection string
+ *   (`<base>|<token>` or `nextdo://sync?s=&t=`) or a bare owner token — an
  *   empty token is refused by connect() with an inline error before any
- *   network) + 连接 + inline error. The two address inputs pre-fill from
- *   the stored config when it exists (so a reconnect after 断开 only
- *   needs a new token).
+ *   network. A 「高级设置」 accordion (collapsed by default) keeps the two
+ *   original custom URL inputs for non-standard reverse-proxy layouts;
+ *   filling BOTH makes them win over the derivation (design D2 — no
+ *   extra mode toggle). A pre-existing stored config pre-fills all three
+ *   address fields, so a reconnect after 断开 only needs a new token.
  *   Client-side validation (请先填写服务器地址 / 地址无效… / 请先输入
  *   owner token) runs BEFORE any network; the server three-state copy
  *   (token 不正确 / 连不上服务器，请稍后重试 / 保存失败) is unchanged.
@@ -29,11 +34,26 @@
  */
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { useAppTheme, type ThemePreference } from '@/lib/theme';
 import { Button, Card, cn } from '@nextdo/ui';
 import { useCloudSync } from '@/hooks/use-cloud-sync';
 import { useReminderPermission } from '@/hooks/use-reminder-permission';
+import { parseConnectionString } from '@/lib/sync-connection';
+
+/**
+ * Recover the BASE server address from a stored `backendUrl` so the single
+ * 「服务器地址」 input can be pre-filled without the user seeing the
+ * derived `/api` suffix they never typed. Purely cosmetic (the input
+ * still connects fine with `/api` pasted — `deriveSyncConfig` strips it),
+ * but showing a value the user never entered in a field labeled 「服务器
+ * 地址」 is confusing. Mirrors `deriveSyncConfig`'s tolerated suffixes;
+ * kept local because it is a DISPLAY concern, not a config rule.
+ */
+function stripDerivedSuffix(backendUrl: string): string {
+  return backendUrl.replace(/\/+$/, '').replace(/\/(api|sync)$/, '');
+}
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
   { value: 'system', label: '跟随系统' },
@@ -44,38 +64,122 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
 const INPUT_CLASS =
   'rounded-md border border-border/80 bg-surface p-3 text-base text-ink placeholder:text-muted shadow-sm focus:border-accent dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
 
+/** Placeholders / accessibility labels — the single definitions the tests
+ *  match on (a duplicated literal in the JSX is how copy drifts). */
+const SERVER_ADDRESS_PLACEHOLDER = 'https://nextdo.example.com';
+const TOKEN_PLACEHOLDER = 'owner token 或连接串';
+const ADVANCED_BACKEND_PLACEHOLDER = 'https://nextdo.example.com/api';
+const ADVANCED_ENDPOINT_PLACEHOLDER = 'https://nextdo.example.com/sync';
+const TOKEN_ACCESSIBILITY_LABEL = '连接串或 owner token';
+
 export default function SettingsScreen() {
   const { preference, updatePreference } = useAppTheme();
   const { state, storedConfig, connect, disconnect } = useCloudSync();
   const { state: notificationPermission, openSystemSettings } = useReminderPermission();
-  const [backendUrl, setBackendUrl] = useState('');
-  const [endpoint, setEndpoint] = useState('');
+  // The deep-link route (`app/sync.tsx`) hands a failed connect back here
+  // as `?syncError=…` so the user SEES the reason instead of a silent
+  // no-op. Read once per arrival (the value is a fresh string each time).
+  const { syncError } = useLocalSearchParams<{ syncError?: string }>();
+  // The simple form: ONE server address (the two URLs are derived from it)
+  // plus one field that accepts a connection string OR a bare owner token.
+  const [serverAddress, setServerAddress] = useState('');
   const [token, setToken] = useState('');
+  // The advanced form (collapsed by default): the two custom URLs. Empty
+  // means "derive them"; non-empty means "use exactly these" (design D2 —
+  // no extra "I am in advanced mode" toggle, which would be a second state
+  // that can disagree with the fields themselves).
+  const [advancedBackendUrl, setAdvancedBackendUrl] = useState('');
+  const [advancedEndpoint, setAdvancedEndpoint] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Set the moment the user edits the server address: from then on the
+  // prefilled advanced pair no longer takes precedence (see the prefill
+  // effect + handleServerAddressChange below).
+  const [addressIsAuthoritative, setAddressIsAuthoritative] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const insets = useAppInsets();
   const topPadding = Math.max(insets.top, 16);
-  // Pre-fill the two address inputs from the stored config when it exists —
-  // into EMPTY fields only (a reconnect after 断开 keeps the addresses, so
-  // the user never re-types them). `storedConfig` re-reads on every poke, so
-  // this also runs when the block flips back to disconnected.
+  // Pre-fill from the stored config when it exists — into EMPTY fields
+  // only (a reconnect after 断开 keeps the addresses, so the user never
+  // re-types them). The address input gets the BASE (the two URLs are
+  // recovered by stripping a trailing `/api` / `/sync`, which
+  // `deriveSyncConfig` tolerates); the advanced inputs get the raw pair so
+  // a deployment with a custom path layout survives a disconnect/reconnect
+  // cycle unchanged. `storedConfig` re-reads on every poke, so this also
+  // runs when the block flips back to disconnected.
+  //
+  // Skipped entirely once `addressIsAuthoritative` is set (see below): a
+  // re-read must not resurrect the prefilled advanced pair behind the
+  // user's back after they deliberately chose a different address.
   useEffect(() => {
     if (storedConfig === null) return;
-    setBackendUrl((prev) => (prev === '' ? storedConfig.backendUrl : prev));
-    setEndpoint((prev) => (prev === '' ? storedConfig.endpoint : prev));
-  }, [storedConfig]);
+    setServerAddress((prev) => (prev === '' ? stripDerivedSuffix(storedConfig.backendUrl) : prev));
+    if (addressIsAuthoritative) return;
+    setAdvancedBackendUrl((prev) => (prev === '' ? storedConfig.backendUrl : prev));
+    setAdvancedEndpoint((prev) => (prev === '' ? storedConfig.endpoint : prev));
+  }, [storedConfig, addressIsAuthoritative]);
 
-  // The two addresses non-empty — the button only checks PRESENCE, not
-  // validity: address VALIDITY and the token REQUIREMENT are both left
-  // to connect's inline error, not the button.
-  const canSubmit = backendUrl.trim() !== '' && endpoint.trim() !== '' && !submitting;
+  // Editing the server address is an EXPLICIT choice of server, so the
+  // prefilled advanced pair must step aside — otherwise it silently wins
+  // (`hasAdvanced` only asks "are both filled?") and the user's new
+  // address is ignored with no visible sign: the OLD server is contacted
+  // while the field shows the NEW one. Clearing both advanced fields is
+  // the only honest reading of "I typed a different address"; a
+  // deployment that genuinely needs the custom pair re-fills it (or pastes
+  // a connection string) afterwards.
+  const handleServerAddressChange = (next: string): void => {
+    setAddressIsAuthoritative(true);
+    setServerAddress(next);
+    setAdvancedBackendUrl('');
+    setAdvancedEndpoint('');
+    clearError();
+  };
+
+  // An error handed over by the deep-link route becomes this screen's inline
+  // error (the same three-state copy — the route and this screen share ONE
+  // connect(), so the message is literally the same string).
+  useEffect(() => {
+    if (typeof syncError === 'string' && syncError !== '') {
+      setError(syncError);
+    }
+  }, [syncError]);
+
+  // Advanced values win whenever BOTH are filled; otherwise the single
+  // server address drives the derivation. Exactly one branch is taken —
+  // the two inputs can never both apply. A pasted CONNECTION STRING
+  // carries its own address, so it satisfies the presence check on its
+  // own: the user pasted a complete instruction and should not also have
+  // to retype the address into the field above.
+  const hasAdvanced = advancedBackendUrl.trim() !== '' && advancedEndpoint.trim() !== '';
+  const connectionString = parseConnectionString(token);
+  const addressPresent = hasAdvanced || connectionString !== null || serverAddress.trim() !== '';
+  // The button only checks PRESENCE, not validity: address VALIDITY and
+  // the token REQUIREMENT are both left to connect's inline error, not the
+  // button (the pre-existing contract).
+  const canSubmit = addressPresent && !submitting;
 
   const handleSubmit = async (): Promise<void> => {
     if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
     try {
-      const result = await connect({ backendUrl, endpoint, token });
+      // A pasted connection string carries BOTH halves (`<base>|<token>` or
+      // `nextdo://sync?s=&t=`). When present it wins over whatever is in
+      // the address field — the user pasted a complete, authoritative
+      // instruction. A BARE token (parse → null) keeps the pre-existing
+      // behavior of "this field is just the token".
+      const result = connectionString
+        ? await connect({
+            serverAddress: connectionString.serverAddress,
+            token: connectionString.token,
+          })
+        : hasAdvanced
+          ? await connect({
+              backendUrl: advancedBackendUrl,
+              endpoint: advancedEndpoint,
+              token,
+            })
+          : await connect({ serverAddress, token });
       // ok → the hook's owner-token subscription flips the block to the
       // connected view (the inputs unmount with it).
       if (result.ok) {
@@ -236,33 +340,17 @@ export default function SettingsScreen() {
             </Text>
             <TextInput
               className={INPUT_CLASS}
-              placeholder="https://nextdo.example.com/api"
-              value={backendUrl}
-              onChangeText={(next) => {
-                setBackendUrl(next);
-                clearError();
-              }}
+              placeholder={SERVER_ADDRESS_PLACEHOLDER}
+              value={serverAddress}
+              onChangeText={handleServerAddressChange}
               autoCapitalize="none"
               autoCorrect={false}
               autoComplete="off"
-              accessibilityLabel="后端地址"
+              accessibilityLabel="服务器地址"
             />
             <TextInput
               className={INPUT_CLASS}
-              placeholder="https://nextdo.example.com/sync"
-              value={endpoint}
-              onChangeText={(next) => {
-                setEndpoint(next);
-                clearError();
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="off"
-              accessibilityLabel="同步流地址"
-            />
-            <TextInput
-              className={INPUT_CLASS}
-              placeholder="owner token"
+              placeholder={TOKEN_PLACEHOLDER}
               value={token}
               onChangeText={(next) => {
                 setToken(next);
@@ -275,8 +363,57 @@ export default function SettingsScreen() {
               onSubmitEditing={() => {
                 void handleSubmit();
               }}
-              accessibilityLabel="owner token"
+              accessibilityLabel={TOKEN_ACCESSIBILITY_LABEL}
             />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="高级设置"
+              accessibilityState={{ expanded: advancedOpen }}
+              onPress={() => {
+                setAdvancedOpen((prev) => !prev);
+              }}
+              className="flex-row items-center gap-1 py-2"
+            >
+              <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+                {advancedOpen ? '收起高级设置' : '高级设置'}
+              </Text>
+              <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+                {advancedOpen ? '▴' : '▾'}
+              </Text>
+            </Pressable>
+            {advancedOpen ? (
+              <View className="gap-3">
+                <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+                  自定义反代路径时才需要：两项都填写时优先于上面的服务器地址。
+                </Text>
+                <TextInput
+                  className={INPUT_CLASS}
+                  placeholder={ADVANCED_BACKEND_PLACEHOLDER}
+                  value={advancedBackendUrl}
+                  onChangeText={(next) => {
+                    setAdvancedBackendUrl(next);
+                    clearError();
+                  }}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  accessibilityLabel="后端地址"
+                />
+                <TextInput
+                  className={INPUT_CLASS}
+                  placeholder={ADVANCED_ENDPOINT_PLACEHOLDER}
+                  value={advancedEndpoint}
+                  onChangeText={(next) => {
+                    setAdvancedEndpoint(next);
+                    clearError();
+                  }}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  accessibilityLabel="同步流地址"
+                />
+              </View>
+            ) : null}
             {error !== null ? (
               <Text className="font-sans text-sm text-danger dark:text-danger-dark">
                 {error}

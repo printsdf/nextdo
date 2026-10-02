@@ -538,3 +538,28 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 
 - Desktop version is still 0.1.1 in apps/desktop/package.json and apps/desktop/src-tauri/tauri.conf.json while mobile is 0.1.2, so published desktop artifacts are named Nextdo_0.1.1_*. Bump both desktop files together next time the version changes; fixing it later needs a desktop-only rebuild (no EAS Android quota cost).
 - EAS Free plan allows 15 Android builds per billing period (resets on the 1st). This cycle used 4 of 15.
+
+
+## Session 15: 简化云同步连接：单地址 + 服务端下发 endpoint
+<!-- trellis-session: v=2 fp=f43f8aa7b5fd7f7d -->
+
+**Date**: 2026-10-02
+**Task**: 简化云同步连接：单地址 + 服务端下发 endpoint
+**Branch**: `main`
+
+### Summary
+
+把设置页的三个手填输入（后端地址/同步流地址/owner token）收敛为「一个服务器地址 + 一个连接串」。新增 NEXTDO_SYNC_ENDPOINT 让服务端在 /credentials 下发 sync endpoint（本次唯一破坏性变更：既有部署升级前必须补该变量），客户端 deriveSyncConfig 推导路径并在服务端未下发时回落，连接串支持竖线分隔纯文本与 nextdo:// deep link 两种形态。存储形状不变，旧设备零迁移。核验阶段修复三个缺陷：预填的高级设置会静默压过用户输入的地址（显示新地址却请求旧服务器）、字符串比较剥后缀在带 query 的粘贴上产出 /api/api、deep link 布尔闩锁使第二条连接串进死页面。验证：根级 859 测试 + typecheck + lint 全绿，真实 Docker 栈 e2e 七步全过（第 3 步确认连接器采用服务端下发的 endpoint）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bb4d7a8` | feat(server): /credentials 下发 sync endpoint |
+| `d4508cb` | feat(sync): 单地址连接 + 连接串 + deep link 配对 |
+| `e3c4208` | docs(spec): 记录 /credentials 协议扩展与连接串格式 |
+| `5e6188c` | docs(deploy): 连接设备改为「一个地址 + 一个连接串」 |
+
+### Status
+
+[OK] **Completed**

@@ -20,10 +20,13 @@ import { createPool } from './db.js';
 import { logger } from './logger.js';
 import { resolveOwnerToken } from './owner-token.js';
 import { seedDefaultContexts } from './seed.js';
+import { resolveSyncEndpoint } from './sync-endpoint.js';
 
 /** Read the environment, refuse to boot on a missing secret, serve.
  *  (The owner token comes ONLY from NEXTDO_OWNER_TOKEN — missing/empty
- *  refuses the boot; see src/owner-token.ts.) */
+ *  refuses the boot; see src/owner-token.ts. The PowerSync stream URL
+ *  comes ONLY from NEXTDO_SYNC_ENDPOINT — missing/empty/not-http(s)
+ *  refuses the boot; see src/sync-endpoint.ts.) */
 export async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   const jwtSecret = process.env.JWT_SECRET;
@@ -38,6 +41,12 @@ export async function main(): Promise<void> {
   if (jwtSecret === undefined || jwtSecret === '') {
     throw new Error('JWT_SECRET is not set');
   }
+  // Likewise REQUIRED and env-only: the public sync-stream URL every device
+  // receives from /credentials. Upgrading an existing deployment without
+  // this variable makes the api container refuse to start (README
+  // "Operations" documents the upgrade step).
+  const syncEndpoint = resolveSyncEndpoint();
+  logger.info('sync endpoint source: env');
   const portRaw = process.env.PORT;
   const port = portRaw === undefined ? 8787 : Number(portRaw);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -55,7 +64,7 @@ export async function main(): Promise<void> {
   } catch (error) {
     logger.error('context seeding failed', error);
   }
-  const app = createApp({ pool, ownerToken, jwtSecret });
+  const app = createApp({ pool, ownerToken, jwtSecret, syncEndpoint });
   serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`listening on :${info.port}`);
   });

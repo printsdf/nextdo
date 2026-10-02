@@ -199,12 +199,35 @@ describe('connector.fetchCredentials', () => {
 
     const credentials = await connector.fetchCredentials();
 
+    // No endpoint in the body (an old server) → the injected config's value.
     expect(credentials).toEqual({
       endpoint: CONFIG.endpoint,
       token: 'ps-service-token',
     });
     expect(fetchMock).toHaveBeenCalledWith(CONFIG.backendUrl + '/credentials', {
       headers: { Authorization: 'Bearer owner-token-1' },
+    });
+  });
+
+  it('prefers the server-supplied endpoint over the injected config (10-02)', async () => {
+    await setOwnerToken('owner-token-1');
+    mockFetch(200, { token: 'ps-service-token', endpoint: 'https://custom.example.com/stream' });
+    const connector = createPowerSyncConnector(CONFIG);
+
+    await expect(connector.fetchCredentials()).resolves.toEqual({
+      endpoint: 'https://custom.example.com/stream',
+      token: 'ps-service-token',
+    });
+  });
+
+  it('falls back to the injected config when the server endpoint is malformed', async () => {
+    await setOwnerToken('owner-token-1');
+    mockFetch(200, { token: 'ps-service-token', endpoint: 'ftp://bad' });
+    const connector = createPowerSyncConnector(CONFIG);
+
+    await expect(connector.fetchCredentials()).resolves.toEqual({
+      endpoint: CONFIG.endpoint,
+      token: 'ps-service-token',
     });
   });
 

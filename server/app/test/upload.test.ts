@@ -9,7 +9,7 @@
 import { createApp } from '../src/app.js';
 import { APPEND_ONLY_TABLES, MUTABLE_TABLES } from '../src/db.js';
 import type { Hono } from 'hono';
-import { createMockPool, type MockPool, JWT_SECRET, NOW, NOW_ISO, OWNER_TOKEN } from './helpers.js';
+import { createMockPool, type MockPool, JWT_SECRET, NOW, NOW_ISO, OWNER_TOKEN, SYNC_ENDPOINT } from './helpers.js';
 
 const ID = '01J9TEST000000000000000001';
 
@@ -23,6 +23,7 @@ function buildApp(mock: MockPool): Hono {
     pool: mock.pool,
     ownerToken: OWNER_TOKEN,
     jwtSecret: JWT_SECRET,
+    syncEndpoint: SYNC_ENDPOINT,
     now: () => NOW,
   });
 }

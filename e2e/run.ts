@@ -339,8 +339,31 @@ async function createClient(label: string, dbFilename: string, workDir: string):
   return { powersync, db: wrapDb(powersync), sdkLog };
 }
 
+/**
+ * Connect + subscribe, exercising the 10-02 protocol change end to end.
+ *
+ * The connector is built with a DELIBERATELY WRONG local endpoint: if the
+ * connector still preferred its injected config (the pre-10-02 behavior),
+ * the SDK would try to reach the bogus URL and connect() would fail. It can
+ * only succeed because /credentials handed back the deployment's real
+ * `NEXTDO_SYNC_ENDPOINT` — a behavioral assertion of the whole chain
+ * (boot env → /credentials body → fetchCredentialsOnce → connector).
+ */
 async function connectAndSubscribe(client: E2eClient, label: string): Promise<void> {
-  const connector = createPowerSyncConnector({ backendUrl: BACKEND_URL, endpoint: SERVICE_URL });
+  const WRONG_LOCAL_ENDPOINT = 'http://127.0.0.1:9/wrong-endpoint';
+  const connector = createPowerSyncConnector({
+    backendUrl: BACKEND_URL,
+    endpoint: WRONG_LOCAL_ENDPOINT,
+  });
+  const credentials = await connector.fetchCredentials();
+  if (credentials === null) {
+    throw new Error(`${label}: fetchCredentials returned null (no owner token stored?)`);
+  }
+  if (credentials.endpoint !== SERVICE_URL) {
+    throw new Error(
+      `${label}: connector did not adopt the server endpoint — got ${credentials.endpoint}, expected ${SERVICE_URL}`,
+    );
+  }
   await awaitWithTimeout(client.powersync.connect(connector), WAIT.connectMs, `${label}: connect()`);
   await awaitWithTimeout(
     client.powersync.waitForStatus(
@@ -496,6 +519,11 @@ async function cmdRun(): Promise<boolean> {
         [
           'DATABASE_URL=postgresql://nextdo:nextdo@localhost:5432/nextdo',
           `NEXTDO_OWNER_TOKEN=${ownerToken}`,
+          // REQUIRED since 10-02-simplify-sync-setup: the backend refuses to
+          // boot without it and hands it to clients via /credentials. In
+          // this stack the clients reach the service directly on :8080, so
+          // the loopback URL IS the reachable public URL.
+          `NEXTDO_SYNC_ENDPOINT=${SERVICE_URL}`,
           `JWT_SECRET=${jwtSecret}`,
           'PORT=8787',
           '',
@@ -563,6 +591,9 @@ async function cmdRun(): Promise<boolean> {
           ...process.env,
           DATABASE_URL: 'postgresql://nextdo:nextdo@localhost:5432/nextdo',
           NEXTDO_OWNER_TOKEN: ownerToken,
+          // Also passed explicitly (not only via the .env file above) so the
+          // spawned process cannot miss it if the file write is ever skipped.
+          NEXTDO_SYNC_ENDPOINT: SERVICE_URL,
           JWT_SECRET: jwtSecret,
           PORT: String(BACKEND_PORT),
         },
@@ -626,7 +657,8 @@ async function cmdRun(): Promise<boolean> {
       clientA = await createClient('A', 'nextdo-a.db', workDir);
       await connectAndSubscribe(clientA, 'A');
       return [
-        `GET /credentials with owner token -> 200 {token} (the connector's fetchCredentials)`,
+        `GET /credentials with owner token -> 200 {token, endpoint} (the connector's fetchCredentials)`,
+        `client A: fetchCredentials returned endpoint=${SERVICE_URL} — the server's NEXTDO_SYNC_ENDPOINT won over the locally injected value`,
         `client A: connect() ok, status "connected" — the PowerSync Service accepted the minted 15-min JWT (kid nextdo-dev, aud nextdo)`,
         `client A: subscribed to stream "${SYNC_STREAM_NAME}"`,
         `client A status: ${statusJson(clientA.powersync)}`,

@@ -10,40 +10,48 @@
  *     background startup check gets a 401 clears the TOKEN (the stored
  *     addresses are KEPT) and the app STILL renders (the Settings block then
  *     reads 「未连接」 with the addresses pre-filled).
- *  2. The Settings block — disconnected view (backend address + sync-stream
- *     address + token inputs + 连接 + inline errors; the two address inputs
- *     pre-fill from the stored config; the token input starts EMPTY and is
- *     required to connect) and connected view (read-only address display +
- *     断开连接 → back to disconnected, addresses retained).
+ *  2. The Settings block — disconnected view (ONE 「服务器地址」 input +
+ *     ONE 「连接串 / owner token」 input + 连接 + inline errors; a collapsed
+ *     「高级设置」 accordion holding the two custom URL inputs) and
+ *     connected view (read-only address display + 断开连接 → back to
+ *     disconnected, addresses retained).
  *
  * Rendered via `renderRouter` against a mocked `@nextdo/db` boundary whose
  * auth + config surface is mutable per test; the set/clear paths fire the
  * SAME change notification as production (the token write is the single poke;
- * the config write is NOT — same as production).
+ * the config write is NOT — same as production). `deriveSyncConfig` is the
+ * REAL implementation (requireActual) so the derivation rule is not
+ * re-implemented in the mock — its own exhaustive unit tests live in
+ * packages/db/src/test/derive-sync-config.test.ts.
  *
- * The button's `canSubmit` requires the two ADDRESSES non-empty (an empty
- * token is a legal BUTTON PRESS — the token requirement is enforced by
- * connect() inline), so the validation the button cannot reach (empty
- * address) is exercised through the REAL `useCloudSync` hook via a tiny
- * render harness — asserting the inline copy AND that no network
- * round-trip happened (the fetchCredentialsOnce spy count). The ftp://
- * (invalid, but non-empty) case IS reachable through the button and is
- * tested the same way.
+ * The button's `canSubmit` requires the ADDRESS non-empty (an empty token is
+ * a legal BUTTON PRESS — the token requirement is enforced by connect()
+ * inline), so the validation the button cannot reach (empty address) is
+ * exercised through the REAL `useCloudSync` hook via a tiny render harness —
+ * asserting the inline copy AND that no network round-trip happened (the
+ * fetchCredentialsOnce spy count). The ftp:// (invalid, but non-empty) case
+ * IS reachable through the button and is tested the same way.
  */
 type MockValidateResult =
-  | { ok: true; token: string }
+  | { ok: true; token: string; endpoint?: string }
   | { ok: false; kind: 'rejected'; status: number }
   | { ok: false; kind: 'invalid' }
   | { ok: false; kind: 'network'; detail?: string };
 
-/** A valid stored / typed config used across the cases. */
+/** The base server address the simple form produces VALID_CONFIG from. */
+const SERVER_ADDRESS = 'https://nextdo.example.com';
+
+/** A valid stored / derived config used across the cases. */
 const VALID_CONFIG = {
-  backendUrl: 'https://nextdo.example.com/api',
-  endpoint: 'https://nextdo.example.com/sync',
+  backendUrl: `${SERVER_ADDRESS}/api`,
+  endpoint: `${SERVER_ADDRESS}/sync`,
 };
 
-/** The token input's placeholder (must match settings.tsx). */
-const TOKEN_PLACEHOLDER = 'owner token';
+/** Placeholders / labels — must match settings.tsx. */
+const SERVER_PLACEHOLDER = 'https://nextdo.example.com';
+const TOKEN_PLACEHOLDER = 'owner token 或连接串';
+const BACKEND_PLACEHOLDER = 'https://nextdo.example.com/api';
+const ENDPOINT_PLACEHOLDER = 'https://nextdo.example.com/sync';
 
 const mockAuth: {
   storedToken: string | null;
@@ -53,7 +61,8 @@ const mockAuth: {
 } = {
   storedToken: null,
   storedConfig: null,
-  // Default: permissive (accept anything). Overwritten per test.
+  // Default: permissive (accept anything, no endpoint — the old-server
+  // shape, which is what makes the fallback path the DEFAULT under test).
   validate: () => ({ ok: true, token: 'ps-jwt' }),
 };
 
@@ -81,6 +90,13 @@ jest.mock('@nextdo/db', () => {
     compile: () => ({ sql: 'SELECT 1', parameters: [] }),
     execute: async () => [],
   });
+  // The REAL derivation rule (10-02): re-implementing it in the mock
+  // would make these tests assert a second copy of the rule instead of
+  // the one the hook actually calls. Its own exhaustive shape tests live
+  // in packages/db/src/test/derive-sync-config.test.ts.
+  const { deriveSyncConfig } = jest.requireActual('@nextdo/db') as {
+    deriveSyncConfig: (address: string) => { backendUrl: string; endpoint: string };
+  };
   const powersync = {
     init: async () => undefined,
     connect: () => Promise.resolve(undefined),
@@ -89,6 +105,7 @@ jest.mock('@nextdo/db', () => {
   };
   return {
     createPowerSyncDatabase: () => powersync,
+    deriveSyncConfig,
     // --- the auth + config surface (mutable per test; multi-listener) ---
     getOwnerToken: async () => mockAuth.storedToken,
     getStoredBackendConfig: async () => mockAuth.storedConfig,
@@ -214,6 +231,34 @@ function connectButtonDisabled(): boolean {
   return button.props.accessibilityState?.disabled === true;
 }
 
+/** Expand the collapsed 「高级设置」 accordion (the custom URL inputs). */
+async function expandAdvanced(): Promise<void> {
+  fireEvent.press(screen.getByRole('button', { name: '高级设置' }));
+  await flush();
+}
+
+/** Fill the simple form: the one server address + the token / connection string. */
+async function fillSimpleForm(address: string, token: string): Promise<void> {
+  if (address !== '') {
+    fireEvent.changeText(screen.getByPlaceholderText(SERVER_PLACEHOLDER), address);
+  }
+  fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), token);
+  await flush();
+}
+
+/** Fill the advanced form's two custom URLs (the accordion must be expanded). */
+async function fillAdvancedForm(backendUrl: string, endpoint: string): Promise<void> {
+  fireEvent.changeText(screen.getByPlaceholderText(BACKEND_PLACEHOLDER), backendUrl);
+  fireEvent.changeText(screen.getByPlaceholderText(ENDPOINT_PLACEHOLDER), endpoint);
+  await flush();
+}
+
+/** Press 连接 and flush the whole auth chain. */
+async function pressConnect(): Promise<void> {
+  fireEvent.press(screen.getByRole('button', { name: '连接' }));
+  await flush();
+}
+
 /** Flush several microtask rounds (the auth chains are 4–5 promise hops
  *  deep: getOwnerToken → getStoredBackendConfig → fetchCredentialsOnce →
  *  set/clear → notification → state re-read → prefill effect). */
@@ -276,7 +321,7 @@ describe('root (no gate)', () => {
  * Settings — the cloud-sync block
  * ------------------------------------------------------------------ */
 describe('settings cloud-sync block', () => {
-  it('disconnected: shows the explanation, the three inputs and a disabled 连接 button', async () => {
+  it('disconnected: the explanation, ONE server-address input, ONE connection-string/token input, a collapsed 高级设置, and a disabled 连接 button', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
@@ -286,58 +331,48 @@ describe('settings cloud-sync block', () => {
     expect(screen.getByText('云同步')).toBeTruthy();
     expect(screen.getByText(/未连接/)).toBeTruthy();
     expect(screen.getByText(/填写你的同步服务器地址/)).toBeTruthy();
-    expect(screen.getByPlaceholderText('https://nextdo.example.com/api')).toBeTruthy();
-    expect(screen.getByPlaceholderText('https://nextdo.example.com/sync')).toBeTruthy();
+    // The simple form: exactly ONE address input + the token/connection field.
+    expect(screen.getByPlaceholderText(SERVER_PLACEHOLDER)).toBeTruthy();
     expect(screen.getByPlaceholderText(TOKEN_PLACEHOLDER)).toBeTruthy();
+    // The two custom URL inputs live in the accordion, which is COLLAPSED
+    // by default — the whole point of the simplification (a newcomer never
+    // sees /api + /sync).
+    expect(screen.getByRole('button', { name: '高级设置' })).toBeTruthy();
+    expect(screen.queryByPlaceholderText(BACKEND_PLACEHOLDER)).toBeNull();
+    expect(screen.queryByPlaceholderText(ENDPOINT_PLACEHOLDER)).toBeNull();
     expect(connectButtonDisabled()).toBe(true);
   });
 
-  it('连接 enables when both addresses are filled (token may be empty — the requirement is enforced by connect() inline); missing addresses stay disabled', async () => {
+  it('连接 enables on a server address alone (token may be empty — the requirement is enforced by connect() inline); no address stays disabled', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
     expect(connectButtonDisabled()).toBe(true);
-    // Token alone is not enough (the two addresses are still empty).
+    // Token alone is not enough (the address is still empty).
     fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), 'tok-1');
     await flush();
     expect(connectButtonDisabled()).toBe(true);
 
-    // Fill both addresses → enabled.
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/api'),
-      VALID_CONFIG.backendUrl,
-    );
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/sync'),
-      VALID_CONFIG.endpoint,
-    );
+    // One address → enabled. The second URL is derived, never typed.
+    fireEvent.changeText(screen.getByPlaceholderText(SERVER_PLACEHOLDER), SERVER_ADDRESS);
     await flush();
     expect(connectButtonDisabled()).toBe(false);
   });
 
-  it('valid token + addresses → the config AND the (trimmed) owner token are stored → the connected block', async () => {
+  it('ONE address + valid token → the derived config AND the (trimmed) owner token are stored → the connected block', async () => {
     mockAuth.validate = (_c, t) =>
       t === 'good-token' ? { ok: true, token: 'ps-jwt' } : { ok: false, kind: 'rejected', status: 401 };
 
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/api'),
-      VALID_CONFIG.backendUrl,
-    );
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/sync'),
-      VALID_CONFIG.endpoint,
-    );
-    fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), '  good-token  ');
-    await flush();
-    fireEvent.press(screen.getByRole('button', { name: '连接' }));
-    await flush();
+    await fillSimpleForm(SERVER_ADDRESS, '  good-token  ');
+    await pressConnect();
 
     // The OWNER token was stored (not the minted service JWT)…
     expect(mockAuth.storedToken).toBe('good-token');
-    // …AND the server addresses (both landed in the mock storage).
+    // …AND the DERIVED addresses landed in the mock storage: the user
+    // typed one field and both URLs exist.
     expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
     // …and the same change notification that drives the provider's connect()
     // flips the block: connected view, read-only addresses, inputs gone.
@@ -352,25 +387,31 @@ describe('settings cloud-sync block', () => {
     expect(mockConnectorConfigs).toEqual([VALID_CONFIG]);
   });
 
-  it('empty token + valid addresses → inline 「请先输入 owner token」, nothing stored, ZERO network', async () => {
+  it.each([
+    ['a trailing slash', `${SERVER_ADDRESS}/`],
+    ['the full backend URL pasted in', VALID_CONFIG.backendUrl],
+    ['the full sync URL pasted in', VALID_CONFIG.endpoint],
+  ])('suffix tolerance: %s derives the SAME config (never /api/api)', async (_label, address) => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/api'),
-      VALID_CONFIG.backendUrl,
-    );
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/sync'),
-      VALID_CONFIG.endpoint,
-    );
+    await fillSimpleForm(address, 'good-token');
+    await pressConnect();
+
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+    expect(mockAuth.storedToken).toBe('good-token');
+  });
+
+  it('empty token + a valid address → inline 「请先输入 owner token」, nothing stored, ZERO network', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
     // The token input is left EMPTY — a legal button press, an invalid
     // connect(): the requirement is connect()'s inline error, not the
     // button (same pattern as the address validity check).
-    await flush();
+    await fillSimpleForm(SERVER_ADDRESS, '');
     expect(connectButtonDisabled()).toBe(false);
-    fireEvent.press(screen.getByRole('button', { name: '连接' }));
-    await flush();
+    await pressConnect();
 
     expect(screen.getByText('请先输入 owner token')).toBeTruthy();
     expect(mockFetchCalls).toBe(0); // ZERO network round-trips
@@ -387,18 +428,8 @@ describe('settings cloud-sync block', () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/api'),
-      VALID_CONFIG.backendUrl,
-    );
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/sync'),
-      VALID_CONFIG.endpoint,
-    );
-    fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), 'bad-token');
-    await flush();
-    fireEvent.press(screen.getByRole('button', { name: '连接' }));
-    await flush();
+    await fillSimpleForm(SERVER_ADDRESS, 'bad-token');
+    await pressConnect();
 
     expect(screen.getByText('token 不正确')).toBeTruthy();
     expect(mockAuth.storedToken).toBeNull();
@@ -412,8 +443,7 @@ describe('settings cloud-sync block', () => {
       presses += 1;
       return callsBefore(...args);
     };
-    fireEvent.press(screen.getByRole('button', { name: '连接' }));
-    await flush();
+    await pressConnect();
     expect(presses).toBe(1);
   });
 
@@ -423,18 +453,8 @@ describe('settings cloud-sync block', () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/api'),
-      VALID_CONFIG.backendUrl,
-    );
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/sync'),
-      VALID_CONFIG.endpoint,
-    );
-    fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), 'any-token');
-    await flush();
-    fireEvent.press(screen.getByRole('button', { name: '连接' }));
-    await flush();
+    await fillSimpleForm(SERVER_ADDRESS, 'any-token');
+    await pressConnect();
 
     expect(screen.getByText('连不上服务器，请稍后重试')).toBeTruthy();
     expect(mockAuth.storedToken).toBeNull();
@@ -442,7 +462,57 @@ describe('settings cloud-sync block', () => {
     expect(screen.getByText(/未连接/)).toBeTruthy();
   });
 
-  it('stored token + config → the connected block (addresses shown); 断开 → token cleared, config KEPT, addresses pre-filled', async () => {
+  it('the server-supplied endpoint OVERRIDES the derived one (10-02: the deployment owns the path)', async () => {
+    mockAuth.validate = () => ({
+      ok: true,
+      token: 'ps-jwt',
+      endpoint: 'https://custom.example.com/stream',
+    });
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await fillSimpleForm(SERVER_ADDRESS, 'good-token');
+    await pressConnect();
+
+    // backendUrl stays derived; endpoint is the server's.
+    expect(mockAuth.storedConfig).toEqual({
+      backendUrl: VALID_CONFIG.backendUrl,
+      endpoint: 'https://custom.example.com/stream',
+    });
+    expect(mockAuth.storedToken).toBe('good-token');
+    // …and the provider connects with that stored config.
+    expect(mockConnectorConfigs).toEqual([
+      {
+        backendUrl: VALID_CONFIG.backendUrl,
+        endpoint: 'https://custom.example.com/stream',
+      },
+    ]);
+  });
+
+  it('an OLD server (no endpoint in the 200 body) → the derived endpoint is kept (backward compatible)', async () => {
+    mockAuth.validate = () => ({ ok: true, token: 'ps-jwt' }); // no endpoint
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await fillSimpleForm(SERVER_ADDRESS, 'good-token');
+    await pressConnect();
+
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+  });
+
+  // NOTE: a MALFORMED server endpoint (`ftp://bad` → fall back to the
+  // derived one) is deliberately NOT asserted here: the mock
+  // `fetchCredentialsOnce` stands in for the real one, and the filtering
+  // lives inside the real function — pinned by
+  // packages/db/src/test/fetch-credentials-once.test.ts (the "omits
+  // endpoint when it is malformed" cases) and connector.test.ts ("falls
+  // back to the injected config when the server endpoint is malformed").
+  // What this layer owns — `result.endpoint ?? config.endpoint` — IS
+  // asserted by the two cases above.
+
+  it('stored token + config → the connected block (addresses shown); 断开 → token cleared, config KEPT, address pre-filled', async () => {
     mockAuth.storedToken = 'good-token';
     mockAuth.storedConfig = { ...VALID_CONFIG };
 
@@ -459,44 +529,267 @@ describe('settings cloud-sync block', () => {
     expect(mockAuth.storedToken).toBeNull();
     expect(mockAuth.storedConfig).toEqual(VALID_CONFIG); // addresses retained
     expect(screen.getByText(/未连接/)).toBeTruthy();
-    // The address inputs are back AND pre-filled from the retained config.
+    // The address input is back AND pre-filled with the BASE address — not
+    // with the derived `/api` suffix the user never typed.
+    expect(screen.getByDisplayValue(SERVER_ADDRESS)).toBeTruthy();
+    // …and the retained pair is still intact in the advanced section.
+    await expandAdvanced();
     expect(screen.getByDisplayValue(VALID_CONFIG.backendUrl)).toBeTruthy();
     expect(screen.getByDisplayValue(VALID_CONFIG.endpoint)).toBeTruthy();
     expect(screen.queryByRole('button', { name: '断开连接' })).toBeNull();
   });
 
-  it('stored config (no token) → the disconnected view pre-fills the two address inputs', async () => {
+  it('a reconnect after 断开 needs ONLY a token — the prefilled advanced pair is reused as-is', async () => {
+    mockAuth.storedConfig = { ...VALID_CONFIG }; // no token → disconnected
+    mockAuth.validate = () => ({ ok: true, token: 'ps-jwt' });
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), 'fresh-token');
+    await flush();
+    await pressConnect();
+
+    expect(mockAuth.storedToken).toBe('fresh-token');
+    // The prefilled advanced pair wins over the (identical) derivation —
+    // a deployment with a custom path layout must survive a reconnect.
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+  });
+
+  it('stored config (no token) → the disconnected view pre-fills the base address input', async () => {
     mockAuth.storedConfig = { ...VALID_CONFIG }; // no token → disconnected
 
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
     expect(screen.getByText(/未连接/)).toBeTruthy();
-    expect(screen.getByDisplayValue(VALID_CONFIG.backendUrl)).toBeTruthy();
-    expect(screen.getByDisplayValue(VALID_CONFIG.endpoint)).toBeTruthy();
+    // The BASE, not the derived `/api` — that is what the user typed.
+    expect(screen.getByDisplayValue(SERVER_ADDRESS)).toBeTruthy();
+    expect(screen.queryByDisplayValue(VALID_CONFIG.backendUrl)).toBeNull(); // advanced is collapsed
   });
 
   it('invalid address (ftp://) → inline 「地址无效…」 and NO network round-trip', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
-    fireEvent.changeText(screen.getByPlaceholderText('https://nextdo.example.com/api'), 'ftp://files.example.com');
-    fireEvent.changeText(
-      screen.getByPlaceholderText('https://nextdo.example.com/sync'),
-      VALID_CONFIG.endpoint,
-    );
-    fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), 'tok-1');
-    await flush();
-    // Both addresses are non-empty (ftp:// is a non-empty string), so 连接 is
-    // enabled — the validity error comes from connect(), not the button.
+    await fillSimpleForm('ftp://files.example.com', 'tok-1');
+    // A non-empty address enables the button — the validity error comes
+    // from connect(), not the button.
     expect(connectButtonDisabled()).toBe(false);
-    fireEvent.press(screen.getByRole('button', { name: '连接' }));
-    await flush();
+    await pressConnect();
 
     expect(screen.getByText(/地址无效/)).toBeTruthy();
     expect(mockFetchCalls).toBe(0); // zero network round-trips
     expect(mockAuth.storedToken).toBeNull();
     expect(mockAuth.storedConfig).toBeNull();
+  });
+
+  /* ---------------- 高级设置 (advanced, design D2) ---------------- */
+
+  it('the advanced accordion reveals the two custom URL inputs', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    expect(screen.queryByPlaceholderText(BACKEND_PLACEHOLDER)).toBeNull();
+    await expandAdvanced();
+    expect(screen.getByPlaceholderText(BACKEND_PLACEHOLDER)).toBeTruthy();
+    expect(screen.getByPlaceholderText(ENDPOINT_PLACEHOLDER)).toBeTruthy();
+    // It toggles back.
+    fireEvent.press(screen.getByRole('button', { name: '高级设置' }));
+    await flush();
+    expect(screen.queryByPlaceholderText(BACKEND_PLACEHOLDER)).toBeNull();
+  });
+
+  it('BOTH custom URLs filled → they win over the server address (no derivation)', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await fillSimpleForm(SERVER_ADDRESS, 'good-token');
+    await expandAdvanced();
+    await fillAdvancedForm('https://other.example.com/api/v2', 'https://other.example.com/stream');
+
+    await pressConnect();
+
+    expect(mockAuth.storedConfig).toEqual({
+      backendUrl: 'https://other.example.com/api/v2',
+      endpoint: 'https://other.example.com/stream',
+    });
+  });
+
+  it('the advanced pair alone is enough — the server address input may stay empty', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await expandAdvanced();
+    await fillAdvancedForm('https://other.example.com/api', 'https://other.example.com/sync');
+    fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), 'good-token');
+    await flush();
+    expect(connectButtonDisabled()).toBe(false);
+    await pressConnect();
+
+    expect(mockAuth.storedConfig).toEqual({
+      backendUrl: 'https://other.example.com/api',
+      endpoint: 'https://other.example.com/sync',
+    });
+  });
+
+  it('a HALF-filled advanced pair does NOT take over (falls back to the server address)', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await fillSimpleForm(SERVER_ADDRESS, 'good-token');
+    await expandAdvanced();
+    // Only the backend URL typed — the pair is not complete, so the simple
+    // form still applies (no half-config can ever be stored).
+    await fillAdvancedForm('https://other.example.com/api', '');
+
+    await pressConnect();
+
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+  });
+
+  it('editing the server address after 断开 drops the prefilled advanced pair (the typed address wins)', async () => {
+    // The regression this pins: a stored config pre-fills BOTH advanced
+    // inputs, and `hasAdvanced` only asks "are both filled?" — so without
+    // an explicit reset, a user changing servers would keep contacting the
+    // OLD one while the field showed the NEW address, with no error
+    // anywhere.
+    mockAuth.storedConfig = { ...VALID_CONFIG };
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    // The stored pair is pre-filled (so 断开 → 重连 still needs only a token).
+    await expandAdvanced();
+    expect(screen.getByDisplayValue(VALID_CONFIG.backendUrl)).toBeTruthy();
+    expect(screen.getByDisplayValue(VALID_CONFIG.endpoint)).toBeTruthy();
+
+    // The user now points the app at a DIFFERENT server. That is an
+    // explicit choice, so the advanced pair must step aside…
+    fireEvent.changeText(
+      screen.getByPlaceholderText(SERVER_PLACEHOLDER),
+      'https://moved.example.com',
+    );
+    await flush();
+    await expandAdvanced();
+    expect(screen.queryByDisplayValue(VALID_CONFIG.backendUrl)).toBeNull();
+    expect(screen.queryByDisplayValue(VALID_CONFIG.endpoint)).toBeNull();
+
+    // …and the connect goes to the address actually typed.
+    fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), 'fresh-token');
+    await flush();
+    await pressConnect();
+
+    expect(mockAuth.storedToken).toBe('fresh-token');
+    expect(mockAuth.storedConfig).toEqual({
+      backendUrl: 'https://moved.example.com/api',
+      endpoint: 'https://moved.example.com/sync',
+    });
+  });
+
+  it('the prefilled advanced pair still wins when the address is NOT edited (custom layout survives)', async () => {
+    // The counterpart to the case above: touching ONLY the token must keep
+    // the stored custom pair, or a deployment with a non-standard path
+    // layout would be silently rewritten to the derived one on reconnect.
+    mockAuth.storedConfig = {
+      backendUrl: 'https://custom.example.com/api/v2',
+      endpoint: 'https://custom.example.com/stream',
+    };
+    mockAuth.validate = () => ({ ok: true, token: 'ps-jwt' });
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), 'fresh-token');
+    await flush();
+    await pressConnect();
+
+    expect(mockAuth.storedConfig).toEqual({
+      backendUrl: 'https://custom.example.com/api/v2',
+      endpoint: 'https://custom.example.com/stream',
+    });
+  });
+
+  /* ---------------- connection strings ---------------- */
+
+  it('a pasted plaintext connection string `<base>|<token>` connects (address field may be empty)', async () => {
+    mockAuth.validate = (_c, t) =>
+      t === 'abc123' ? { ok: true, token: 'ps-jwt' } : { ok: false, kind: 'rejected', status: 401 };
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    // The connection string carries BOTH halves — the address input stays empty.
+    await fillSimpleForm('', `${SERVER_ADDRESS}|abc123`);
+    expect(connectButtonDisabled()).toBe(false); // the string itself satisfies the address check
+    await pressConnect();
+
+    expect(mockAuth.storedToken).toBe('abc123');
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+  });
+
+  it('a pasted nextdo:// deep link connects through the SAME path', async () => {
+    mockAuth.validate = (_c, t) =>
+      t === 'abc123' ? { ok: true, token: 'ps-jwt' } : { ok: false, kind: 'rejected', status: 401 };
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await fillSimpleForm(
+      '',
+      'nextdo://sync?s=https%3A%2F%2Fnextdo.example.com&t=abc123',
+    );
+    expect(connectButtonDisabled()).toBe(false);
+    await pressConnect();
+
+    expect(mockAuth.storedToken).toBe('abc123');
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+  });
+
+  it('a BARE token still works (the pre-existing behavior the parser preserves)', async () => {
+    mockAuth.validate = (_c, t) =>
+      t === 'abc123' ? { ok: true, token: 'ps-jwt' } : { ok: false, kind: 'rejected', status: 401 };
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    // Not a connection string → the field is read as a plain owner token,
+    // and the server address comes from the address input as before.
+    await fillSimpleForm(SERVER_ADDRESS, 'abc123');
+    await pressConnect();
+
+    expect(mockAuth.storedToken).toBe('abc123');
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+  });
+
+  it('a connection string with a bad token → 401 copy, nothing stored (the string path shares the three states)', async () => {
+    mockAuth.validate = () => ({ ok: false, kind: 'rejected', status: 401 });
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await fillSimpleForm('', `${SERVER_ADDRESS}|wrong-token`);
+    await pressConnect();
+
+    expect(screen.getByText('token 不正确')).toBeTruthy();
+    expect(mockAuth.storedToken).toBeNull();
+    expect(mockAuth.storedConfig).toBeNull();
+  });
+
+  it('a malformed connection string (no address half) leaves the simple form in charge', async () => {
+    mockAuth.validate = () => ({ ok: true, token: 'ps-jwt' });
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    // `|tok` is not a connection string (no address), so it is read as a
+    // BARE token — and the address comes from the address input.
+    await fillSimpleForm(SERVER_ADDRESS, '|abc123');
+    await pressConnect();
+
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+    // The half-parsed string was NOT mistaken for a token.
+    expect(mockAuth.storedToken).toBe('|abc123');
   });
 });
 
@@ -547,16 +840,15 @@ describe('settings notifications block (task 09-30 R5)', () => {
 
 /* ------------------------------------------------------------------ *
  * connect() input branches the button cannot reach (canSubmit requires
- * the two addresses non-empty; the token is required but NOT button-
- * gated) — driven through the real hook.
+ * an address; the token is required but NOT button-gated) — driven
+ * through the real hook, for BOTH input shapes.
  * ------------------------------------------------------------------ */
 describe('connect() input branches (button cannot reach)', () => {
-  it('empty address → 「请先填写服务器地址」 and /credentials is NOT called (address checks run first)', async () => {
+  it('empty server address → 「请先填写服务器地址」 and /credentials is NOT called (address checks run first)', async () => {
     render(<ConnectHarness />);
     const result = await act(async () =>
       hook!.connect({
-        backendUrl: '  ',
-        endpoint: VALID_CONFIG.endpoint,
+        serverAddress: '  ',
         token: '   ', // even an empty token must not fire any network call
       }),
     );
@@ -564,18 +856,61 @@ describe('connect() input branches (button cannot reach)', () => {
     expect(mockFetchCalls).toBe(0);
   });
 
-  it('empty token + valid addresses → 「请先输入 owner token」, ZERO network, nothing stored', async () => {
+  it('empty token + a valid server address → 「请先输入 owner token」, ZERO network, nothing stored', async () => {
     render(<ConnectHarness />);
     const result = await act(async () =>
-      hook!.connect({
-        backendUrl: VALID_CONFIG.backendUrl,
-        endpoint: VALID_CONFIG.endpoint,
-        token: '   ',
-      }),
+      hook!.connect({ serverAddress: SERVER_ADDRESS, token: '   ' }),
     );
     expect(result).toEqual({ ok: false, message: '请先输入 owner token' });
     expect(mockFetchCalls).toBe(0); // ZERO network round-trips
     expect(mockAuth.storedConfig).toBeNull();
     expect(mockAuth.storedToken).toBeNull();
   });
+
+  it('an invalid server address → 「地址无效…」 with ZERO network (the derivation rejects pre-network)', async () => {
+    render(<ConnectHarness />);
+    const result = await act(async () =>
+      hook!.connect({ serverAddress: 'nextdo.example.com', token: 'tok' }),
+    );
+    expect(result).toEqual({ ok: false, message: '地址无效，应以 http:// 或 https:// 开头' });
+    expect(mockFetchCalls).toBe(0);
+    expect(mockAuth.storedToken).toBeNull();
+  });
+
+  it('the advanced shape reports the SAME messages for the same failures (no copy drift between the two paths)', async () => {
+    render(<ConnectHarness />);
+    // Empty address half.
+    await expect(
+      act(async () =>
+        hook!.connect({ backendUrl: '  ', endpoint: VALID_CONFIG.endpoint, token: 't' }),
+      ),
+    ).resolves.toEqual({ ok: false, message: '请先填写服务器地址' });
+    // Invalid address.
+    await expect(
+      act(async () =>
+        hook!.connect({
+          backendUrl: 'ftp://x',
+          endpoint: VALID_CONFIG.endpoint,
+          token: 't',
+        }),
+      ),
+    ).resolves.toEqual({ ok: false, message: '地址无效，应以 http:// 或 https:// 开头' });
+    // Empty token.
+    await expect(
+      act(async () =>
+        hook!.connect({
+          backendUrl: VALID_CONFIG.backendUrl,
+          endpoint: VALID_CONFIG.endpoint,
+          token: '  ',
+        }),
+      ),
+    ).resolves.toEqual({ ok: false, message: '请先输入 owner token' });
+    expect(mockFetchCalls).toBe(0); // ZERO network round-trips overall
+  });
+
+  // The server-supplied endpoint reaching storage through the hook is
+  //  asserted at the screen level ("the server-supplied endpoint OVERRIDES
+  //  the derived one") — which exercises this exact hook through the real
+  //  Settings screen, so a duplicate render-only harness here would assert
+  //  the same thing with more moving parts.
 });
