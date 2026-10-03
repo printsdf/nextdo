@@ -25,7 +25,9 @@ export * from './owner-token';
 
 // queries — the app-facing query surface (one screen's data + the engine
 // pool). Feature tasks extend this list as their screens land.
-export { poolWatchQuery, queryEnginePool } from './queries/pool';
+// `habitCycleDay` is exported so the app NEVER re-derives the challenge
+// day itself — one truth source for the cycle boundary (task 10-02).
+export { habitCycleDay, poolWatchQuery, queryEnginePool } from './queries/pool';
 export type { EnginePool } from './queries/pool';
 export { skipAction } from './queries/actions';
 export { listInboxItems } from './queries/inbox';
@@ -63,8 +65,9 @@ export { listWaitingForItems } from './queries/waiting';
 export { listSomedayMaybeItems, trashSomedayMaybeItem } from './queries/someday';
 export { listCalendarActions } from './queries/calendar';
 export { addContext, listContexts, seedDefaultContexts } from './queries/contexts';
-// Habit lists (Now screen habit strip).
-export { listHabits, listHabitDays } from './queries/habits';
+// Habit reads (Now screen habit strip) + the start-challenge / trash
+// transactions (the habits screen, task 10-02).
+export { listHabits, listHabitDays, startHabit, trashHabit } from './queries/habits';
 // Focus-session transactions + read (focus screen, re-entry recovery).
 export {
   abandonFocusSession,
