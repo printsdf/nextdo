@@ -19,6 +19,13 @@ export interface UseHabitDaysResult {
   error: string | null;
   /** One-tap complete for a today open habit day (canonical complete transaction). */
   complete: (dayId: string) => Promise<void>;
+  /**
+   * Re-read the local rows. The Now tab stays MOUNTED when the habits
+   * screen is pushed on top of it, so a habit created there would not
+   * appear here on return — the screen calls this on focus
+   * (`useFocusEffect`, task 10-02 / design.md §3).
+   */
+  reload: () => void;
 }
 
 export function useHabitDays(now: Date): UseHabitDaysResult {
@@ -27,6 +34,19 @@ export function useHabitDays(now: Date): UseHabitDaysResult {
   const localDate = localDateKey(now);
   const [days, setDays] = useState<HabitDay[] | null>(null);
   const [habitTitles, setHabitTitles] = useState<Record<string, string>>({});
+  /**
+   * Ids of the LIVE, ACTIVE habits — the same gate `queryEnginePool`
+   * applies to a HabitDay (pool.ts skips a day whose parent habit is
+   * soft-deleted or not `active`). `null` while still unknown (first
+   * read, or the habits read failed): the strip then shows every day
+   * rather than hiding data because a SECONDARY read failed.
+   *
+   * It exists because `trashHabit` is a SOFT delete — the habit's day
+   * rows deliberately survive it (PRD F5) and `listHabitDays` cannot see
+   * the parent, so without this gate a deleted habit would keep showing
+   * a completable chip on the Now screen forever.
+   */
+  const [liveHabitIds, setLiveHabitIds] = useState<Set<string> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -49,15 +69,24 @@ export function useHabitDays(now: Date): UseHabitDaysResult {
     };
   }, [db, localDate, reloadKey]);
 
-  // Titles: one read per mount (non-fatal — the chip falls back to "习惯").
+  // Titles + the liveness gate: one read per mount / reload (non-fatal —
+  // the chip falls back to "习惯"). Re-reads with the days so a habit
+  // created on the habits screen shows its own name when the Now tab
+  // regains focus, and so a habit deleted there leaves the strip.
   useEffect(() => {
     let cancelled = false;
     listHabits(db)
       .then((habits) => {
         if (cancelled) return;
         const map: Record<string, string> = {};
-        for (const habit of habits) map[habit.id] = habit.title;
+        const live = new Set<string>();
+        for (const habit of habits) {
+          if (habit.status !== 'active') continue;
+          map[habit.id] = habit.title;
+          live.add(habit.id);
+        }
         setHabitTitles(map);
+        setLiveHabitIds(live);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -66,7 +95,7 @@ export function useHabitDays(now: Date): UseHabitDaysResult {
     return () => {
       cancelled = true;
     };
-  }, [db]);
+  }, [db, reloadKey]);
 
   const complete = useCallback(
     async (dayId: string) => {
@@ -83,5 +112,19 @@ export function useHabitDays(now: Date): UseHabitDaysResult {
     [db, now],
   );
 
-  return { days, habitTitles, error, complete };
+  const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+
+  // Drop the days of habits that are no longer live/active (derived in
+  // render, never stored twice — hook-guidelines Rule 3). `listHabits`
+  // already excludes soft-deleted rows, and `trashHabit` is a SOFT
+  // delete, so this is what keeps a deleted habit's surviving day rows
+  // off the strip. `liveHabitIds === null` (first read, or the habits
+  // read failed) → show everything: the liveness read is SECONDARY, it
+  // must never hide the days themselves.
+  const visibleDays = useMemo(() => {
+    if (days === null || liveHabitIds === null) return days;
+    return days.filter((day) => liveHabitIds.has(day.habitId));
+  }, [days, liveHabitIds]);
+
+  return { days: visibleDays, habitTitles, error, complete, reload };
 }

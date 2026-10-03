@@ -15,10 +15,10 @@
  * context (bar) and the list filter (chips) are two INDEPENDENT state
  * sets: the filter never touches the recommendation (state-management).
  */
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useAppInsets } from '@/lib/use-app-insets';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Button, Card, ContextChip, EmptyState, Tag, cn } from '@nextdo/ui';
 import type { CandidateKind } from '@nextdo/core';
 import { useNow, shouldOfferReclarify, type NowEligible } from '@/hooks/use-now';
@@ -475,7 +475,16 @@ export default function NowScreen() {
   const { snooze, error: snoozeError } = useSnoozeAction();
   const { trash, error: trashError } = useTrashAction();
   const { complete, error: completeError } = useCompleteAction();
-  const { days, habitTitles, error: habitError } = useHabitDays(now);
+  const { days, habitTitles, error: habitError, reload: reloadHabitDays } = useHabitDays(now);
+  // Habit rows are read through query-style hooks (no watch query), and
+  // the Now tab is NOT unmounted when /habits is pushed on top of it —
+  // so a habit created there would stay invisible. Re-read on every
+  // focus (design.md §3); the first focus is one extra idempotent read.
+  useFocusEffect(
+    useCallback(() => {
+      reloadHabitDays();
+    }, [reloadHabitDays]),
+  );
   const projectTitles = useProjectTitles();
   const { data: contexts } = useContexts();
   const [snoozeTarget, setSnoozeTarget] = useState<{ kind: CandidateKind; id: string } | null>(null);
@@ -743,11 +752,25 @@ export default function NowScreen() {
           </>
         )}
 
+        {/* Habit strip. Renders in BOTH states (task 10-02): with no habit
+         *  days it used to render nothing at all, so the feature was
+         *  undiscoverable — the empty state now carries the entry point,
+         *  and a non-empty strip carries a 「管理」 shortcut to /habits.
+         *  `reload` runs on focus (useFocusEffect) because the Now tab
+         *  stays mounted under the habits route (design.md §3). */}
         {days !== null && days.length > 0 ? (
           <Card className="p-3.5">
-            <Text className="mb-2 font-sans text-xs font-semibold text-muted dark:text-muted-dark">
-              今天习惯 {days.filter((day) => day.status === 'done').length}/{days.length}
-            </Text>
+            <View className="mb-2 flex-row items-center justify-between">
+              <Text className="font-sans text-xs font-semibold text-muted dark:text-muted-dark">
+                今天习惯 {days.filter((day) => day.status === 'done').length}/{days.length}
+              </Text>
+              <Button
+                size="sm"
+                label="管理"
+                variant="ghost"
+                onPress={() => router.push('/habits')}
+              />
+            </View>
             {openHabitDays.length > 0 ? (
               <View className="flex-row flex-wrap gap-2">
                 {openHabitDays.map((day) => (
@@ -766,6 +789,23 @@ export default function NowScreen() {
                 ))}
               </View>
             ) : null}
+          </Card>
+        ) : days !== null && days.length === 0 ? (
+          <Card className="gap-2 p-3.5">
+            <Text className="font-sans text-xs font-semibold text-muted dark:text-muted-dark">
+              今天习惯 0/0
+            </Text>
+            <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+              还没有习惯 — 创建后每天会生成一条行动，出现在这里的执行池中。
+            </Text>
+            <View className="flex-row">
+              <Button
+                size="sm"
+                label="去创建习惯"
+                variant="secondary"
+                onPress={() => router.push('/habits')}
+              />
+            </View>
           </Card>
         ) : null}
       </View>

@@ -1,9 +1,13 @@
 /**
  * The Settings tab (prod-deploy R6 — cloud sync is OPTIONAL; OSS
  * task 09-28 — the server addresses are USER-CONFIGURED): the 5th tab.
- * v1 hosts TWO blocks: notifications (task 09-30 R5 — the delivery
+ * v1 hosts THREE blocks: habits (task 10-02 — the 「管理习惯」 entry to
+ * the habits screen), notifications (task 09-30 R5 — the delivery
  * status, ABOVE cloud sync: notifications are the execution core) and
  * cloud sync.
+ *
+ * - habits: a create/manage shortcut for /habits (no habit settings
+ *   live here — the screen owns the whole create form).
  *
  * - notifications: the OS permission state through `useReminderPermission`
  *   (never the platform modules — component-guidelines): undetermined /
@@ -34,7 +38,7 @@
  */
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { useAppTheme, type ThemePreference } from '@/lib/theme';
 import { Button, Card, cn } from '@nextdo/ui';
@@ -249,6 +253,25 @@ export default function SettingsScreen() {
                 </Text>
               </Pressable>
             ))}
+          </View>
+        </Card>
+
+        {/* Habits block (task 10-02) — the entry to the habits screen:
+         * a create/manage shortcut for the one feature the Now screen's
+         * habit strip cannot start on its own. */}
+        <Card className="mt-4 gap-3 p-3.5">
+          <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
+            习惯
+          </Text>
+          <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+            每天重复做的事可以建成习惯，走一个 21 天挑战周期 —— 周期本身不是「一定能养成」的保证。
+          </Text>
+          <View className="flex-row">
+            <Button
+              label="管理习惯"
+              variant="secondary"
+              onPress={() => router.push('/habits')}
+            />
           </View>
         </Card>
 
