@@ -35,6 +35,15 @@ UI:
   adapted to a PowerSync `CompilableQuery` by `toCompilableQuery()` in
   `packages/db/src/watch-query.ts`; the app passes the result to `useQuery`
   (see the `@powersync/react` boundary below).
+- **A rule the UI needs to display is exported, never re-derived in the app.**
+  When a screen has to show something the query layer computes (the habit
+  challenge day `N/cycleDays`, a stalled-project predicate), re-export that pure
+  helper from `packages/db/src/index.ts` and call it from the hook. Precedent:
+  `habitCycleDay` lives in `queries/pool.ts` and is consumed by both the seeding
+  transaction and `queryEnginePool`; the habits screen calls the same export
+  rather than carrying a second copy of the cycle rule. Duplicating it produces
+  two sources of truth for a date-boundary rule that is easy to get subtly wrong
+  across local-midnight.
 
 ## Schema Conventions (`packages/db/src/schema.ts`)
 
