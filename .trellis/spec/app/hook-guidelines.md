@@ -63,6 +63,32 @@
    **truthy** check (`error ? String(error.message) : null`) — never `error === undefined`
    with an else-branch, which dereferences `null.message` and crashes the whole tree
    (no error boundary in v1). Regression: `apps/mobile/__tests__/watch-error-null.test.tsx`.
+7. **A query-style read is stale as soon as another route can write to it.** The
+   query-style hooks above read on mount and after a local mutation — but a
+   bottom-tab screen stays MOUNTED when a stack screen is pushed on top of it, so
+   a row written on that other screen never reaches an already-mounted tab. When
+   a screen can be covered by a route that writes the same data, the hook exposes
+   a `reload()` (reusing its existing re-read key) and the screen calls it from
+   `useFocusEffect` (re-exported by `expo-router`):
+
+   ```ts
+   const { days, reload } = useHabitDays(now);
+   useFocusEffect(useCallback(() => { reload(); }, [reload]));
+   ```
+
+   Precedent: `use-habit-days.ts` / `now.tsx` (task 10-02). Do NOT reach for an
+   event bus or a new watch query to solve this — the refresh is one local
+   idempotent read, and adding a subscription to a deliberately query-style hook
+   is the larger cost. See the testing caveat in Rule 8.
+8. **Know which of your refresh tests are real.** Under `renderRouter`, pushing a
+   stack route **remounts** the tab underneath, so a test that navigates away and
+   back passes even with the refresh removed — the mount-time read picks the new
+   rows up. A tab switch does not emit focus events in that harness at all, so
+   there is no navigation-only way to isolate the focus path. If a test claims to
+   prove a refresh, delete the refresh and confirm the test fails; if it still
+   passes, rewrite the test name/comment to claim only the outcome it really
+   pins (the data is fresh on return), and keep the mechanism justified by the
+   framework's real behavior rather than by the test.
 
 ## Forbidden
 

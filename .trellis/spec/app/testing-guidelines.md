@@ -40,10 +40,16 @@ await waitFor(() => expect(view.getPathname()).toBe('/review')); // back() lande
 ## Mocking the `@nextdo/db` boundary
 
 - The mock factory must provide **every** `@nextdo/db` export the mounted tree
-  touches — a screen reached via a tab mounts that tab's hooks too
-  (e.g. `reviewRecordsWatchQuery` once the Review tab renders). When a new
-  root-layout hook adds a db query or a `powersync.onChange` call, update the
-  shared `@nextdo/db` / `@powersync/react` mock factories accordingly.
+  touches — and `testRouter.navigate(...)` mounts more than the screen under
+  test. Navigating to `/habits` from a Now-screen test mounts `HabitsScreen` →
+  `useHabits` → `habitCycleDay`; when the factory omitted it, the read threw and
+  the hook logged `habits query failed`, the test still went green, and the
+  missing export was invisible. If a mock export is missing, the failure is a
+  caught/logged error, not a red assertion — grep the test output for
+  `ERROR ... query failed` instead of trusting a green run. Use
+  `jest.requireActual('@nextdo/db')` for pure helpers that must not be
+  re-implemented (precedent: `habitCycleDay` in both `habits-screen.test.tsx`
+  and `now-screen.test.tsx`).
 - Shared platform-module fixtures live in `apps/mobile/__tests__/mocks/`
   (e.g. `mocks/expo-notifications.ts`) and are excluded from test discovery via
   `testPathIgnorePatterns` in `jest.config.js`; each test file opts in with one
