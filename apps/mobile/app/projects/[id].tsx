@@ -19,7 +19,7 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { useLocalSearchParams } from 'expo-router';
-import { Button, Card, ContextChip, EmptyState, Tag, cn, type TagTone } from '@nextdo/ui';
+import { Button, Card, ContextChip, EmptyState, Tag, ValueChips, cn, type TagTone } from '@nextdo/ui';
 import { DateTimePicker } from '@/components/datetime-picker';
 import { localDateKey, type NextAction, type Project, type ProjectStatus, type Value } from '@nextdo/core';
 import { useProjects } from '@/hooks/use-projects';
@@ -47,7 +47,6 @@ const STATUS_TONES: Record<ProjectStatus, TagTone> = {
 };
 
 const EST_CHIPS = [5, 10, 20, 30, 60, 120];
-const VALUE_CHIPS: Value[] = [1, 2, 3, 4, 5];
 
 const INPUT_CLASS =
   'rounded-md border border-border bg-surface p-3 text-base text-ink placeholder:text-muted dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
@@ -142,14 +141,7 @@ function AddActionForm({ projectId, now, onDone, onAdded }: { projectId: string;
           onSubmitEditing={applyCustomEst}
         />
       </View>
-      <View className="flex-row items-center justify-between">
-        <Text className="text-sm font-medium text-ink dark:text-ink-dark">价值（1–5）</Text>
-        <View className="flex-row gap-2">
-          {VALUE_CHIPS.map((chip) => (
-            <Chip key={chip} label={String(chip)} active={value === chip} onPress={() => setValue(chip)} />
-          ))}
-        </View>
-      </View>
+      <ValueChips value={value} onChange={setValue} />
       <View className="flex-row items-center gap-2">
         <TextInput
           className={cn(INPUT_CLASS, 'flex-1')}
@@ -230,14 +222,7 @@ function EditProjectForm({ project, onDone, onSaved }: { project: Project; onDon
         value={outcome}
         onChangeText={setOutcome}
       />
-      <View className="flex-row items-center justify-between">
-        <Text className="text-sm font-medium text-ink dark:text-ink-dark">价值（1–5）</Text>
-        <View className="flex-row gap-2">
-          {VALUE_CHIPS.map((chip) => (
-            <Chip key={chip} label={String(chip)} active={value === chip} onPress={() => setValue(chip)} />
-          ))}
-        </View>
-      </View>
+      <ValueChips value={value} onChange={setValue} />
       {error !== null ? <Text className="text-sm text-danger">{errorMessage(error)}</Text> : null}
       <View className="flex-row gap-2">
         <Button label="保存" onPress={() => void save()} disabled={!canSubmit} />
@@ -319,14 +304,7 @@ function EditActionForm({ action, now, onDone, onSaved }: { action: NextAction; 
           onSubmitEditing={applyCustomEst}
         />
       </View>
-      <View className="flex-row items-center justify-between">
-        <Text className="text-sm font-medium text-ink dark:text-ink-dark">价值（1–5）</Text>
-        <View className="flex-row gap-2">
-          {VALUE_CHIPS.map((chip) => (
-            <Chip key={chip} label={String(chip)} active={value === chip} onPress={() => setValue(chip)} />
-          ))}
-        </View>
-      </View>
+      <ValueChips value={value} onChange={setValue} />
       <View className="flex-row items-center gap-2">
         <TextInput
           className={cn(INPUT_CLASS, 'flex-1')}

@@ -7,7 +7,7 @@
  *
  * Component list is exactly what the mobile shell uses (design.md §5 — no
  * speculative components): Button, Card, Tag, EmptyState, ContextChip,
- * ProgressBar.
+ * ProgressBar, ValueChips.
  */
 export { cn } from './lib/cn';
 export { Button } from './components/button';
@@ -22,6 +22,8 @@ export { ContextChip, contextTone } from './components/context-chip';
 export type { ContextChipProps } from './components/context-chip';
 export { ProgressBar } from './components/progress-bar';
 export type { ProgressBarProps } from './components/progress-bar';
+export { ValueChips } from './components/value-chips';
+export type { ValueChipsProps } from './components/value-chips';
 export { colors, radii, spacing, typography } from './tokens';
 export type {
   ColorToken,
