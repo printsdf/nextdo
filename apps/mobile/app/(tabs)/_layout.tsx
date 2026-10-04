@@ -9,7 +9,10 @@
 import { Tabs } from 'expo-router';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { useAppTheme } from '@/lib/theme';
-import { Ionicons } from '@expo/vector-icons';
+// Subpath import on purpose: the package root re-exports every icon set and
+// Metro statically follows each `require`, bundling all 19 icon fonts. Importing
+// only the one family we use keeps Ionicons.ttf and drops the rest.
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors } from '@nextdo/ui';
 
 export default function TabsLayout() {
