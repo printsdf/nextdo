@@ -2,7 +2,7 @@
   "expo": {
     "name": "Nextdo",
     "slug": "nextdo",
-    "version": "0.1.2",
+    "version": "0.1.3-beta.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "nextdo",
@@ -43,7 +43,9 @@
         "expo-build-properties",
         {
           "android": {
-            "manifestPermissions": ["SCHEDULE_EXACT_ALARM", "USE_EXACT_ALARM"]
+            "manifestPermissions": ["SCHEDULE_EXACT_ALARM", "USE_EXACT_ALARM"],
+            "enableMinifyInReleaseBuilds": true,
+            "enableBundleCompression": true
           }
         }
       ]
