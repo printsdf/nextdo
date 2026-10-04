@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 17
 - **Last Active**: 2026-10-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~591 | Active |
+| `journal-1.md` | ~613 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-10-04 | 0.1.3-beta.1 测试版发布（仅 macOS） | `3bbba41` | `release/v0.1.3-beta.1` |
 | 16 | 2026-10-04 | 习惯创建表单与 21 天挑战启动 | `8bcf46a`, `2c19f05`, `c26cfc2`, `855852d`, `731f17f` | `main` |
 | 15 | 2026-10-02 | 简化云同步连接：单地址 + 服务端下发 endpoint | `bb4d7a8`, `d4508cb`, `e3c4208`, `5e6188c` | `main` |
 | 14 | 2026-10-01 | Unblock v0.1.2 release: EAS image pin + Babel plugin resolution | `d88585c`, `516cc5d` | `feature/reminder-notification-delivery` |

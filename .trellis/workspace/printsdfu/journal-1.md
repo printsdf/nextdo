@@ -589,3 +589,25 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: 0.1.3-beta.1 测试版发布（仅 macOS）
+<!-- trellis-session: v=2 fp=e38f082daa16daea -->
+
+**Date**: 2026-10-04
+**Task**: 0.1.3-beta.1 测试版发布（仅 macOS）
+**Branch**: `release/v0.1.3-beta.1`
+
+### Summary
+
+在 release/v0.1.3-beta.1 分支发测试版，不动main。release.yml 新增 build_targets 输入让workflow_dispatch 只构建指定平台，run_id 改为可选（空=用本次构建产物），发布步骤在部分构建 job 被跳过时也能运行；tag 含 semver 预发布后缀时自动加 --prerelease。版本号 0.1.3-beta.1 同步到根 package.json、desktop package.json/tauri.conf.json/Cargo.toml/Cargo.lock、mobile app.json。CI run 37212920913 仅构建 macOS 成功，产出 aarch64 + x64 两个 DMG，Release v0.1.3-beta.1 已标Pre-release，v0.1.2 仍为 Latest。工作区另有两处与本次发布无关的 _layout.tsx 字体子路径导入改动未提交。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3bbba41` | chore(release): bump to 0.1.3-beta.1 + scoped/prerelease release dispatch |
+
+### Status
+
+[OK] **Completed**
