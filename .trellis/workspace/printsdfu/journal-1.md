@@ -563,3 +563,29 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 16: 习惯创建表单与 21 天挑战启动
+<!-- trellis-session: v=2 fp=cc6d948f2244479b -->
+
+**Date**: 2026-10-04
+**Task**: 习惯创建表单与 21 天挑战启动
+**Branch**: `main`
+
+### Summary
+
+为 db 层已就绪但UI 无入口的 Habit 能力补上创建路径：新增独立路由 app/habits.tsx（创建表单 + 第 N/21 天进度列表 + 删除），提交走 startHabit 原子事务，入口在设置页与 Now 屏习惯条（空态引导 / 非空「管理」）。周期日计算复用 packages/db 导出的 habitCycleDay，app 层零复刻。价值选择器顺带收敛为 packages/ui 的 ValueChips，并修掉 projects/[id].tsx 三处 32pt 触摸目标的无障碍缺口。质量门：lint/typecheck 全绿，872 测试通过，web 导出通过。过程中修正两处假绿测试：useHabitDays 的软删除过滤器空转、now-screen 的「返回刷新」用例摘掉 useFocusEffect 仍通过（renderRouter 下 push 栈路由会重新挂载 tab）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8bcf46a` | refactor(ui): 价值选择器收敛为共享 ValueChips |
+| `2c19f05` | feat(habits): 习惯创建表单 + 21 天挑战启动 |
+| `c26cfc2` | docs(spec): 记录焦点刷新、周期日唯一真相源与 mock 工厂覆盖 |
+| `855852d` | chore(task): 记录 10-02-habit-create-challenge 规划产物 |
+| `731f17f` | chore(backlog): 移除已交付的习惯创建表单条目 |
+
+### Status
+
+[OK] **Completed**
