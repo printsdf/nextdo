@@ -30,6 +30,10 @@ on:
         description: "Comma list of platforms to build now (macos,windows,linux,android). Empty = only republish the artifacts of run_id."
         required: false
         default: ""
+      macos_archs:
+        description: "macOS CPU targets: aarch64, x86_64, or both (comma list). aarch64 alone = Apple Silicon only."
+        required: false
+        default: "aarch64,x86_64"
 
 concurrency:
   group: release
@@ -64,8 +68,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build app bundle (arm64)
+        if: contains(format(',{0},', inputs.macos_archs || 'aarch64,x86_64'), ',aarch64,')
         run: pnpm --filter @nextdo/desktop exec tauri build --bundles app
       - name: Build app bundle (x64)
+        if: contains(format(',{0},', inputs.macos_archs || 'aarch64,x86_64'), ',x86_64,')
         run: |
           rustup target add x86_64-apple-darwin
           pnpm --filter @nextdo/desktop exec tauri build --bundles app --target x86_64-apple-darwin
@@ -74,6 +80,8 @@ jobs:
       # "no space left on device"). Build the installer with diskutil
       # instead — a plain (non-pretty) but fully functional dmg.
       - name: Package dmgs
+        env:
+          MACOS_ARCHS: ${{ inputs.macos_archs || 'aarch64,x86_64' }}
         run: |
           VER="$(node -p "require('./apps/desktop/package.json').version")"
           package_dmg() {
@@ -85,8 +93,14 @@ jobs:
               --format UDZO "$OUT/dmg/Nextdo_${VER}_${ARCH}.dmg"
             rm -rf "$STAGE"
           }
-          package_dmg "apps/desktop/src-tauri/target/release/bundle" aarch64
-          package_dmg "apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle" x64
+          # Only package the arches this run actually built — asking for a
+          # bundle the job skipped would fail the upload step.
+          case ",$MACOS_ARCHS," in
+            *,aarch64,*)  package_dmg "apps/desktop/src-tauri/target/release/bundle" aarch64 ;;
+          esac
+          case ",$MACOS_ARCHS," in
+            *,x86_64,*)   package_dmg "apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle" x64 ;;
+          esac
       - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:
