@@ -23,8 +23,20 @@ on:
         required: true
         default: "v0.1.0"
       run_id:
-        description: "Build run that produced the artifacts to publish (GitHub run ID)"
-        required: true
+        description: "Existing run whose artifacts should be republished. Leave empty (together with build_targets) to build fresh in this run."
+        required: false
+        default: ""
+      build_targets:
+        description: "Comma list of platforms to build now (macos,windows,linux,android). Empty = only republish the artifacts of run_id."
+        required: false
+        default: ""
+      macos_archs:
+        description: "macOS CPU targets: aarch64, x86_64, or both (comma list). aarch64 alone = Apple Silicon only."
+        required: false
+        default: "aarch64,x86_64"
+      android_abis:
+        description: "Comma list of Android ABIs to build (arm64-v8a,armeabi-v7a,x86,x86_64). Empty = all four."
+        required: false
         default: ""
 
 concurrency:
@@ -41,9 +53,12 @@ env:
 jobs:
   build-macos:
     name: Build macOS
-    # Manual dispatch publishes artifacts from an existing build (run_id)
-    # instead of rebuilding.
-    if: github.event_name == 'push'
+    # A tag push builds every platform. A manual dispatch builds only the
+    # platforms listed in build_targets (macos-only is the common case: a
+    # smoke-test release before spending EAS minutes on Android).
+    if: >-
+      github.event_name == 'push' ||
+      contains(format(',{0},', inputs.build_targets), ',macos,')
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,8 +72,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build app bundle (arm64)
+        if: contains(format(',{0},', inputs.macos_archs || 'aarch64,x86_64'), ',aarch64,')
         run: pnpm --filter @nextdo/desktop exec tauri build --bundles app
       - name: Build app bundle (x64)
+        if: contains(format(',{0},', inputs.macos_archs || 'aarch64,x86_64'), ',x86_64,')
         run: |
           rustup target add x86_64-apple-darwin
           pnpm --filter @nextdo/desktop exec tauri build --bundles app --target x86_64-apple-darwin
@@ -67,6 +84,8 @@ jobs:
       # "no space left on device"). Build the installer with diskutil
       # instead — a plain (non-pretty) but fully functional dmg.
       - name: Package dmgs
+        env:
+          MACOS_ARCHS: ${{ inputs.macos_archs || 'aarch64,x86_64' }}
         run: |
           VER="$(node -p "require('./apps/desktop/package.json').version")"
           package_dmg() {
@@ -78,8 +97,14 @@ jobs:
               --format UDZO "$OUT/dmg/Nextdo_${VER}_${ARCH}.dmg"
             rm -rf "$STAGE"
           }
-          package_dmg "apps/desktop/src-tauri/target/release/bundle" aarch64
-          package_dmg "apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle" x64
+          # Only package the arches this run actually built — asking for a
+          # bundle the job skipped would fail the upload step.
+          case ",$MACOS_ARCHS," in
+            *,aarch64,*)  package_dmg "apps/desktop/src-tauri/target/release/bundle" aarch64 ;;
+          esac
+          case ",$MACOS_ARCHS," in
+            *,x86_64,*)   package_dmg "apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle" x64 ;;
+          esac
       - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:
@@ -91,6 +116,9 @@ jobs:
 
   build-windows:
     name: Build Windows
+    if: >-
+      github.event_name == 'push' ||
+      contains(format(',{0},', inputs.build_targets), ',windows,')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -116,6 +144,9 @@ jobs:
 
   build-linux:
     name: Build Linux
+    if: >-
+      github.event_name == 'push' ||
+      contains(format(',{0},', inputs.build_targets), ',linux,')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,9 +179,17 @@ jobs:
 
   build-android:
     name: Build Android (EAS, ${{ matrix.abi }})
-    # Manual dispatch publishes artifacts from an existing build (run_id)
-    # instead of rebuilding.
-    if: github.event_name == 'push'
+    # Tag push builds every platform; a manual dispatch builds Android only
+    # when build_targets asks for it. This job is the expensive one (one
+    # cloud build per ABI), so it stays opt-in on manual runs. Within
+    # Android, requested ABIs are filtered at the STEP level (ABI_SELECTED
+    # below) — the matrix context is not available in a job-level if, and
+    # an EAS build per skipped ABI is pure queue time. A leg whose ABI was
+    # not requested skips all steps and reports success without an
+    # artifact; the release job only uploads what exists.
+    if: >-
+      github.event_name == 'push' ||
+      contains(format(',{0},', inputs.build_targets), ',android,')
     runs-on: ubuntu-latest
     # One EAS release build per CPU ABI (profiles in apps/mobile/eas.json).
     # Each leg emits a single-ABI .apk so a user downloads only the libs their
@@ -163,12 +202,33 @@ jobs:
           - { abi: armeabi-v7a, profile: android-armeabi-v7a }
           - { abi: x86,         profile: android-x86 }
           - { abi: x86_64,      profile: android-x86-64 }
+    env:
+      # Empty android_abis (or a push event, where inputs are absent) means
+      # build every ABI. Note the step gates below compare against the
+      # STRING 'true' — env values are strings, and a bare non-empty
+      # "false" is truthy in a step if.
+      ABI_SELECTED: ${{ inputs.android_abis == '' || contains(format(',{0},', inputs.android_abis), format(',{0},', matrix.abi)) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - if: ${{ env.ABI_SELECTED == 'true' }}
+        uses: actions/checkout@v4
+      - if: ${{ env.ABI_SELECTED == 'true' }}
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+      - if: ${{ env.ABI_SELECTED == 'true' }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - if: ${{ env.ABI_SELECTED == 'true' }}
+        name: Install dependencies
+        # eas build resolves app.json config plugins (expo-notifications,
+        # expo-build-properties) LOCALLY before uploading to the cloud, so
+        # node_modules must exist on the runner. v0.1.2 predates the
+        # plugins block and got away without this; adding the plugins
+        # made the leg fail in 40s without it.
+        run: pnpm install --frozen-lockfile
       - name: Build with EAS
+        if: ${{ env.ABI_SELECTED == 'true' }}
         env:
           # eas-cli authenticates with EXPO_TOKEN on CI (older releases read
           # EAS_TOKEN); set both from the same secret so it works across
@@ -187,6 +247,7 @@ jobs:
           [ -n "$BID" ] || { echo "could not capture EAS build id" >&2; exit 1; }
           echo "BUILD_ID=$BID" >> "$GITHUB_ENV"
       - name: Download APK
+        if: ${{ env.ABI_SELECTED == 'true' }}
         env:
           EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
           EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
@@ -198,6 +259,7 @@ jobs:
           VER="$(node -p "require('./app.json').expo.version")"
           curl -fL -o "Nextdo_${VER}_android_${{ matrix.abi }}.apk" "$URL"
       - name: Upload bundle
+        if: ${{ env.ABI_SELECTED == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: mobile-android-${{ matrix.abi }}
@@ -207,30 +269,34 @@ jobs:
   release:
     name: Create GitHub Release
     needs: [build-macos, build-windows, build-linux, build-android]
-    # Tag push: run only after all builds succeed. Manual dispatch: build
-    # jobs are skipped and artifacts come from the provided run_id.
+    # Tag push: run only after every build succeeds. Manual dispatch: the
+    # build jobs for the platforms NOT listed in build_targets are skipped,
+    # so requiring all four would block the release forever — require only
+    # the ones that actually ran, and run this job when none ran (pure
+    # republish from run_id).
     if: >-
       always() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled') &&
       (github.event_name == 'workflow_dispatch' ||
-       (needs.build-macos.result == 'success' &&
-        needs.build-windows.result == 'success' &&
-        needs.build-linux.result == 'success' &&
-        needs.build-android.result == 'success'))
+       contains(needs.*.result, 'success'))
     runs-on: ubuntu-latest
     steps:
       # gh release create shells out to git, so the workspace must be a
       # checkout.
       - uses: actions/checkout@v4
+      # Without run-id this downloads the artifacts THIS run just produced,
+      # which is the normal path for a build_targets dispatch.
       - uses: actions/download-artifact@v4
         with:
-          run-id: ${{ github.event.inputs.run_id }}
+          run-id: ${{ inputs.run_id }}
           path: bundles
           merge-multiple: true
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG="${{ inputs.tag || github.ref_name }}"
           # A manual dispatch may reference a tag that does not exist yet —
           # create and push it (pointing at this run's commit).
           if ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
@@ -239,15 +305,27 @@ jobs:
             git tag "$TAG"
             git push origin "$TAG"
           fi
+          # A tag carrying a semver prerelease suffix (v0.1.3-beta.1) means
+          # the release must stay a prerelease, so it never shows up in the
+          # "latest release" badge or the non-prerelease download list.
+          if [[ "$TAG" == *-* ]]; then
+            PRERELEASE="--prerelease"
+            KIND="Prerelease"
+          else
+            PRERELEASE=""
+            KIND="Release"
+          fi
           FILES=$(find bundles -type f | sort)
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Release already exists (e.g. this tag was re-run after a
             # pipeline fix) — just (re)upload the assets.
             gh release upload "$TAG" $FILES --clobber
+            gh release edit "$TAG" $PRERELEASE
           else
             gh release create "$TAG" \
               --target "${{ github.sha }}" \
+              $PRERELEASE \
               --title "Nextdo $TAG" \
-              --notes "Nextdo $TAG — desktop builds (macOS / Windows / Linux) and Android APKs (one per ABI)." \
+              --notes "Nextdo $TAG — $KIND. Assets: $(cd bundles && find . -type f | sed 's#^\./##' | sort | paste -sd', ' -)." \
               $FILES
           fi
