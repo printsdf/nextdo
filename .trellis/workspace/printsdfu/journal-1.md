@@ -668,3 +668,26 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 20: 场景软删除管理与二级页面返回键统一样式
+<!-- trellis-session: v=2 fp=56b1c1ee8a972eea -->
+
+**Date**: 2026-10-07
+**Task**: 场景软删除管理与二级页面返回键统一样式
+**Branch**: `feat/context-trash`
+
+### Summary
+
+为场景（contexts）增加软删除与独立管理页入口，并在 Now 屏增加管理跳转与聚焦刷新；统一习惯（habits）与场景（contexts）二级页面的返回按钮至左上角，与项目详情、回顾和专注页等全局交互规范保持一致；全量类型检查、代码风格检查与单元测试全部通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ba5063f` | feat(mobile): 新增场景管理页与场景软删除功能 |
+| `61c1894` | fix(mobile): 统一二级页面返回按钮至左上角 |
+
+### Status
+
+[OK] **Completed**

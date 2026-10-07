@@ -64,7 +64,10 @@ export { addProject, trashProject, updateProject } from './queries/projects';
 export { listWaitingForItems } from './queries/waiting';
 export { listSomedayMaybeItems, trashSomedayMaybeItem } from './queries/someday';
 export { listCalendarActions } from './queries/calendar';
-export { addContext, listContexts, seedDefaultContexts } from './queries/contexts';
+// Context queries + the soft delete (the contexts screen's per-row 删除).
+// `trashContext` sets deleted_at (Trash, domain-model.md) — the scene chips
+// keep reading `listContexts`, which filters the soft-deleted rows out.
+export { addContext, listContexts, seedDefaultContexts, trashContext } from './queries/contexts';
 // Habit reads (Now screen habit strip) + the start-challenge / trash
 // transactions (the habits screen, task 10-02).
 export { listHabits, listHabitDays, startHabit, trashHabit } from './queries/habits';

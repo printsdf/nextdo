@@ -283,13 +283,13 @@ export default function HabitsScreen() {
         contentContainerStyle={{ paddingTop: topPadding, paddingHorizontal: 16, paddingBottom: 40 }}
         keyboardShouldPersistTaps="handled"
       >
-        <View className="mb-3 flex-row items-center justify-between">
-          <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
-            习惯
-          </Text>
+        <View className="mb-2 flex-row items-center justify-between">
           <Button label="← 现在" variant="ghost" onPress={() => goBack('/(tabs)/now')} />
         </View>
-        <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+        <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
+          习惯
+        </Text>
+        <Text className="mt-1 font-sans text-sm text-muted dark:text-muted-dark">
           {HABIT_CYCLE_DAYS} 天是一个挑战周期 —— 它给你一个起点，不是「一定能养成」的保证。
         </Text>
 
