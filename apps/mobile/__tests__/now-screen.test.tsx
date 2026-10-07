@@ -18,6 +18,18 @@ const projectsRef: { current: unknown[] } = { current: [] };
 // state and the populated strip are both reachable).
 const habitDaysRef: { current: unknown[] } = { current: [] };
 const habitListRef: { current: unknown[] } = { current: [] };
+// Counts `completeAction` calls and lets a test flip it to a FAILURE, so
+// the block's post-write re-read can be pinned both ways (re-read on
+// success, NO re-read on failure).
+const completeCalls: { count: number; shouldFail: boolean } = { count: 0, shouldFail: false };
+// Counts the habit READS (`useHabits` re-reads on mount, on focus and on
+// `reload()`). The success-path test can assert the rendered counters
+// changed, but the FAILURE path renders identically whether or not a
+// re-read happens — the source rows did not move — so "the screen looks
+// the same" proves nothing. Counting the reads is the only way to observe
+// that no re-read was fired (hook-guidelines Rule 8: delete the mechanism
+// under test and this test must go red).
+const habitReads = { habits: 0, days: 0 };
 
 jest.mock('@nextdo/db', () => {
   const compilable = () => ({
@@ -63,14 +75,23 @@ jest.mock('@nextdo/db', () => {
     queryEnginePool: async () => poolRef.current,
     poolTriggerWatchQuery: compilable,
     skipAction: async () => undefined,
-    completeAction: async () => undefined,
+    completeAction: async () => {
+      completeCalls.count += 1;
+      if (completeCalls.shouldFail) throw new Error('complete rejected');
+    },
     snoozeAction: async () => undefined,
     trashAction: async () => undefined,
     listProjects: async () => projectsRef.current,
     listContexts: async () => ctxRef.current,
     addContext: async () => undefined,
-    listHabits: async () => habitListRef.current,
-    listHabitDays: async () => habitDaysRef.current,
+    listHabits: async () => {
+      habitReads.habits += 1;
+      return habitListRef.current;
+    },
+    listHabitDays: async () => {
+      habitReads.days += 1;
+      return habitDaysRef.current;
+    },
     // HabitsScreen mounts on the /habits route these tests navigate to.
     startHabit: async () => ({ habit: null, today: null }),
     trashHabit: async () => undefined,
@@ -201,6 +222,10 @@ beforeEach(() => {
   projectsRef.current = [];
   habitDaysRef.current = [];
   habitListRef.current = [];
+  completeCalls.count = 0;
+  completeCalls.shouldFail = false;
+  habitReads.habits = 0;
+  habitReads.days = 0;
   // Fresh in-memory engine-context store per test (module-level backend).
   __setEngineContextStoreForTests(null);
 });
@@ -732,6 +757,69 @@ describe('Now screen', () => {
       // today count only covers habits that generated one.
       await waitFor(() => expect(screen.getByText('今天无安排')).toBeTruthy());
       expect(screen.queryByRole('button', { name: '完成习惯：阅读' })).toBeNull();
+    });
+
+    // Regression (found by running the app, 2026-10-07): the check-in
+    // wrote correctly but the BLOCK kept the pre-write counters —
+    // `useHabits` is a query-style hook (no watch query), so nothing
+    // re-read the habits after `completeAction`. The user had to leave
+    // the tab and come back for 0/1 → 1/1 to appear.
+    //
+    // What this pins: the successful write triggers a re-read, so the
+    // count and the "今天已完成" state update in place.
+    it('re-reads the habits after a successful check-in so the count updates in place', async () => {
+      habitListRef.current = [habitFixture()];
+      habitDaysRef.current = [habitDayFixture({ id: 'hd-1', status: 'open' })];
+      setPool([]);
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      await waitFor(() => expect(screen.getByText('今天习惯 0/1')).toBeTruthy());
+
+      // The write lands: the day's status flips to done.
+      habitDaysRef.current = [habitDayFixture({ id: 'hd-1', status: 'done' })];
+      const readsBeforePress = habitReads.habits;
+      fireEvent.press(screen.getByRole('button', { name: '完成习惯：阅读' }));
+
+      // ...and the block re-reads instead of waiting for a focus event.
+      await waitFor(() => expect(screen.getByText('今天习惯 1/1')).toBeTruthy());
+      expect(screen.getByText('今天已完成')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: '完成习惯：阅读' })).toBeNull();
+      expect(habitReads.habits).toBeGreaterThan(readsBeforePress);
+    });
+
+    // The mirror of the case above: a REJECTED write must NOT trigger the
+    // re-read.
+    //
+    // Asserting "the screen still shows 0/1" here would prove NOTHING: the
+    // rejected write left the source rows untouched, so a re-read returns
+    // the same data and renders the same DOM. Verified by mutation —
+    // turning the guard into `if (ok || !ok)` kept that assertion green.
+    // The observable is the READ ITSELF, so count it.
+    it('does not re-read the habits when the check-in write is rejected', async () => {
+      habitListRef.current = [habitFixture()];
+      habitDaysRef.current = [habitDayFixture({ id: 'hd-1', status: 'open' })];
+      setPool([]);
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      await waitFor(() => expect(screen.getByText('今天习惯 0/1')).toBeTruthy());
+
+      completeCalls.shouldFail = true;
+      const readsBeforePress = habitReads.habits;
+      fireEvent.press(screen.getByRole('button', { name: '完成习惯：阅读' }));
+
+      // Wait for the REJECTION to surface first: its arrival proves the
+      // `.then(ok => ...)` callback has already run, so any re-read it may
+      // have fired is already in flight. Asserting the read count before
+      // this point would race the very thing under test.
+      await waitFor(() => expect(screen.getByText('complete rejected')).toBeTruthy());
+      await flushRenders();
+
+      expect(completeCalls.count).toBe(1);
+      // No re-read was fired for the failed write.
+      expect(habitReads.habits).toBe(readsBeforePress);
+      // The row is unchanged and still checkable.
+      expect(screen.getByText('今天习惯 0/1')).toBeTruthy();
+      expect(screen.getByRole('button', { name: '完成习惯：阅读' })).toBeTruthy();
     });
   });
 });
