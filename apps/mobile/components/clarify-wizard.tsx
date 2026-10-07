@@ -402,20 +402,19 @@ export function WizardBody({
        * on a 800px-tall desktop window, or the keyboard on phone) — the
        * whole body scrolls, same pattern as the review screens. */}
       <ScrollView className="flex-1" keyboardShouldPersistTaps="handled">
-      {/* 1. header row: the back button + the status tag */}
+      {/* 1. header row: unified back button + step navigation on left, status tag on right */}
       <View className="mb-3.5 flex-row items-center justify-between">
-        <Button label={canGoBack ? '← 上一步' : '← 返回'} variant="ghost" onPress={handleBack} />
         <View className="flex-row items-center gap-2">
+          <Button label="← 返回" variant="ghost" onPress={() => goBack(backFallback)} />
           {canGoBack ? (
             <Button
-              label="退出"
+              label="← 上一步"
               variant="ghost"
-              size="sm"
-              onPress={() => goBack(backFallback)}
+              onPress={() => dispatch({ type: 'back' })}
             />
           ) : null}
-          <Tag label={mode === 'clarify' ? '正在澄清' : '重新明晰'} tone="accent" dot />
         </View>
+        <Tag label={mode === 'clarify' ? '正在澄清' : '重新明晰'} tone="accent" dot />
       </View>
 
       {state.step === 'done' ? (
