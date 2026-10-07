@@ -40,17 +40,17 @@ import { StatusBar, Text, View } from 'react-native';
 import { useAppTheme } from '@/lib/theme';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
-import {
-  Epilogue_500Medium,
-  Epilogue_600SemiBold,
-  Epilogue_700Bold,
-} from '@expo-google-fonts/epilogue';
-import {
-  PlusJakartaSans_400Regular,
-  PlusJakartaSans_500Medium,
-  PlusJakartaSans_600SemiBold,
-  PlusJakartaSans_700Bold,
-} from '@expo-google-fonts/plus-jakarta-sans';
+// Subpath imports on purpose: the package root re-exports every face of the
+// family and Metro follows each `require`, so a root import bundles all 18
+// Epilogue / 14 Plus Jakarta Sans faces. Importing per-weight keeps only the
+// seven the type system actually uses.
+import { Epilogue_500Medium } from '@expo-google-fonts/epilogue/500Medium';
+import { Epilogue_600SemiBold } from '@expo-google-fonts/epilogue/600SemiBold';
+import { Epilogue_700Bold } from '@expo-google-fonts/epilogue/700Bold';
+import { PlusJakartaSans_400Regular } from '@expo-google-fonts/plus-jakarta-sans/400Regular';
+import { PlusJakartaSans_500Medium } from '@expo-google-fonts/plus-jakarta-sans/500Medium';
+import { PlusJakartaSans_600SemiBold } from '@expo-google-fonts/plus-jakarta-sans/600SemiBold';
+import { PlusJakartaSans_700Bold } from '@expo-google-fonts/plus-jakarta-sans/700Bold';
 import { PowerSyncContext } from '@powersync/react';
 import { useReminderDelivery } from '@/hooks/use-reminder-delivery';
 import {
