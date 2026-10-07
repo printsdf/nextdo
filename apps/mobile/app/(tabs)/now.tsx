@@ -840,7 +840,19 @@ export default function NowScreen() {
                 row={row}
                 onComplete={() => {
                   if (row.today !== null) {
-                    void complete({ actionKind: 'habit', actionId: row.today.id });
+                    void complete({ actionKind: 'habit', actionId: row.today.id }).then((ok) => {
+                      // Habit rows are read through a query-style hook (no
+                      // watch query), so the block keeps showing the
+                      // pre-write counters until it is re-read.
+                      //
+                      // Reload only on success: after a rejected write the
+                      // re-read returns the same rows (a wasted read) and
+                      // would also clear `useHabits`' own error state, which
+                      // is the one place a read failure could still surface.
+                      // The write's own error is unaffected — `completeError`
+                      // lives in `useCompleteAction`.
+                      if (ok) reloadHabits();
+                    });
                   }
                 }}
               />
