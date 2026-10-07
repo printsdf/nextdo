@@ -21,7 +21,7 @@ import { useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { router } from 'expo-router';
-import { Button, Card, ContextChip, EmptyState, ProgressBar, Tag, cn } from '@nextdo/ui';
+import { Button, Card, ContextChip, EmptyState, ProgressBar, Tag, ValueChips, cn } from '@nextdo/ui';
 import type { ProjectCard } from '@nextdo/db';
 import type { Value } from '@nextdo/core';
 import { useProjectCards, isProjectStalled } from '@/hooks/use-project-cards';
@@ -32,8 +32,6 @@ import { errorMessage } from '@/lib/error-messages';
 import { formatDueLabel } from '@/lib/format';
 
 type FilterKind = 'active' | 'no-next' | 'archived';
-
-const VALUE_CHIPS: Value[] = [1, 2, 3, 4, 5];
 
 const INPUT_CLASS =
   'rounded-md border border-border/80 bg-canvas p-3 text-base text-ink placeholder:text-muted focus:border-accent dark:border-border-dark dark:bg-canvas-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
@@ -76,36 +74,7 @@ function NewProjectForm({ onDone }: { onDone: () => void }) {
         value={outcome}
         onChangeText={setOutcome}
       />
-      <View className="flex-row items-center justify-between">
-        <Text className="font-sans text-sm font-medium text-ink dark:text-ink-dark">价值（1–5）</Text>
-        <View className="flex-row gap-2">
-          {VALUE_CHIPS.map((chip) => (
-            <Pressable
-              key={chip}
-              accessibilityRole="button"
-              accessibilityLabel={`价值 ${chip}`}
-              accessibilityState={{ selected: value === chip }}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-              onPress={() => setValue(chip)}
-              className={
-                value === chip
-                  ? 'h-8 w-8 items-center justify-center rounded-full bg-accent dark:bg-accent-dark'
-                  : 'h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface dark:border-border-dark dark:bg-surface-dark'
-              }
-            >
-              <Text
-                className={
-                  value === chip
-                    ? 'font-sans text-sm font-semibold text-on-accent dark:text-on-accent-dark'
-                    : 'font-sans text-sm font-medium text-ink dark:text-ink-dark'
-                }
-              >
-                {chip}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
+      <ValueChips value={value} onChange={setValue} />
       {error !== null ? <Text className="font-sans text-sm text-danger">{errorMessage(error)}</Text> : null}
       <View className="mt-1 flex-row gap-2.5">
         <Button label="创建" onPress={create} disabled={!canSubmit} />
