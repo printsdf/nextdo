@@ -97,13 +97,13 @@ export default function ContextsScreen() {
       contentContainerStyle={{ paddingTop: topPadding, paddingHorizontal: 16, paddingBottom: 40 }}
       keyboardShouldPersistTaps="handled"
     >
-      <View className="mb-3 flex-row items-center justify-between">
-        <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
-          场景
-        </Text>
+      <View className="mb-2 flex-row items-center justify-between">
         <Button label="← 现在" variant="ghost" onPress={() => goBack('/(tabs)/now')} />
       </View>
-      <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+      <Text className="font-display text-3xl font-bold tracking-tight text-ink dark:text-ink-dark">
+        场景
+      </Text>
+      <Text className="mt-1 font-sans text-sm text-muted dark:text-muted-dark">
         场景是行动的运行环境 —— Now 屏按当前场景筛选待办。不选即随处可执行。
       </Text>
 
