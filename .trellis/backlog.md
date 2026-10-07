@@ -22,8 +22,6 @@
 
 ## 上线前建议（P1）
 
-4. **习惯创建表单（含 21 天挑战启动）**（原候选 #2）
-   - db 层 `addHabit` / `startHabit` 已就绪（`packages/db/src/queries/habits.ts`），UI 无入口；Now 屏「今天习惯」永远 0/0；21 天 Challenge Cycle 是 Proposal 差异化能力。
 5. **回收站（软删除的恢复 / 硬删入口）**（journal-1 session 10 Next Steps）
    - 行动 / 项目删除均为软删除，无恢复入口，误删不可找回。
 6. **同步服务器产品定位（决策项）**（09-30 新增）
@@ -43,6 +41,10 @@
 - ~~Owner token 录入 UI~~（原 #1）：已由 09-28-oss-sync-options 交付 —— 设置页已有「后端地址 + 同步流地址 + token」三输入 + 连接/断开（`apps/mobile/app/(tabs)/settings.tsx`）。
 - ~~图标资源（scaffold 为纯文字 tab bar）~~（原 #6）：已由 09-29-mobile-ui-optimization 交付（tab bar 矢量图标 R5）+ app 图标为真实设计稿（`apps/mobile/assets/icon.png`）。
 - ~~Now 屏矮视口布局打磨~~（原 #7）：已由 09-29-mobile-ui-optimization 交付（NowScreen 改 ScrollView，R2）。
+
+## 10-03 清理的过时条目
+
+- ~~习惯创建表单（含 21 天挑战启动）~~（原 P1 #4）：已由 10-02-habit-create-challenge 交付 —— 独立路由 `apps/mobile/app/habits.tsx`（创建表单 + 第 N/21 天进度列表 + 删除），提交走 `startHabit` 原子事务，入口在设置页与 Now 屏习惯条（空态引导 / 非空「管理」）。
 
 ## 备注
 

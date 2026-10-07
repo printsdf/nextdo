@@ -14,12 +14,24 @@
 const poolRef: { current: unknown } = { current: null };
 const ctxRef: { current: unknown[] } = { current: [] };
 const projectsRef: { current: unknown[] } = { current: [] };
+// Today's habit days (task 10-02 — the strip's data; mutable so the empty
+// state and the populated strip are both reachable).
+const habitDaysRef: { current: unknown[] } = { current: [] };
+const habitListRef: { current: unknown[] } = { current: [] };
 
 jest.mock('@nextdo/db', () => {
   const compilable = () => ({
     compile: () => ({ sql: 'SELECT 1', parameters: [] }),
     execute: async () => [],
   });
+  // The REAL cycle-day rule: these tests navigate to /habits, which mounts
+  // HabitsScreen → useHabits → habitCycleDay. Re-implementing it in the mock
+  // would assert a second copy of the rule (same reasoning as
+  // habits-screen.test.tsx). testing-guidelines: the factory must provide
+  // every @nextdo/db export the mounted tree touches.
+  const actual = jest.requireActual('@nextdo/db') as {
+    habitCycleDay: (startedAt: string, cycleDays: number, localDate: string) => number | null;
+  };
   const powersync = {
     init: async () => undefined,
     connect: () => Promise.resolve(undefined),
@@ -27,6 +39,7 @@ jest.mock('@nextdo/db', () => {
     close: async () => undefined,
   };
   return {
+    habitCycleDay: actual.habitCycleDay,
     createPowerSyncDatabase: () => powersync,
     // R6 startup token check (background, non-blocking): a valid stored
     // token — the screen renders regardless (there is no gate in R6).
@@ -56,8 +69,11 @@ jest.mock('@nextdo/db', () => {
     listProjects: async () => projectsRef.current,
     listContexts: async () => ctxRef.current,
     addContext: async () => undefined,
-    listHabits: async () => [],
-    listHabitDays: async () => [],
+    listHabits: async () => habitListRef.current,
+    listHabitDays: async () => habitDaysRef.current,
+    // HabitsScreen mounts on the /habits route these tests navigate to.
+    startHabit: async () => ({ habit: null, today: null }),
+    trashHabit: async () => undefined,
   };
 });
 
@@ -91,9 +107,10 @@ jest.mock('@powersync/react', () => {
 // (mocked: idle OS state — nothing pending, permission undetermined).
 jest.mock('expo-notifications', () => mockExpoNotifications);
 
-import { fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
+import { act, fireEvent, renderRouter, screen, testRouter, waitFor } from 'expo-router/testing-library';
 import { mockExpoNotifications } from './mocks/expo-notifications';
 import type { NextCandidate } from '@nextdo/core';
+import { localDateKey } from '@nextdo/core';
 import { __setEngineContextStoreForTests } from '@/lib/engine-context';
 
 /** A minimal eligible next-action candidate (the pool contract shape). */
@@ -120,6 +137,50 @@ function context(id: string, name: string) {
   return { id, createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z', deletedAt: null, name };
 }
 
+/** A live `active` Habit row as `listHabits` returns it. */
+function habitFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'h-1',
+    createdAt: '2026-09-20T01:00:00.000Z',
+    updatedAt: '2026-09-20T01:00:00.000Z',
+    deletedAt: null,
+    title: '阅读',
+    actionTitle: '阅读 30 min',
+    estMinutes: 30,
+    value: 4,
+    cycleDays: 21,
+    startedAt: '2026-09-20T01:00:00.000Z',
+    status: 'active',
+    ...overrides,
+  };
+}
+
+/** A HabitDay row as `listHabitDays` returns it (today, `h-1` by default). */
+function habitDayFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'hd-1',
+    createdAt: '2026-09-20T01:00:00.000Z',
+    updatedAt: '2026-09-20T01:00:00.000Z',
+    deletedAt: null,
+    habitId: 'h-1',
+    localDate: localDateKey(new Date()),
+    status: 'open',
+    consecutiveSkips: 0,
+    ...overrides,
+  };
+}
+
+/** Flush the microtask rounds a read + a router navigation settle across. */
+async function flushRenders(rounds = 10): Promise<void> {
+  let p: Promise<unknown> = Promise.resolve();
+  for (let i = 0; i < rounds; i++) {
+    p = p.then(() => {
+      act(() => {});
+    });
+  }
+  await p;
+}
+
 /**
  * Preset the persisted engine context (the scene bar's store). The engine
  * contract excludes a context-TAGGED action when the engine context
@@ -138,6 +199,8 @@ beforeEach(() => {
   setPool([]);
   ctxRef.current = [];
   projectsRef.current = [];
+  habitDaysRef.current = [];
+  habitListRef.current = [];
   // Fresh in-memory engine-context store per test (module-level backend).
   __setEngineContextStoreForTests(null);
 });
@@ -515,6 +578,103 @@ describe('Now screen', () => {
       // 60 is the default → re-selecting it changes nothing.
       fireEvent.press(screen.getByRole('button', { name: '设置可用时间：120 分钟' }));
       await waitFor(() => expect(screen.getByText('2/2 项')).toBeTruthy());
+    });
+  });
+
+  // ── Habit strip (task 10-02) ─────────────────────────────────────────
+  // The strip used to render NOTHING when there were no habit days, so
+  // the whole habits feature was undiscoverable. Both states now render,
+  // and each carries a way into the habits screen.
+  describe('habit strip', () => {
+    it('zero habits → the strip shows the guidance entry (not a silent 0/0 with no way out)', async () => {
+      setPool([]);
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      await waitFor(() => expect(screen.getByText('今天习惯 0/0')).toBeTruthy());
+      expect(screen.getByText(/还没有习惯/)).toBeTruthy();
+      expect(screen.getByRole('button', { name: '去创建习惯' })).toBeTruthy();
+    });
+
+    it('with habit days → the count, the one-tap complete chips and the 管理 entry', async () => {
+      habitListRef.current = [habitFixture()];
+      habitDaysRef.current = [
+        habitDayFixture({ id: 'hd-1', status: 'done' }),
+        habitDayFixture({ id: 'hd-2', status: 'open' }),
+      ];
+      setPool([]);
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      await waitFor(() => expect(screen.getByText('今天习惯 1/2')).toBeTruthy());
+      // The habit's own title comes from listHabits (the day row has no title).
+      expect(screen.getByRole('button', { name: '完成习惯：阅读' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '管理' })).toBeTruthy();
+      // The empty-state prompt is gone once there is something to show.
+      expect(screen.queryByText('去创建习惯')).toBeNull();
+    });
+
+    // PRD acceptance: "从习惯屏创建后返回 Now 屏，习惯条立即显示新习惯".
+    // What this actually pins: the habit data is re-read on the way back,
+    // so a habit created on another screen is on the strip without an app
+    // restart.
+    //
+    // What it does NOT pin — verified by experiment on 2026-10-03: remove
+    // the `useFocusEffect` → `reload()` call from now.tsx and this test
+    // STILL passes. Under `renderRouter`, pushing /habits REMOUNTS the Now
+    // screen, so the mount-time read picks up the new rows. The focus hook
+    // is still required for the real app (React Navigation keeps a bottom
+    // tab mounted when a stack screen is pushed on top of it, which is the
+    // premise of design.md §3) — it just cannot be proven from here: a tab
+    // switch does NOT emit focus events in this harness, so there is no
+    // navigation-based way to isolate the focus path. See the testing
+    // note in .trellis/spec/app/hook-guidelines.md.
+    it('shows a habit created on another screen on return, without an app restart', async () => {
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      // Mounted with no habits at all.
+      await waitFor(() => expect(screen.getByText('今天习惯 0/0')).toBeTruthy());
+
+      // The user creates a habit elsewhere while Now stays mounted.
+      habitListRef.current = [habitFixture()];
+      habitDaysRef.current = [habitDayFixture({ id: 'hd-9', status: 'open' })];
+
+      // Push /habits, then come back — the tab is still mounted underneath.
+      // (`testRouter` normalizes the group segment: /(tabs)/now → /now.)
+      testRouter.navigate('/habits');
+      await flushRenders();
+      testRouter.navigate('/now');
+      await flushRenders();
+
+      // Focus fired → reload() → the new habit is on the strip.
+      await waitFor(() => expect(screen.getByText('今天习惯 0/1')).toBeTruthy());
+      expect(screen.getByRole('button', { name: '完成习惯：阅读' })).toBeTruthy();
+    });
+
+    // Regression (task 10-02): `trashHabit` is a SOFT delete — the habit's
+    // HabitDay rows deliberately survive it (PRD F5) and `listHabitDays`
+    // cannot see the parent habit. Without the liveness gate in
+    // `useHabitDays`, a deleted habit would keep offering a completable
+    // chip on the Now screen forever. The pool query already applies this
+    // gate (pool.ts skips days of deleted / non-active habits); the strip
+    // must agree.
+    it('drops the days of a deleted habit (soft delete keeps the rows, the strip must not)', async () => {
+      habitListRef.current = [habitFixture({ id: 'h-gone', title: '已删除的习惯' })];
+      habitDaysRef.current = [habitDayFixture({ id: 'hd-gone', habitId: 'h-gone', status: 'open' })];
+      setPool([]);
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      await waitFor(() => expect(screen.getByText('今天习惯 0/1')).toBeTruthy());
+      expect(screen.getByRole('button', { name: '完成习惯：已删除的习惯' })).toBeTruthy();
+
+      // The habit is deleted somewhere else: `listHabits` (which excludes
+      // soft-deleted rows) no longer returns it; the day row is still there.
+      habitListRef.current = [];
+      testRouter.navigate('/habits');
+      await flushRenders();
+      testRouter.navigate('/now');
+      await flushRenders();
+
+      await waitFor(() => expect(screen.getByText('今天习惯 0/0')).toBeTruthy());
+      expect(screen.queryByRole('button', { name: '完成习惯：已删除的习惯' })).toBeNull();
     });
   });
 });
