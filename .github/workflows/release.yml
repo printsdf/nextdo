@@ -181,14 +181,15 @@ jobs:
     name: Build Android (EAS, ${{ matrix.abi }})
     # Tag push builds every platform; a manual dispatch builds Android only
     # when build_targets asks for it. This job is the expensive one (one
-    # cloud build per ABI), so it stays opt-in on manual runs, and within
-    # Android only the requested ABIs run — an EAS build per skipped ABI
-    # is pure queue time.
+    # cloud build per ABI), so it stays opt-in on manual runs. Within
+    # Android, requested ABIs are filtered at the STEP level (ABI_SELECTED
+    # below) — the matrix context is not available in a job-level if, and
+    # an EAS build per skipped ABI is pure queue time. A leg whose ABI was
+    # not requested skips all steps and reports success without an
+    # artifact; the release job only uploads what exists.
     if: >-
-      (github.event_name == 'push' ||
-       contains(format(',{0},', inputs.build_targets), ',android,')) &&
-      (inputs.android_abis == '' ||
-       contains(format(',{0},', inputs.android_abis), format(',{0},', matrix.abi)))
+      github.event_name == 'push' ||
+      contains(format(',{0},', inputs.build_targets), ',android,')
     runs-on: ubuntu-latest
     # One EAS release build per CPU ABI (profiles in apps/mobile/eas.json).
     # Each leg emits a single-ABI .apk so a user downloads only the libs their
@@ -201,12 +202,19 @@ jobs:
           - { abi: armeabi-v7a, profile: android-armeabi-v7a }
           - { abi: x86,         profile: android-x86 }
           - { abi: x86_64,      profile: android-x86-64 }
+    env:
+      # Empty android_abis (or a push event, where inputs are absent) means
+      # build every ABI.
+      ABI_SELECTED: ${{ inputs.android_abis == '' || contains(format(',{0},', inputs.android_abis), format(',{0},', matrix.abi)) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - if: ${{ env.ABI_SELECTED }}
+        uses: actions/checkout@v4
+      - if: ${{ env.ABI_SELECTED }}
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Build with EAS
+        if: ${{ env.ABI_SELECTED }}
         env:
           # eas-cli authenticates with EXPO_TOKEN on CI (older releases read
           # EAS_TOKEN); set both from the same secret so it works across
@@ -225,6 +233,7 @@ jobs:
           [ -n "$BID" ] || { echo "could not capture EAS build id" >&2; exit 1; }
           echo "BUILD_ID=$BID" >> "$GITHUB_ENV"
       - name: Download APK
+        if: ${{ env.ABI_SELECTED }}
         env:
           EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
           EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
@@ -236,6 +245,7 @@ jobs:
           VER="$(node -p "require('./app.json').expo.version")"
           curl -fL -o "Nextdo_${VER}_android_${{ matrix.abi }}.apk" "$URL"
       - name: Upload bundle
+        if: ${{ env.ABI_SELECTED }}
         uses: actions/upload-artifact@v4
         with:
           name: mobile-android-${{ matrix.abi }}
