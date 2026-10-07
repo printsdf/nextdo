@@ -774,7 +774,14 @@ export default function ProjectDetailScreen() {
                   key={entry.habit.id}
                   entry={entry}
                   onComplete={(dayId) => {
-                    void complete({ actionKind: 'habit', actionId: dayId }).then(reloadHabits);
+                    void complete({ actionKind: 'habit', actionId: dayId }).then((ok) => {
+                      // 理由同 Now 屏的习惯块：`useProjectHabits` 是查询式 hook
+                      // （没有 watch query），不重读就一直显示写入前的计数。
+                      // 只在成功时重读 —— 失败后重读拿到的是同一批行，是一次
+                      // 浪费的查询，还会顺手清掉 `useProjectHabits` 自己的错误状态。
+                      // 写入错误不受影响，`completeError` 由 `useCompleteAction` 持有。
+                      if (ok) reloadHabits();
+                    });
                   }}
                 />
               ))

@@ -89,6 +89,25 @@
    passes, rewrite the test name/comment to claim only the outcome it really
    pins (the data is fresh on return), and keep the mechanism justified by the
    framework's real behavior rather than by the test.
+9. **A mutation hook's `Promise<boolean>` gates the reload — never pass the
+   reload straight to `.then()`.** `useCompleteAction` (and the other write
+   hooks) resolve `false` on failure rather than rejecting. Writing
+   `.then(reloadHabits)` silently drops that boolean, so a **failed** write
+   still pays for a re-read that returns the same rows, and clears the read
+   hook's own error state — the one place a read failure could still surface.
+   Gate it:
+
+   ```ts
+   void complete({ actionKind: 'habit', actionId: row.today.id }).then((ok) => {
+     if (ok) reloadHabits();
+   });
+   ```
+
+   Precedent: `now.tsx` habit block, `projects/[id].tsx` habit block. The write's
+   own error is unaffected — it lives in the write hook's `error`, not the read
+   hook's. **No UI assertion can see this**: after a failed write the counters
+   are unchanged either way, so a regression test has to count reads — see the
+   `habitReads` counter in `projects-screen.test.tsx`.
 
 ## Forbidden
 

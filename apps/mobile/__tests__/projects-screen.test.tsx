@@ -30,6 +30,11 @@ const dataRef: {
   habitDays: [],
 };
 
+// Read counter for the project's habit block (see the `listHabits` mock
+// below). Not a jest.fn: it must survive `jest.clearAllMocks()` so a test
+// can read the baseline taken AFTER mount.
+const habitReads = { habits: 0, days: 0 };
+
 jest.mock('@nextdo/db', () => {
   const compilable = () => ({
     compile: () => ({ sql: 'SELECT 1', parameters: [] }),
@@ -88,8 +93,20 @@ jest.mock('@nextdo/db', () => {
     // the hook and the whole detail screen renders nothing
     // (testing-guidelines: the factory must provide every @nextdo/db
     // export the mounted tree touches).
-    listHabits: async () => dataRef.habits,
-    listHabitDays: async () => dataRef.habitDays,
+    // `habitReads` counts real re-reads of the project's habit block so a
+    // test can assert *whether* a refresh happened, not just what the UI
+    // happens to show. Asserting the UI alone is a false negative here:
+    // after a failed write the rows are unchanged either way, so
+    // "counters didn't move" passes even with the reload removed
+    // (the mutation trap in now-screen.test.tsx, same class of bug).
+    listHabits: async () => {
+      habitReads.habits += 1;
+      return dataRef.habits;
+    },
+    listHabitDays: async () => {
+      habitReads.days += 1;
+      return dataRef.habitDays;
+    },
     // The REAL cycle-day rule (the block derives the 21-day challenge
     // position through it). The previous hand-rolled copy in this factory
     // was a second implementation of the same rule; `now-screen` and
@@ -218,6 +235,8 @@ function action(overrides: Record<string, unknown>): Record<string, unknown> {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  habitReads.habits = 0;
+  habitReads.days = 0;
   dataRef.contexts = [
     {
       id: 'c-1',
@@ -793,6 +812,32 @@ describe('Project detail', () => {
         expect.objectContaining({ actionKind: 'habit', actionId: expect.stringContaining('hd-h-1-') }),
       ),
     );
+  });
+
+  it('a successful habit check-in re-reads the habit block (counters would be stale otherwise)', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('读文献习惯')).toBeTruthy());
+    // Baseline AFTER mount: the mount-time read must not count as a reload.
+    const base = { ...habitReads };
+
+    fireEvent.press(screen.getAllByText('今日打卡')[0]!);
+
+    await waitFor(() => expect(habitReads.habits).toBeGreaterThan(base.habits));
+  });
+
+  it('a failed habit check-in does not re-read: same rows come back and the error state survives', async () => {
+    mockedCompleteAction.mockRejectedValueOnce(new Error('complete rejected'));
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('读文献习惯')).toBeTruthy());
+    const base = { ...habitReads };
+
+    fireEvent.press(screen.getAllByText('今日打卡')[0]!);
+
+    // Wait for the error text — that proves the `.then` callback has run,
+    // so a still-zero counter means "did not reload", not "not yet reloaded".
+    await waitFor(() => expect(screen.getByText(/complete rejected/)).toBeTruthy());
+    expect(habitReads.habits).toBe(base.habits);
+    expect(habitReads.days).toBe(base.days);
   });
 
   it('shows empty state when project has no habits', async () => {
