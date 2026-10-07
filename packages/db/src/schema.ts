@@ -193,6 +193,10 @@ export const AppSchema = new Schema({
     est_minutes: column.integer,
     value: column.integer,
     category: column.text,
+    /** The project this habit serves; NULL = projectless (task
+     *  10-07-habits-in-projects). Additive + nullable so rows written by
+     *  older clients read back as projectless. */
+    project_id: column.text,
     window_start: column.text,
     window_end: column.text,
     window_days: column.text,
@@ -575,6 +579,7 @@ export function habitFromRow(row: HabitRow): Habit {
     estMinutes: row.est_minutes ?? 0,
     value: row.value as Value,
     category: optEnum<ActionCategory>(row.category),
+    projectId: row.project_id ?? undefined,
     windowStart: row.window_start ?? undefined,
     windowEnd: row.window_end ?? undefined,
     windowDays: parseJson<number[] | null>(row.window_days, null) ?? undefined,
@@ -592,6 +597,7 @@ export function habitToRow(habit: Habit): Omit<HabitRow, 'id'> {
     est_minutes: habit.estMinutes,
     value: habit.value,
     category: habit.category ?? null,
+    project_id: habit.projectId ?? null,
     window_start: habit.windowStart ?? null,
     window_end: habit.windowEnd ?? null,
     window_days: habit.windowDays === undefined ? null : JSON.stringify(habit.windowDays),

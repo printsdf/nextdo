@@ -124,6 +124,19 @@ export type Habit = EntityBase & {
   estMinutes: number;
   value: Value;
   category?: ActionCategory;
+  /**
+   * At most one project (same shape as `NextAction.projectId`) — the
+   * project this habit serves. `undefined` = projectless.
+   *
+   * Two consequences, both deliberate (task 10-07-habits-in-projects):
+   * the habit's daily HabitDays inherit it, so the engine's
+   * `project-importance` signal reaches them; and a habit bound to a
+   * project that is not `active` (or is gone) leaves the candidate pool
+   * — the SAME R5 rule `next_actions` already follows. Archiving a
+   * project therefore pauses its habits' daily actions; the habit rows
+   * themselves survive and stay visible on the habits screen.
+   */
+  projectId?: string;
   /** "HH:mm", device-local. */
   windowStart?: string;
   /** "HH:mm", device-local. */

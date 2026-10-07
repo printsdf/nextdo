@@ -28,7 +28,7 @@ streams:
       - SELECT id, created_at, updated_at, deleted_at, title, note FROM someday_maybe_items WHERE deleted_at IS NULL
       - SELECT id, created_at, updated_at, deleted_at, title, url, note FROM reference_items WHERE deleted_at IS NULL
       - SELECT id, created_at, updated_at, deleted_at, name FROM contexts WHERE deleted_at IS NULL
-      - SELECT id, created_at, updated_at, deleted_at, title, action_title, est_minutes, value, category, window_start, window_end, window_days, cycle_days, started_at, status FROM habits WHERE deleted_at IS NULL
+      - SELECT id, created_at, updated_at, deleted_at, title, action_title, est_minutes, value, category, project_id, window_start, window_end, window_days, cycle_days, started_at, status FROM habits WHERE deleted_at IS NULL
       - SELECT id, created_at, updated_at, deleted_at, habit_id, local_date, status, snoozed_until, last_snoozed_at, consecutive_skips, last_skipped_at FROM habit_days WHERE deleted_at IS NULL
       - SELECT id, created_at, updated_at, deleted_at, action_kind, action_id, fires_at, intensity, state FROM reminders WHERE deleted_at IS NULL
       - SELECT id, created_at, updated_at, deleted_at, action_id, action_kind, mode, planned_minutes, started_at, paused_sec, ended_at, status FROM focus_sessions WHERE deleted_at IS NULL

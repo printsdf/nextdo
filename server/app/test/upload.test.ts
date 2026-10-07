@@ -420,6 +420,7 @@ const EXPECTED_CLIENT_SCHEMA: Record<string, readonly string[]> = {
     'est_minutes',
     'value',
     'category',
+    'project_id',
     'window_start',
     'window_end',
     'window_days',

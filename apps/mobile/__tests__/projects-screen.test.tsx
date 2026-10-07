@@ -16,17 +16,37 @@
  * fixtures are relative to Date.now() (same determinism pattern as the
  * Inbox 24h test).
  */
-const dataRef: { cards: Record<string, unknown>[]; nextActions: Record<string, unknown>[]; contexts: Record<string, unknown>[] } = {
+const dataRef: {
+  cards: Record<string, unknown>[];
+  nextActions: Record<string, unknown>[];
+  contexts: Record<string, unknown>[];
+  habits: Record<string, unknown>[];
+  habitDays: Record<string, unknown>[];
+} = {
   cards: [],
   nextActions: [],
   contexts: [],
+  habits: [],
+  habitDays: [],
 };
+
+// Read counter for the project's habit block (see the `listHabits` mock
+// below). Not a jest.fn: it must survive `jest.clearAllMocks()` so a test
+// can read the baseline taken AFTER mount.
+const habitReads = { habits: 0, days: 0 };
 
 jest.mock('@nextdo/db', () => {
   const compilable = () => ({
     compile: () => ({ sql: 'SELECT 1', parameters: [] }),
     execute: async () => [],
   });
+  // The REAL cycle-day rule: the project detail's habit block derives the
+  // 21-day challenge position through it. Re-implementing it in the mock
+  // would assert a second copy of the rule (same reasoning as
+  // now-screen.test.tsx / habits-screen.test.tsx).
+  const actual = jest.requireActual('@nextdo/db') as {
+    habitCycleDay: (startedAt: string, cycleDays: number, localDate: string) => number | null;
+  };
   const powersync = {
     init: async () => undefined,
     connect: () => Promise.resolve(undefined),
@@ -68,6 +88,49 @@ jest.mock('@nextdo/db', () => {
     },
     listNextActions: async () => dataRef.nextActions,
     listContexts: async () => dataRef.contexts,
+    // The project's habit block (task 10-07) — `useProjectHabits` reads
+    // both on every mount / reload. Without these the read throws inside
+    // the hook and the whole detail screen renders nothing
+    // (testing-guidelines: the factory must provide every @nextdo/db
+    // export the mounted tree touches).
+    // `habitReads` counts real re-reads of the project's habit block so a
+    // test can assert *whether* a refresh happened, not just what the UI
+    // happens to show. Asserting the UI alone is a false negative here:
+    // after a failed write the rows are unchanged either way, so
+    // "counters didn't move" passes even with the reload removed
+    // (the mutation trap in now-screen.test.tsx, same class of bug).
+    listHabits: async () => {
+      habitReads.habits += 1;
+      return dataRef.habits;
+    },
+    listHabitDays: async () => {
+      habitReads.days += 1;
+      return dataRef.habitDays;
+    },
+    // The REAL cycle-day rule (the block derives the 21-day challenge
+    // position through it). The previous hand-rolled copy in this factory
+    // was a second implementation of the same rule; `now-screen` and
+    // `habits-screen` both delegate to the real export for this reason.
+    habitCycleDay: actual.habitCycleDay,
+    startHabit: jest.fn(async (_db: unknown, habit: Record<string, unknown>, now: Date) => {
+      dataRef.habits.push(habit);
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const date = String(now.getDate()).padStart(2, '0');
+      const todayKey = `${y}${m}${date}`;
+      const todayDay = {
+        id: `hd-${habit.id}-${todayKey}`,
+        habitId: habit.id,
+        localDate: todayKey,
+        status: 'open',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        deletedAt: null,
+        consecutiveSkips: 0,
+      };
+      dataRef.habitDays.push(todayDay);
+      return { habit, today: todayDay };
+    }),
     addProject: jest.fn(async () => undefined),
     addNextAction: jest.fn(async () => undefined),
     completeAction: jest.fn(async () => undefined),
@@ -125,6 +188,7 @@ import {
   addNextAction,
   addProject,
   completeAction,
+  startHabit,
   trashAction,
   updateNextAction,
   updateProject,
@@ -134,6 +198,7 @@ import { formatDueLabel } from '@/lib/format';
 const mockedAddProject = addProject as jest.Mock;
 const mockedAddNextAction = addNextAction as jest.Mock;
 const mockedCompleteAction = completeAction as jest.Mock;
+const mockedStartHabit = startHabit as jest.Mock;
 const mockedTrashAction = trashAction as jest.Mock;
 const mockedUpdateProject = updateProject as jest.Mock;
 const mockedUpdateNextAction = updateNextAction as jest.Mock;
@@ -170,6 +235,8 @@ function action(overrides: Record<string, unknown>): Record<string, unknown> {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  habitReads.habits = 0;
+  habitReads.days = 0;
   dataRef.contexts = [
     {
       id: 'c-1',
@@ -267,6 +334,55 @@ beforeEach(() => {
     action({ contextIds: ['c-1'] }),
     action({ id: 'a-2', title: '没有项目的行动', projectId: null }),
     action({ id: 'a-3', title: '已完成的行动', status: 'done' }),
+  ];
+
+  const todayDate = new Date();
+  const y = todayDate.getFullYear();
+  const m = String(todayDate.getMonth() + 1).padStart(2, '0');
+  const d = String(todayDate.getDate()).padStart(2, '0');
+  const todayKey = `${y}${m}${d}`;
+
+  dataRef.habits = [
+    {
+      id: 'h-1',
+      title: '读文献习惯',
+      actionTitle: '读一章文献',
+      projectId: 'p-1',
+      cycleDays: 21,
+      startedAt: daysAgo(2),
+      status: 'active',
+      value: 3,
+      estMinutes: 25,
+      createdAt: daysAgo(2),
+      updatedAt: daysAgo(2),
+      deletedAt: null,
+    },
+    {
+      id: 'h-2',
+      title: '其他项目习惯',
+      actionTitle: '其他行动',
+      projectId: 'p-2',
+      cycleDays: 21,
+      startedAt: daysAgo(1),
+      status: 'active',
+      value: 3,
+      estMinutes: 20,
+      createdAt: daysAgo(1),
+      updatedAt: daysAgo(1),
+      deletedAt: null,
+    },
+  ];
+  dataRef.habitDays = [
+    {
+      id: `hd-h-1-${todayKey}`,
+      habitId: 'h-1',
+      localDate: todayKey,
+      status: 'open',
+      createdAt: daysAgo(0),
+      updatedAt: daysAgo(0),
+      deletedAt: null,
+      consecutiveSkips: 0,
+    },
   ];
 });
 
@@ -669,5 +785,92 @@ describe('Project detail', () => {
     expect(screen.queryByText('编辑')).toBeNull();
     expect(screen.queryByText('归档')).toBeNull();
     expect(screen.queryByText('恢复')).toBeNull();
+  });
+
+  it('renders the project habits section with habit progress, grid and today check-in', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+
+    await waitFor(() => expect(screen.getByText('项目习惯')).toBeTruthy());
+    expect(screen.getByText('读文献习惯')).toBeTruthy();
+    expect(screen.getByText('每日行动：读一章文献')).toBeTruthy();
+    expect(screen.getByText('第 3/21 天')).toBeTruthy();
+    expect(screen.getByText('已打卡 0 天')).toBeTruthy();
+    expect(screen.getAllByText('今日打卡').length).toBeGreaterThan(0);
+    // h-2 belongs to p-2 -> filtered out from p-1
+    expect(screen.queryByText('其他项目习惯')).toBeNull();
+  });
+
+  it('pressing 今日打卡 on a habit day calls completeAction with habit kind', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('读文献习惯')).toBeTruthy());
+
+    fireEvent.press(screen.getAllByText('今日打卡')[0]!);
+
+    await waitFor(() =>
+      expect(mockedCompleteAction).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ actionKind: 'habit', actionId: expect.stringContaining('hd-h-1-') }),
+      ),
+    );
+  });
+
+  it('a successful habit check-in re-reads the habit block (counters would be stale otherwise)', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('读文献习惯')).toBeTruthy());
+    // Baseline AFTER mount: the mount-time read must not count as a reload.
+    const base = { ...habitReads };
+
+    fireEvent.press(screen.getAllByText('今日打卡')[0]!);
+
+    await waitFor(() => expect(habitReads.habits).toBeGreaterThan(base.habits));
+  });
+
+  it('a failed habit check-in does not re-read: same rows come back and the error state survives', async () => {
+    mockedCompleteAction.mockRejectedValueOnce(new Error('complete rejected'));
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('读文献习惯')).toBeTruthy());
+    const base = { ...habitReads };
+
+    fireEvent.press(screen.getAllByText('今日打卡')[0]!);
+
+    // Wait for the error text — that proves the `.then` callback has run,
+    // so a still-zero counter means "did not reload", not "not yet reloaded".
+    await waitFor(() => expect(screen.getByText(/complete rejected/)).toBeTruthy());
+    expect(habitReads.habits).toBe(base.habits);
+    expect(habitReads.days).toBe(base.days);
+  });
+
+  it('shows empty state when project has no habits', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-3' });
+
+    await waitFor(() => expect(screen.getByText('项目习惯')).toBeTruthy());
+    expect(screen.getByText('暂无项目习惯')).toBeTruthy();
+    expect(screen.getByText('这个项目还没有习惯 —— 点「＋ 添加习惯」建立 21 天挑战。')).toBeTruthy();
+  });
+
+  it('the inline add-habit form submits with the projectId and refreshes list', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('＋ 添加习惯')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('＋ 添加习惯'));
+    expect(screen.getByPlaceholderText('习惯名（如 每日晨读文献）')).toBeTruthy();
+
+    fireEvent.changeText(screen.getByPlaceholderText('习惯名（如 每日晨读文献）'), '每日写代码');
+    fireEvent.changeText(screen.getByPlaceholderText('每日行动（如 读一章论文，留空同习惯名）'), '提交一个 PR');
+    fireEvent.press(screen.getByText('开始挑战'));
+
+    await waitFor(() =>
+      expect(mockedStartHabit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          title: '每日写代码',
+          actionTitle: '提交一个 PR',
+          projectId: 'p-1',
+          cycleDays: 21,
+          status: 'active',
+        }),
+        expect.anything(),
+      ),
+    );
   });
 });

@@ -1,11 +1,12 @@
 /**
- * Habits + challenge progress (the habits screen, design.md §4).
+ * Habits + challenge progress — the ONE habit read in the app: the habits
+ * screen (design.md §4) and the Now screen's habit block.
  *
- * Query-style, like `useProjectActions` / `useHabitDays`: the frozen
- * `packages/db` surface has no habit watch query, so this reads
- * `listHabits()` + `listHabitDays()` once per mount (and on every
- * `reload()` — the screen calls it after create / trash) and joins them
- * client-side into the ONE view the screen renders.
+ * Query-style, like `useProjectActions`: the frozen `packages/db` surface
+ * has no habit watch query, so this reads `listHabits()` + `listHabitDays()`
+ * once per mount (and on every `reload()` — the screen calls it after create
+ * / trash, and the Now tab calls it on focus) and joins them client-side
+ * into the ONE view the screen renders.
  *
  * The challenge day (`N/21`) is NOT re-derived here: `habitCycleDay` is
  * re-exported from `packages/db` (design.md §2) precisely so the app has
@@ -16,7 +17,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePowerSync } from '@powersync/react';
 import { habitCycleDay, listHabits, listHabitDays, wrapDb } from '@nextdo/db';
-import { localDateKey, logger, type Habit } from '@nextdo/core';
+import { localDateKey, logger, type Habit, type HabitDay } from '@nextdo/core';
 
 export interface HabitWithProgress {
   habit: Habit;
@@ -24,6 +25,12 @@ export interface HabitWithProgress {
   cycleDay: number | null;
   /** HabitDays done INSIDE the current cycle. */
   doneCount: number;
+  /**
+   * Today's HabitDay row — the generated action instance. `null` when the
+   * weekday mask / cycle boundary excluded today (no row was seeded), which
+   * is why the block renders "today has nothing to do" rather than a chip.
+   */
+  today: HabitDay | null;
 }
 
 export interface UseHabitsResult {
@@ -53,16 +60,21 @@ export function useHabits(now: Date): UseHabitsResult {
           if (bucket === undefined) daysByHabit.set(day.habitId, [day]);
           else bucket.push(day);
         }
+
         const rows: HabitWithProgress[] = [];
         for (const habit of habits) {
           if (habit.status !== 'active') continue;
+          const habitDays = daysByHabit.get(habit.id) ?? [];
           const cycleDay = habitCycleDay(habit.startedAt, habit.cycleDays, localDate);
-          const doneCount = (daysByHabit.get(habit.id) ?? []).filter(
+          const doneCount = habitDays.filter(
             (day) =>
               day.status === 'done' &&
               habitCycleDay(habit.startedAt, habit.cycleDays, day.localDate) !== null,
           ).length;
-          rows.push({ habit, cycleDay, doneCount });
+          // `listHabitDays` is read unfiltered (the cycle count needs every
+          // day, not just today's), so today's row is picked out here.
+          const today = habitDays.find((day) => day.localDate === localDate) ?? null;
+          rows.push({ habit, cycleDay, doneCount, today });
         }
         setData(rows);
         setError(null);
