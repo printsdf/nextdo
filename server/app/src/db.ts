@@ -96,6 +96,7 @@ export const MUTABLE_TABLES: Readonly<Record<string, readonly string[]>> = {
     'est_minutes',
     'value',
     'category',
+    'project_id',
     'window_start',
     'window_end',
     'window_days',

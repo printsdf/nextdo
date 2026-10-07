@@ -74,6 +74,35 @@ describe('reads', () => {
     }
   });
 
+  it('listHabits filters by projectId', async () => {
+    const { db, close } = await open();
+    try {
+      const p1Habit = makeHabit({ title: '项目1习惯', projectId: 'proj-1' });
+      const p2Habit = makeHabit({ title: '项目2习惯', projectId: 'proj-2' });
+      const projectlessHabit = makeHabit({ title: '无项目习惯' });
+      await addHabit(db, p1Habit);
+      await addHabit(db, p2Habit);
+      await addHabit(db, projectlessHabit);
+
+      const p1List = await listHabits(db, { projectId: 'proj-1' });
+      expect(p1List).toHaveLength(1);
+      expect(p1List[0]!.id).toBe(p1Habit.id);
+      expect(p1List[0]!.projectId).toBe('proj-1');
+
+      const p2List = await listHabits(db, { projectId: 'proj-2' });
+      expect(p2List).toHaveLength(1);
+      expect(p2List[0]!.id).toBe(p2Habit.id);
+
+      const emptyList = await listHabits(db, { projectId: 'proj-non-existent' });
+      expect(emptyList).toEqual([]);
+
+      const all = await listHabits(db);
+      expect(all).toHaveLength(3);
+    } finally {
+      await close();
+    }
+  });
+
   it('listHabitDays filters by habitId and localDate', async () => {
     const { db, close } = await open(true);
     try {

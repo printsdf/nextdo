@@ -479,6 +479,7 @@ export async function seedFixtures(db: NextdoDb, now: Date = FIXTURE_NOW): Promi
       estMinutes: 45,
       value: value(4),
       category: 'health',
+      projectId: FIXTURE_IDS.projects.empty,
       cycleDays: 21,
       startedAt: at(-10),
       status: 'active',

@@ -168,6 +168,11 @@ export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePo
     if (habit === undefined || habit.deleted_at !== null || habit.status !== 'active') {
       continue;
     }
+    // Pool contract (R5): bound to a project that is not active (or
+    // deleted/missing) → not a candidate. Projectless habits pass.
+    if (habit.project_id !== null && !activeProjectIds.has(habit.project_id)) {
+      continue;
+    }
     const cycleDays = habit.cycle_days ?? 0;
     const cycleDay = habitCycleDay(habit.started_at ?? '', cycleDays, day.local_date ?? '');
     if (cycleDay === null) {
@@ -181,6 +186,7 @@ export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePo
         est_minutes: habit.est_minutes ?? null,
         value: habit.value ?? null,
         category: habit.category ?? null,
+        project_id: habit.project_id ?? null,
         // The day row has no window columns — the window belongs to the
         // habit (spec: window-mismatch filter + habit-commitment signal).
         window_start: habit.window_start ?? null,

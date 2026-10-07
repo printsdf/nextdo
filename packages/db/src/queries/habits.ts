@@ -95,9 +95,12 @@ async function seedTodayHabitDay(
 
 export async function listHabits(
   db: NextdoDb,
-  options?: { includeDeleted?: boolean },
+  options?: { projectId?: string; includeDeleted?: boolean },
 ): Promise<Habit[]> {
   let query = db.selectFrom('habits').selectAll();
+  if (options?.projectId !== undefined) {
+    query = query.where('project_id', '=', options.projectId);
+  }
   if (!options?.includeDeleted) {
     query = query.where('deleted_at', 'is', null);
   }
