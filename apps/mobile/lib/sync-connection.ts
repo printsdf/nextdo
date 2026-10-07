@@ -32,6 +32,28 @@ export interface ParsedConnection {
 const DEEP_LINK_SCHEME = 'nextdo://';
 
 /**
+ * Format a plaintext connection string `<base address>|<token>`.
+ * Returns empty string if either piece is empty or blank.
+ */
+export function formatConnectionString(serverAddress: string, token: string): string {
+  const trimmedAddress = serverAddress.trim();
+  const trimmedToken = token.trim();
+  if (trimmedAddress === '' || trimmedToken === '') return '';
+  return `${trimmedAddress}|${trimmedToken}`;
+}
+
+/**
+ * Format a mobile deep link `nextdo://sync?s=<encoded base>&t=<encoded token>`.
+ * Returns empty string if either piece is empty or blank.
+ */
+export function formatDeepLink(serverAddress: string, token: string): string {
+  const trimmedAddress = serverAddress.trim();
+  const trimmedToken = token.trim();
+  if (trimmedAddress === '' || trimmedToken === '') return '';
+  return `${DEEP_LINK_SCHEME}sync?s=${encodeURIComponent(trimmedAddress)}&t=${encodeURIComponent(trimmedToken)}`;
+}
+
+/**
  * Parse a pasted connection string, or return null when the input is not
  * one (a bare owner token, an empty field, or garbage).
  *
