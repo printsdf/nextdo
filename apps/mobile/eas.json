@@ -6,6 +6,9 @@
     "base": {
       "node": "22.23.3",
       "pnpm": "12.5.1",
+      "env": {
+        "EXPO_ROUTER_DISABLE_NATIVE_TABS_MD": "1"
+      },
       "android": {
         "image": "ubuntu-26.04-jdk-17-ndk-r27b-sdk-57"
       }

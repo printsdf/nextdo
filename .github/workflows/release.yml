@@ -235,6 +235,7 @@ jobs:
           # eas-cli versions.
           EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
           EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
+          EXPO_ROUTER_DISABLE_NATIVE_TABS_MD: "1"
         run: |
           cd apps/mobile
           # EAS compiles on Expo's cloud; the CLI uploads the project and

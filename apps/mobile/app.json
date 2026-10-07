@@ -45,7 +45,9 @@
           "android": {
             "manifestPermissions": ["SCHEDULE_EXACT_ALARM", "USE_EXACT_ALARM"],
             "enableMinifyInReleaseBuilds": true,
-            "enableBundleCompression": true
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "enableBundleCompression": true,
+            "useLegacyPackaging": true
           }
         }
       ]
