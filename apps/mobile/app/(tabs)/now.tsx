@@ -236,9 +236,18 @@ function EngineContextBar({
   settings: EngineContextSettings | null;
   update: (patch: Partial<EngineContextSettings>) => Promise<void>;
 }) {
-  const { data: contexts, add } = useContexts();
+  const { data: contexts, add, reload: reloadContexts } = useContexts();
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
+
+  // The `/contexts` screen writes the same rows (删除 / 新建). This bar stays
+  // MOUNTED while that route is pushed on top, so without a focus re-read a
+  // scene deleted there lingers in the chips (hook-guidelines Rule 7).
+  useFocusEffect(
+    useCallback(() => {
+      reloadContexts();
+    }, [reloadContexts]),
+  );
 
   const contextIds = settings?.contextIds ?? [];
   const availableMinutes = settings?.availableMinutes ?? 60;
@@ -332,6 +341,20 @@ function EngineContextBar({
               </Text>
             </Pressable>
           )}
+          {/* Deleting a scene lives on its own screen — the chips here are a
+              multi-select input, and a ✕ on each would collide with the
+              select/unselect tap target. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="管理场景"
+            hitSlop={CHIP_HIT_SLOP}
+            onPress={() => router.push('/contexts')}
+            className="h-8 items-center justify-center rounded-lg px-2.5 active:bg-surface-container dark:active:bg-surface-container-dark"
+          >
+            <Text className="font-sans text-xs font-medium text-muted dark:text-muted-dark">
+              管理场景
+            </Text>
+          </Pressable>
         </View>
       </View>
 

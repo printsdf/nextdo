@@ -1,14 +1,15 @@
 /**
  * Contexts data hook (Now screen's scene chips, design.md §4.1): the
- * non-deleted contexts + inline quick-create (`addContext`).
+ * non-deleted contexts + inline quick-create (`addContext`) and the soft
+ * delete (`remove` → `trashContext`).
  *
  * Query-style by design (design.md §5 — no contexts watch query in the
  * frozen packages/db surface; personal-scale data, re-read on mount and
- * after each mutation).
+ * after each mutation). Both mutations re-read by bumping `reloadKey`.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePowerSync } from '@powersync/react';
-import { addContext, listContexts, wrapDb } from '@nextdo/db';
+import { addContext, listContexts, trashContext, wrapDb } from '@nextdo/db';
 import { logger, toIso, ulid, type Context } from '@nextdo/core';
 import { useAppClock } from './use-app-clock';
 
@@ -18,6 +19,21 @@ export interface UseContextsResult {
   error: string | null;
   /** Quick-create a context (the "＋" chip). */
   add: (name: string) => Promise<void>;
+  /**
+   * Soft delete a context (the contexts screen's per-row 删除).
+   * Resolves true when the local write committed; false on error (the
+   * typed `error` is set either way) — callers re-read on `true` only
+   * (hook-guidelines Rule 9: gate the reload on the boolean).
+   */
+  remove: (id: string) => Promise<boolean>;
+  /**
+   * Re-read on demand (hook-guidelines Rule 7). Needed because the
+   * `/contexts` screen writes the SAME rows this hook reads: the Now
+   * screen's bar stays MOUNTED while `/contexts` is pushed on top, so a
+   * scene deleted there never reaches an already-mounted chip list.
+   * The Now screen calls this from `useFocusEffect`.
+   */
+  reload: () => void;
 }
 
 export function useContexts(): UseContextsResult {
@@ -27,6 +43,10 @@ export function useContexts(): UseContextsResult {
   const [data, setData] = useState<Context[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+
+  const reload = useCallback(() => {
+    setReloadKey((key) => key + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,5 +91,21 @@ export function useContexts(): UseContextsResult {
     [db, now],
   );
 
-  return { data, error, add };
+  const remove = useCallback(
+    async (id: string): Promise<boolean> => {
+      try {
+        await trashContext(db, { id, now });
+        setError(null);
+        setReloadKey((key) => key + 1);
+        return true;
+      } catch (err: unknown) {
+        logger.error('context trash failed', err instanceof Error ? err : new Error(String(err)));
+        setError(err instanceof Error ? err.message : String(err));
+        return false;
+      }
+    },
+    [db, now],
+  );
+
+  return { data, error, add, remove, reload };
 }

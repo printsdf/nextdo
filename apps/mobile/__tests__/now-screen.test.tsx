@@ -31,6 +31,15 @@ const completeCalls: { count: number; shouldFail: boolean } = { count: 0, should
 // under test and this test must go red).
 const habitReads = { habits: 0, days: 0 };
 
+/**
+ * Read counter for the scene list. Needed because the ONLY way to prove the
+ * focus re-read fires is to count reads — under `renderRouter` the tab
+ * REMOUNTS on a stack navigation, so the mount-time read picks the new rows
+ * up and a "the chip disappeared" assertion passes even with `reload()`
+ * deleted (verified by mutation). hook-guidelines Rule 8.
+ */
+const contextReads = { count: 0 };
+
 jest.mock('@nextdo/db', () => {
   const compilable = () => ({
     compile: () => ({ sql: 'SELECT 1', parameters: [] }),
@@ -82,7 +91,10 @@ jest.mock('@nextdo/db', () => {
     snoozeAction: async () => undefined,
     trashAction: async () => undefined,
     listProjects: async () => projectsRef.current,
-    listContexts: async () => ctxRef.current,
+    listContexts: async () => {
+      contextReads.count += 1;
+      return ctxRef.current;
+    },
     addContext: async () => undefined,
     listHabits: async () => {
       habitReads.habits += 1;
@@ -95,6 +107,10 @@ jest.mock('@nextdo/db', () => {
     // HabitsScreen mounts on the /habits route these tests navigate to.
     startHabit: async () => ({ habit: null, today: null }),
     trashHabit: async () => undefined,
+    // ContextsScreen mounts on the /contexts route (the scene bar's
+    // 「管理场景」 entry) — the mock must provide every export the tree
+    // touches or the screen renders nothing (testing-guidelines).
+    trashContext: async () => undefined,
   };
 });
 
@@ -226,6 +242,7 @@ beforeEach(() => {
   completeCalls.shouldFail = false;
   habitReads.habits = 0;
   habitReads.days = 0;
+  contextReads.count = 0;
   // Fresh in-memory engine-context store per test (module-level backend).
   __setEngineContextStoreForTests(null);
 });
@@ -603,6 +620,56 @@ describe('Now screen', () => {
       // 60 is the default → re-selecting it changes nothing.
       fireEvent.press(screen.getByRole('button', { name: '设置可用时间：120 分钟' }));
       await waitFor(() => expect(screen.getByText('2/2 项')).toBeTruthy());
+    });
+
+    it('the scene bar offers a 管理场景 entry (delete lives on its own screen)', async () => {
+      ctxRef.current = [context('c-1', '客厅')];
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: '选择场景：客厅' })).toBeTruthy(),
+      );
+      // The entry is labelled 「管理场景」, NOT 「管理」 — the habit block's
+      // own 管理 button (now-screen.test.tsx 「the one-tap complete chips and
+      // the 管理 entry」) must stay unambiguous.
+      fireEvent.press(screen.getByRole('button', { name: '管理场景' }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText('场景是行动的运行环境 —— Now 屏按当前场景筛选待办。不选即随处可执行。'),
+        ).toBeTruthy(),
+      );
+      expect(screen.getByRole('button', { name: '← 现在' })).toBeTruthy();
+    });
+
+    it('re-reads the scenes when the tab regains focus (Rule 7 refresh path)', async () => {
+      // The `/contexts` screen writes the same rows, and this bar stays
+      // MOUNTED while that route is pushed on top — so a scene deleted
+      // there used to linger in the chips until an app restart (found in
+      // browser testing). `useFocusEffect` → `useContexts().reload()` is the
+      // fix.
+      //
+      // Asserted via the READ COUNTER, not the chip: under renderRouter the
+      // tab remounts on the stack navigation, so the mount-time read already
+      // picks the new rows up and "the chip disappeared" passes with `reload`
+      // deleted (hook-guidelines Rule 8 — verified by mutation). Counting
+      // reads is what actually pins the focus path: on RETURN to an
+      // already-mounted bar, a read can only come from the focus effect.
+      ctxRef.current = [context('c-1', '客厅')];
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: '选择场景：客厅' })).toBeTruthy(),
+      );
+
+      // Baseline AFTER mount — the mount read is not the focus read.
+      const base = contextReads.count;
+
+      // Focus the tab again the way returning from a stack route does.
+      testRouter.navigate('/settings');
+      await waitFor(() => expect(screen.getByText('设备与云同步。')).toBeTruthy());
+      testRouter.navigate('/now');
+
+      await waitFor(() => expect(contextReads.count).toBeGreaterThan(base));
     });
   });
 
