@@ -8,8 +8,9 @@
  * The engine applies the hard filters itself — the pool must NOT filter on
  * snooze, context, or estimate.
  */
-import { toIso, type ProjectStatus } from '@nextdo/core';
+import { toIso, ulid, type ProjectStatus } from '@nextdo/core';
 import { completeAction } from '../queries/actions';
+import { startHabit } from '../queries/habits';
 import { queryEnginePool } from '../queries/pool';
 import { listProjects, updateProject } from '../queries/projects';
 import { openTestDb, type TestDb } from './query-helpers';
@@ -277,6 +278,71 @@ describe('R5 — project status filter (the pool contract)', () => {
         .map((action) => (action as { habitId: string }).habitId)
         .sort();
       expect(habitIds).toEqual([H.today, H.mid, H.last, H.weekdays].sort());
+    } finally {
+      await close();
+    }
+  });
+
+  it('habit bound to active project inherits projectId; on-hold project removes it; resuming restores it', async () => {
+    const { db, close } = await open(true);
+    try {
+      const { habit } = await startHabit(
+        db,
+        {
+          id: ulid(FIXTURE_NOW),
+          createdAt: toIso(FIXTURE_NOW),
+          updatedAt: toIso(FIXTURE_NOW),
+          deletedAt: null,
+          title: '读文献习惯',
+          actionTitle: '读一章文献',
+          estMinutes: 30,
+          value: 4,
+          cycleDays: 21,
+          startedAt: toIso(FIXTURE_NOW),
+          status: 'active',
+          projectId: P.paper,
+        },
+        FIXTURE_NOW,
+      );
+
+      // 1. Paper is active -> habit candidate inherits projectId
+      let pool = await queryEnginePool(db, FIXTURE_NOW);
+      let habitCandidate = pool.actions.find(
+        (action) => action.kind === 'habit' && (action as { habitId: string }).habitId === habit.id,
+      );
+      expect(habitCandidate).toBeDefined();
+      expect(habitCandidate?.projectId).toBe(P.paper);
+
+      // 2. Paper set to on-hold -> habit candidate leaves pool
+      await setProjectStatus(db, P.paper, 'on-hold');
+      pool = await queryEnginePool(db, FIXTURE_NOW);
+      habitCandidate = pool.actions.find(
+        (action) => action.kind === 'habit' && (action as { habitId: string }).habitId === habit.id,
+      );
+      expect(habitCandidate).toBeUndefined();
+
+      // 3. Paper resumed to active -> habit candidate returns
+      await setProjectStatus(db, P.paper, 'active');
+      pool = await queryEnginePool(db, FIXTURE_NOW);
+      habitCandidate = pool.actions.find(
+        (action) => action.kind === 'habit' && (action as { habitId: string }).habitId === habit.id,
+      );
+      expect(habitCandidate).toBeDefined();
+      expect(habitCandidate?.projectId).toBe(P.paper);
+    } finally {
+      await close();
+    }
+  });
+
+  it('projectless habit candidate retains undefined projectId', async () => {
+    const { db, close } = await open(true);
+    try {
+      const pool = await queryEnginePool(db, FIXTURE_NOW);
+      const todayHabit = pool.actions.find(
+        (action) => action.kind === 'habit' && (action as { habitId: string }).habitId === H.today,
+      );
+      expect(todayHabit).toBeDefined();
+      expect(todayHabit?.projectId).toBeUndefined();
     } finally {
       await close();
     }

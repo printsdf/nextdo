@@ -133,6 +133,7 @@ CREATE TABLE habits (
   est_minutes INTEGER,
   value INTEGER,
   category TEXT,
+  project_id TEXT,
   window_start TEXT,
   window_end TEXT,
   window_days TEXT,
