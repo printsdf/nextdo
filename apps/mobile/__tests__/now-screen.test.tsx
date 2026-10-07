@@ -581,12 +581,12 @@ describe('Now screen', () => {
     });
   });
 
-  // ── Habit strip (task 10-02) ─────────────────────────────────────────
-  // The strip used to render NOTHING when there were no habit days, so
+  // ── Habit block (task 10-02) ──────────────────────────────────────────
+  // The block used to render NOTHING when there were no habit days, so
   // the whole habits feature was undiscoverable. Both states now render,
   // and each carries a way into the habits screen.
-  describe('habit strip', () => {
-    it('zero habits → the strip shows the guidance entry (not a silent 0/0 with no way out)', async () => {
+  describe('habit block', () => {
+    it('zero habits → the block shows the guidance entry (not a silent 0/0 with no way out)', async () => {
       setPool([]);
       renderRouter('app', { initialUrl: '/(tabs)/now' });
 
@@ -596,20 +596,28 @@ describe('Now screen', () => {
     });
 
     it('with habit days → the count, the one-tap complete chips and the 管理 entry', async () => {
-      habitListRef.current = [habitFixture()];
+      // TWO habits, one day row each — `(habitId, localDate)` is unique, so
+      // one habit can never contribute two rows to today's count.
+      habitListRef.current = [
+        habitFixture(),
+        habitFixture({ id: 'h-2', title: '冥想' }),
+      ];
       habitDaysRef.current = [
-        habitDayFixture({ id: 'hd-1', status: 'done' }),
-        habitDayFixture({ id: 'hd-2', status: 'open' }),
+        habitDayFixture({ id: 'hd-1', habitId: 'h-1', status: 'done' }),
+        habitDayFixture({ id: 'hd-2', habitId: 'h-2', status: 'open' }),
       ];
       setPool([]);
       renderRouter('app', { initialUrl: '/(tabs)/now' });
 
       await waitFor(() => expect(screen.getByText('今天习惯 1/2')).toBeTruthy());
       // The habit's own title comes from listHabits (the day row has no title).
-      expect(screen.getByRole('button', { name: '完成习惯：阅读' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '完成习惯：冥想' })).toBeTruthy();
       expect(screen.getByRole('button', { name: '管理' })).toBeTruthy();
       // The empty-state prompt is gone once there is something to show.
       expect(screen.queryByText('去创建习惯')).toBeNull();
+      // The done habit offers no check-in — `completeAction` would reject it.
+      expect(screen.queryByRole('button', { name: '完成习惯：阅读' })).toBeNull();
+      expect(screen.getByText('今天已完成')).toBeTruthy();
     });
 
     // PRD acceptance: "从习惯屏创建后返回 Now 屏，习惯条立即显示新习惯".
@@ -651,12 +659,11 @@ describe('Now screen', () => {
 
     // Regression (task 10-02): `trashHabit` is a SOFT delete — the habit's
     // HabitDay rows deliberately survive it (PRD F5) and `listHabitDays`
-    // cannot see the parent habit. Without the liveness gate in
-    // `useHabitDays`, a deleted habit would keep offering a completable
-    // chip on the Now screen forever. The pool query already applies this
-    // gate (pool.ts skips days of deleted / non-active habits); the strip
-    // must agree.
-    it('drops the days of a deleted habit (soft delete keeps the rows, the strip must not)', async () => {
+    // cannot see the parent habit. The block iterates the HABITS (not the
+    // days) and `listHabits` excludes soft-deleted rows, so a deleted habit
+    // drops out structurally. The pool query applies the same gate (pool.ts
+    // skips days of deleted / non-active habits); the block must agree.
+    it('drops the days of a deleted habit (soft delete keeps the rows, the block must not)', async () => {
       habitListRef.current = [habitFixture({ id: 'h-gone', title: '已删除的习惯' })];
       habitDaysRef.current = [habitDayFixture({ id: 'hd-gone', habitId: 'h-gone', status: 'open' })];
       setPool([]);
@@ -675,6 +682,56 @@ describe('Now screen', () => {
 
       await waitFor(() => expect(screen.getByText('今天习惯 0/0')).toBeTruthy());
       expect(screen.queryByRole('button', { name: '完成习惯：已删除的习惯' })).toBeNull();
+    });
+
+    // The block's reason for existing over a bare check-in chip: the
+    // challenge context (where you are in the 21 days) that the ranked
+    // eligible list cannot show.
+    it('shows the challenge day and the cycle done-count per habit', async () => {
+      // Started 4 days ago → today is day 5 of 21.
+      const startedAt = new Date(Date.now() - 4 * 86_400_000).toISOString();
+      habitListRef.current = [habitFixture({ startedAt })];
+      habitDaysRef.current = [
+        // Three done days inside the cycle, plus today's open row.
+        habitDayFixture({
+          id: 'hd-p1',
+          localDate: localDateKey(new Date(Date.now() - 3 * 86_400_000)),
+          status: 'done',
+        }),
+        habitDayFixture({
+          id: 'hd-p2',
+          localDate: localDateKey(new Date(Date.now() - 2 * 86_400_000)),
+          status: 'done',
+        }),
+        habitDayFixture({
+          id: 'hd-p3',
+          localDate: localDateKey(new Date(Date.now() - 86_400_000)),
+          status: 'done',
+        }),
+        habitDayFixture({ id: 'hd-today', status: 'open' }),
+      ];
+      setPool([]);
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      await waitFor(() => expect(screen.getByText('今天习惯 0/1')).toBeTruthy());
+      expect(screen.getByText('第 5/21 天')).toBeTruthy();
+      expect(screen.getByText('本期已完成 3 天')).toBeTruthy();
+      // Today's row is still open → the check-in is offered.
+      expect(screen.getByRole('button', { name: '完成习惯：阅读' })).toBeTruthy();
+    });
+
+    // A habit whose weekday mask excluded today has NO HabitDay row — the
+    // block must say so rather than render a check-in that would fail.
+    it('a habit with no row today reads as 今天无安排, not a check-in', async () => {
+      habitListRef.current = [habitFixture()];
+      habitDaysRef.current = [];
+      setPool([]);
+      renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+      // No row today → the habit is still listed (it is active), but the
+      // today count only covers habits that generated one.
+      await waitFor(() => expect(screen.getByText('今天无安排')).toBeTruthy());
+      expect(screen.queryByRole('button', { name: '完成习惯：阅读' })).toBeNull();
     });
   });
 });
