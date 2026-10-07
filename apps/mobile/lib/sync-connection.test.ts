@@ -11,7 +11,11 @@
  * one side, a deep link missing `t`) must NOT parse into a half-config.
  * Pure and platform-free, so no mocks are needed here.
  */
-import { parseConnectionString } from './sync-connection';
+import {
+  formatConnectionString,
+  formatDeepLink,
+  parseConnectionString,
+} from './sync-connection';
 
 describe('plaintext `<base>|<token>`', () => {
   it('parses address + token', () => {
@@ -104,5 +108,54 @@ describe('not a connection string → null (the caller falls back to a bare toke
     ['a bare address with no token', 'https://nextdo.example.com'],
   ])('%s → null', (_label, input) => {
     expect(parseConnectionString(input)).toBeNull();
+  });
+});
+
+describe('formatConnectionString', () => {
+  it('formats server address and token into plaintext pipe format', () => {
+    expect(formatConnectionString('https://example.com', 'tok123')).toBe(
+      'https://example.com|tok123',
+    );
+  });
+
+  it('trims leading/trailing whitespace', () => {
+    expect(formatConnectionString('  https://example.com  ', '  tok123  ')).toBe(
+      'https://example.com|tok123',
+    );
+  });
+
+  it('returns empty string if either address or token is blank', () => {
+    expect(formatConnectionString('', 'tok123')).toBe('');
+    expect(formatConnectionString('https://example.com', '')).toBe('');
+    expect(formatConnectionString('   ', 'tok123')).toBe('');
+  });
+
+  it('round-trips through parseConnectionString', () => {
+    const formatted = formatConnectionString('https://example.com', 'tok123');
+    expect(parseConnectionString(formatted)).toEqual({
+      serverAddress: 'https://example.com',
+      token: 'tok123',
+    });
+  });
+});
+
+describe('formatDeepLink', () => {
+  it('formats server address and token into nextdo:// deep link', () => {
+    expect(formatDeepLink('https://example.com', 'tok123')).toBe(
+      'nextdo://sync?s=https%3A%2F%2Fexample.com&t=tok123',
+    );
+  });
+
+  it('returns empty string if either address or token is blank', () => {
+    expect(formatDeepLink('', 'tok123')).toBe('');
+    expect(formatDeepLink('https://example.com', '')).toBe('');
+  });
+
+  it('round-trips through parseConnectionString', () => {
+    const link = formatDeepLink('https://example.com', 'tok+special/key=');
+    expect(parseConnectionString(link)).toEqual({
+      serverAddress: 'https://example.com',
+      token: 'tok+special/key=',
+    });
   });
 });

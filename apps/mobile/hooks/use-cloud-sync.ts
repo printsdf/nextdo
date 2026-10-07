@@ -102,11 +102,13 @@ const TOKEN_MISSING = '请先输入 owner token';
 export function useCloudSync(): {
   state: CloudSyncState;
   storedConfig: StoredBackendConfig | null;
+  ownerToken: string | null;
   connect: (input: ConnectInput) => Promise<ConnectOutcome>;
   disconnect: () => Promise<void>;
 } {
   const [state, setState] = useState<CloudSyncState>('loading');
   const [storedConfig, setStoredConfig] = useState<StoredBackendConfig | null>(null);
+  const [ownerToken, setOwnerTokenState] = useState<string | null>(null);
 
   // Read once on mount, then follow sign-in / sign-out for the screen's
   // life (the same poke-and-reread contract as the provider). The token AND
@@ -131,6 +133,7 @@ export function useCloudSync(): {
       }
       if (!disposed) {
         setState(token === null ? 'disconnected' : 'connected');
+        setOwnerTokenState(token);
         setStoredConfig(config);
       }
     };
@@ -227,5 +230,5 @@ export function useCloudSync(): {
     }
   }, []);
 
-  return { state, storedConfig, connect, disconnect };
+  return { state, storedConfig, ownerToken, connect, disconnect };
 }

@@ -76,6 +76,14 @@ let mockFetchCalls = 0;
  *  config"). Collected on the @nextdo/db powersync instance, NOT the
  *  @powersync/react context mock the screens consume. */
 let mockConnectorConfigs: unknown[] = [];
+let mockClipboardString = '';
+
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn(async (text: string) => {
+    mockClipboardString = text;
+    return true;
+  }),
+}));
 
 // (name starts with `mock` — jest.mock factories may only reference
 // out-of-scope variables with that prefix)
@@ -233,6 +241,7 @@ function connectButtonDisabled(): boolean {
 
 /** Expand the collapsed 「高级设置」 accordion (the custom URL inputs). */
 async function expandAdvanced(): Promise<void> {
+  if (screen.queryByPlaceholderText(SERVER_PLACEHOLDER) !== null) return;
   fireEvent.press(screen.getByRole('button', { name: '高级设置' }));
   await flush();
 }
@@ -240,6 +249,7 @@ async function expandAdvanced(): Promise<void> {
 /** Fill the simple form: the one server address + the token / connection string. */
 async function fillSimpleForm(address: string, token: string): Promise<void> {
   if (address !== '') {
+    await expandAdvanced();
     fireEvent.changeText(screen.getByPlaceholderText(SERVER_PLACEHOLDER), address);
   }
   fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), token);
@@ -248,6 +258,7 @@ async function fillSimpleForm(address: string, token: string): Promise<void> {
 
 /** Fill the advanced form's two custom URLs (the accordion must be expanded). */
 async function fillAdvancedForm(backendUrl: string, endpoint: string): Promise<void> {
+  await expandAdvanced();
   fireEvent.changeText(screen.getByPlaceholderText(BACKEND_PLACEHOLDER), backendUrl);
   fireEvent.changeText(screen.getByPlaceholderText(ENDPOINT_PLACEHOLDER), endpoint);
   await flush();
@@ -277,6 +288,7 @@ beforeEach(() => {
   mockTokenListeners.clear();
   mockFetchCalls = 0;
   mockConnectorConfigs = [];
+  mockClipboardString = '';
   hook = null;
   // Idle OS permission state (the notifications block tests override it
   // per case — task 09-30 R5).
@@ -321,7 +333,7 @@ describe('root (no gate)', () => {
  * Settings — the cloud-sync block
  * ------------------------------------------------------------------ */
 describe('settings cloud-sync block', () => {
-  it('disconnected: the explanation, ONE server-address input, ONE connection-string/token input, a collapsed 高级设置, and a disabled 连接 button', async () => {
+  it('disconnected: the explanation, ONE connection-string input, a collapsed 高级设置, and a disabled 连接 button', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
@@ -331,13 +343,11 @@ describe('settings cloud-sync block', () => {
     expect(screen.getByText('云同步')).toBeTruthy();
     expect(screen.getByText(/未连接/)).toBeTruthy();
     expect(screen.getByText(/填写你的同步服务器地址/)).toBeTruthy();
-    // The simple form: exactly ONE address input + the token/connection field.
-    expect(screen.getByPlaceholderText(SERVER_PLACEHOLDER)).toBeTruthy();
+    // The simple form: primary connection-string input.
     expect(screen.getByPlaceholderText(TOKEN_PLACEHOLDER)).toBeTruthy();
-    // The two custom URL inputs live in the accordion, which is COLLAPSED
-    // by default — the whole point of the simplification (a newcomer never
-    // sees /api + /sync).
+    // Server address and custom URLs are in the accordion, COLLAPSED by default.
     expect(screen.getByRole('button', { name: '高级设置' })).toBeTruthy();
+    expect(screen.queryByPlaceholderText(SERVER_PLACEHOLDER)).toBeNull();
     expect(screen.queryByPlaceholderText(BACKEND_PLACEHOLDER)).toBeNull();
     expect(screen.queryByPlaceholderText(ENDPOINT_PLACEHOLDER)).toBeNull();
     expect(connectButtonDisabled()).toBe(true);
@@ -353,7 +363,8 @@ describe('settings cloud-sync block', () => {
     await flush();
     expect(connectButtonDisabled()).toBe(true);
 
-    // One address → enabled. The second URL is derived, never typed.
+    // One address in advanced settings → enabled. The second URL is derived, never typed.
+    await expandAdvanced();
     fireEvent.changeText(screen.getByPlaceholderText(SERVER_PLACEHOLDER), SERVER_ADDRESS);
     await flush();
     expect(connectButtonDisabled()).toBe(false);
@@ -529,14 +540,53 @@ describe('settings cloud-sync block', () => {
     expect(mockAuth.storedToken).toBeNull();
     expect(mockAuth.storedConfig).toEqual(VALID_CONFIG); // addresses retained
     expect(screen.getByText(/未连接/)).toBeTruthy();
-    // The address input is back AND pre-filled with the BASE address — not
-    // with the derived `/api` suffix the user never typed.
-    expect(screen.getByDisplayValue(SERVER_ADDRESS)).toBeTruthy();
-    // …and the retained pair is still intact in the advanced section.
+    // The address inputs live in the advanced section, collapsed by default.
     await expandAdvanced();
+    expect(screen.getByDisplayValue(SERVER_ADDRESS)).toBeTruthy();
     expect(screen.getByDisplayValue(VALID_CONFIG.backendUrl)).toBeTruthy();
     expect(screen.getByDisplayValue(VALID_CONFIG.endpoint)).toBeTruthy();
     expect(screen.queryByRole('button', { name: '断开连接' })).toBeNull();
+  });
+
+  it('connected: clicking 复制连接串 copies <base>|<token> and updates button label to 已复制', async () => {
+    mockAuth.storedToken = 'good-token';
+    mockAuth.storedConfig = { ...VALID_CONFIG };
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    const copyBtn = screen.getByRole('button', { name: '复制连接串' });
+    expect(copyBtn).toBeTruthy();
+
+    fireEvent.press(copyBtn);
+    await flush();
+
+    expect(mockClipboardString).toBe(`${SERVER_ADDRESS}|good-token`);
+    expect(screen.getByRole('button', { name: '已复制' })).toBeTruthy();
+  });
+
+  it('connected: clicking 扫码配对 reveals the QR code with nextdo:// deep link, and hides on 收起二维码', async () => {
+    mockAuth.storedToken = 'good-token';
+    mockAuth.storedConfig = { ...VALID_CONFIG };
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    expect(screen.queryByLabelText('配对二维码')).toBeNull();
+    const qrBtn = screen.getByRole('button', { name: '扫码配对' });
+    expect(qrBtn).toBeTruthy();
+
+    fireEvent.press(qrBtn);
+    await flush();
+
+    expect(screen.getByLabelText('配对二维码')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '收起二维码' })).toBeTruthy();
+
+    fireEvent.press(screen.getByRole('button', { name: '收起二维码' }));
+    await flush();
+
+    expect(screen.queryByLabelText('配对二维码')).toBeNull();
+    expect(screen.getByRole('button', { name: '扫码配对' })).toBeTruthy();
   });
 
   it('a reconnect after 断开 needs ONLY a token — the prefilled advanced pair is reused as-is', async () => {
@@ -563,9 +613,10 @@ describe('settings cloud-sync block', () => {
     await flush();
 
     expect(screen.getByText(/未连接/)).toBeTruthy();
-    // The BASE, not the derived `/api` — that is what the user typed.
+    // The base address input lives in the advanced section
+    await expandAdvanced();
     expect(screen.getByDisplayValue(SERVER_ADDRESS)).toBeTruthy();
-    expect(screen.queryByDisplayValue(VALID_CONFIG.backendUrl)).toBeNull(); // advanced is collapsed
+    expect(screen.getByDisplayValue(VALID_CONFIG.backendUrl)).toBeTruthy();
   });
 
   it('invalid address (ftp://) → inline 「地址无效…」 and NO network round-trip', async () => {

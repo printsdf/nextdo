@@ -36,15 +36,21 @@
  * All auth work goes through the `useCloudSync` UI hook (the packages/db
  * boundary); this screen owns only the form's transient state.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { useAppTheme, type ThemePreference } from '@/lib/theme';
 import { Button, Card, cn } from '@nextdo/ui';
 import { useCloudSync } from '@/hooks/use-cloud-sync';
 import { useReminderPermission } from '@/hooks/use-reminder-permission';
-import { parseConnectionString } from '@/lib/sync-connection';
+import {
+  formatConnectionString,
+  formatDeepLink,
+  parseConnectionString,
+} from '@/lib/sync-connection';
+import { QRCode } from '@/components/qr-code';
 
 /**
  * Recover the BASE server address from a stored `backendUrl` so the single
@@ -78,7 +84,7 @@ const TOKEN_ACCESSIBILITY_LABEL = '连接串或 owner token';
 
 export default function SettingsScreen() {
   const { preference, updatePreference } = useAppTheme();
-  const { state, storedConfig, connect, disconnect } = useCloudSync();
+  const { state, storedConfig, ownerToken, connect, disconnect } = useCloudSync();
   const { state: notificationPermission, openSystemSettings } = useReminderPermission();
   // The deep-link route (`app/sync.tsx`) hands a failed connect back here
   // as `?syncError=…` so the user SEES the reason instead of a silent
@@ -101,6 +107,35 @@ export default function SettingsScreen() {
   const [addressIsAuthoritative, setAddressIsAuthoritative] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [showQrCode, setShowQrCode] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) {
+        clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
+
+  const baseServerAddress = storedConfig ? stripDerivedSuffix(storedConfig.backendUrl) : '';
+  const exportedConnectionString =
+    storedConfig && ownerToken ? formatConnectionString(baseServerAddress, ownerToken) : '';
+  const exportedDeepLink =
+    storedConfig && ownerToken ? formatDeepLink(baseServerAddress, ownerToken) : '';
+
+  const handleCopyConnectionString = async (): Promise<void> => {
+    if (!exportedConnectionString) return;
+    await Clipboard.setStringAsync(exportedConnectionString);
+    setCopied(true);
+    if (copyTimerRef.current) {
+      clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = setTimeout(() => {
+      setCopied(false);
+    }, 2000);
+  };
   const insets = useAppInsets();
   const topPadding = Math.max(insets.top, 16);
   // Pre-fill from the stored config when it exists — into EMPTY fields
@@ -347,6 +382,34 @@ export default function SettingsScreen() {
                 </Text>
               </View>
             ) : null}
+            {storedConfig !== null && ownerToken !== null ? (
+              <View className="gap-2 pt-1">
+                <View className="flex-row gap-2">
+                  <Button
+                    label={copied ? '已复制' : '复制连接串'}
+                    variant="secondary"
+                    onPress={() => {
+                      void handleCopyConnectionString();
+                    }}
+                  />
+                  <Button
+                    label={showQrCode ? '收起二维码' : '扫码配对'}
+                    variant="secondary"
+                    onPress={() => {
+                      setShowQrCode((prev) => !prev);
+                    }}
+                  />
+                </View>
+                {showQrCode && exportedDeepLink ? (
+                  <View className="items-center gap-2 rounded-xl border border-border/80 bg-surface p-4 dark:border-border-dark dark:bg-surface-dark">
+                    <QRCode value={exportedDeepLink} size={180} />
+                    <Text className="text-center font-sans text-xs text-muted dark:text-muted-dark">
+                      使用其他设备扫码，即可一键配对并连接此同步服务
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
             <Button
               label="断开连接"
               variant="secondary"
@@ -358,19 +421,8 @@ export default function SettingsScreen() {
         ) : (
           <View className="gap-3">
             <Text className="font-sans text-sm text-muted dark:text-muted-dark">
-              未连接 — 数据仅保存在这台设备上。填写你的同步服务器地址与
-              owner token 即可开启同步。
+              未连接 — 数据仅保存在这台设备上。粘贴来自其他设备或服务器的连接串，或填写你的同步服务器地址与 owner token 即可开启同步。
             </Text>
-            <TextInput
-              className={INPUT_CLASS}
-              placeholder={SERVER_ADDRESS_PLACEHOLDER}
-              value={serverAddress}
-              onChangeText={handleServerAddressChange}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="off"
-              accessibilityLabel="服务器地址"
-            />
             <TextInput
               className={INPUT_CLASS}
               placeholder={TOKEN_PLACEHOLDER}
@@ -395,17 +447,30 @@ export default function SettingsScreen() {
               onPress={() => {
                 setAdvancedOpen((prev) => !prev);
               }}
-              className="flex-row items-center gap-1 py-2"
+              className="flex-row items-center gap-1 py-1"
             >
               <Text className="font-sans text-sm text-muted dark:text-muted-dark">
-                {advancedOpen ? '收起高级设置' : '高级设置'}
+                {advancedOpen ? '收起高级设置' : '高级设置与手动输入'}
               </Text>
               <Text className="font-sans text-xs text-muted dark:text-muted-dark">
                 {advancedOpen ? '▴' : '▾'}
               </Text>
             </Pressable>
             {advancedOpen ? (
-              <View className="gap-3">
+              <View className="gap-3 pt-1">
+                <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+                  手动输入服务器基础地址（未粘贴完整连接串时使用）：
+                </Text>
+                <TextInput
+                  className={INPUT_CLASS}
+                  placeholder={SERVER_ADDRESS_PLACEHOLDER}
+                  value={serverAddress}
+                  onChangeText={handleServerAddressChange}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  accessibilityLabel="服务器地址"
+                />
                 <Text className="font-sans text-xs text-muted dark:text-muted-dark">
                   自定义反代路径时才需要：两项都填写时优先于上面的服务器地址。
                 </Text>
