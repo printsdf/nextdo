@@ -611,3 +611,36 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 18: 优化同步配对UI：连接串优先与多端导出配对
+<!-- trellis-session: v=2 fp=cfad0cd878062f78 -->
+
+**Date**: 2026-10-07
+**Task**: 优化同步配对UI：连接串优先与多端导出配对
+**Branch**: `feature/sync-pairing-ui`
+
+### Summary
+
+重构移动端设置页同步配置交互：未连接状态改为单一连接串主输入，收敛服务器与自定义URL至高级设置；已连接状态支持一键复制连接串与纯前端SVG二维码展示；补齐测试与端到端校验。
+
+### Main Changes
+
+- 未连接视图重构为单一连接串优先，服务器地址与自定义URL收敛至折叠的高级设置
+- 已连接视图新增复制连接串（带反馈）与扫码配对展示（基于 qrcode 纯前端SVG渲染，生成 deep link）
+- 在 sync-connection 中实现 formatConnectionString 与 formatDeepLink 工具函数
+- useCloudSync 暴露已连接设备的 ownerToken 用于多端导出
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4c63bb3` | feat(mobile): 连接串优先配对与多端导出（复制与二维码） |
+
+### Testing
+
+- [OK] 全量测试通过：pnpm lint、pnpm typecheck 与 pnpm test (移动端381个用例全绿)
+
+### Status
+
+[OK] **Completed**
