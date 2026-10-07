@@ -563,3 +563,108 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 16: 习惯创建表单与 21 天挑战启动
+<!-- trellis-session: v=2 fp=cc6d948f2244479b -->
+
+**Date**: 2026-10-04
+**Task**: 习惯创建表单与 21 天挑战启动
+**Branch**: `main`
+
+### Summary
+
+为 db 层已就绪但UI 无入口的 Habit 能力补上创建路径：新增独立路由 app/habits.tsx（创建表单 + 第 N/21 天进度列表 + 删除），提交走 startHabit 原子事务，入口在设置页与 Now 屏习惯条（空态引导 / 非空「管理」）。周期日计算复用 packages/db 导出的 habitCycleDay，app 层零复刻。价值选择器顺带收敛为 packages/ui 的 ValueChips，并修掉 projects/[id].tsx 三处 32pt 触摸目标的无障碍缺口。质量门：lint/typecheck 全绿，872 测试通过，web 导出通过。过程中修正两处假绿测试：useHabitDays 的软删除过滤器空转、now-screen 的「返回刷新」用例摘掉 useFocusEffect 仍通过（renderRouter 下 push 栈路由会重新挂载 tab）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8bcf46a` | refactor(ui): 价值选择器收敛为共享 ValueChips |
+| `2c19f05` | feat(habits): 习惯创建表单 + 21 天挑战启动 |
+| `c26cfc2` | docs(spec): 记录焦点刷新、周期日唯一真相源与 mock 工厂覆盖 |
+| `855852d` | chore(task): 记录 10-02-habit-create-challenge 规划产物 |
+| `731f17f` | chore(backlog): 移除已交付的习惯创建表单条目 |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 17: 0.1.3-beta.1 测试版发布（仅 macOS）
+<!-- trellis-session: v=2 fp=e38f082daa16daea -->
+
+**Date**: 2026-10-04
+**Task**: 0.1.3-beta.1 测试版发布（仅 macOS）
+**Branch**: `release/v0.1.3-beta.1`
+
+### Summary
+
+在 release/v0.1.3-beta.1 分支发测试版，不动main。release.yml 新增 build_targets 输入让workflow_dispatch 只构建指定平台，run_id 改为可选（空=用本次构建产物），发布步骤在部分构建 job 被跳过时也能运行；tag 含 semver 预发布后缀时自动加 --prerelease。版本号 0.1.3-beta.1 同步到根 package.json、desktop package.json/tauri.conf.json/Cargo.toml/Cargo.lock、mobile app.json。CI run 37212920913 仅构建 macOS 成功，产出 aarch64 + x64 两个 DMG，Release v0.1.3-beta.1 已标Pre-release，v0.1.2 仍为 Latest。工作区另有两处与本次发布无关的 _layout.tsx 字体子路径导入改动未提交。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3bbba41` | chore(release): bump to 0.1.3-beta.1 + scoped/prerelease release dispatch |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 18: 优化同步配对UI：连接串优先与多端导出配对
+<!-- trellis-session: v=2 fp=cfad0cd878062f78 -->
+
+**Date**: 2026-10-07
+**Task**: 优化同步配对UI：连接串优先与多端导出配对
+**Branch**: `feature/sync-pairing-ui`
+
+### Summary
+
+重构移动端设置页同步配置交互：未连接状态改为单一连接串主输入，收敛服务器与自定义URL至高级设置；已连接状态支持一键复制连接串与纯前端SVG二维码展示；补齐测试与端到端校验。
+
+### Main Changes
+
+- 未连接视图重构为单一连接串优先，服务器地址与自定义URL收敛至折叠的高级设置
+- 已连接视图新增复制连接串（带反馈）与扫码配对展示（基于 qrcode 纯前端SVG渲染，生成 deep link）
+- 在 sync-connection 中实现 formatConnectionString 与 formatDeepLink 工具函数
+- useCloudSync 暴露已连接设备的 ownerToken 用于多端导出
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4c63bb3` | feat(mobile): 连接串优先配对与多端导出（复制与二维码） |
+
+### Testing
+
+- [OK] 全量测试通过：pnpm lint、pnpm typecheck 与 pnpm test (移动端381个用例全绿)
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 19: 习惯归属项目（Habits in Projects）
+<!-- trellis-session: v=2 fp=aa6c74381285c4f3 -->
+
+**Date**: 2026-10-07
+**Task**: 习惯归属项目（Habits in Projects）
+**Branch**: `feature/habits-in-projects`
+
+### Summary
+
+为 habits 增加 project_id 字段以支持归属项目，四处 schema 声明与多端同步配置同步扩展；行动池生成补齐项目状态过滤；移动端项目详情页新增习惯列表、21天挑战网格打卡与内嵌创建表单；全量单测、类型检查与 lint 全绿通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a562596` | chore(task): 记录 10-07-habits-in-projects 规划与实施产物 |
+| `e24f006` | feat(core,db,server): 习惯支持归属项目与多端同步扩展 |
+| `ad34f27` | feat(mobile): 项目详情页支持习惯列表、打卡与内嵌创建 |
+
+### Status
+
+[OK] **Completed**
