@@ -554,6 +554,68 @@ describe('WizardBody — context multi-select (design §3.4)', () => {
     expect(screen.getByText('决策摘要预览 · 归位就绪')).toBeTruthy();
     expect(screen.getByText('随处可执行')).toBeTruthy();
   });
+
+  // Regression (found by running the app, 2026-10-07): the five default
+  // contexts are seeded SERVER-side (domain-model.md "Context" — the
+  // single-writer decision), so any client that has not connected to the
+  // sync backend yet has an EMPTY contexts table. The multi-select then
+  // rendered a bare 「在哪里做？」label over nothing — no chips, no empty
+  // state, and no way to create one from inside the wizard (only the Now
+  // screen's scene bar had that). A dead end.
+  //
+  // What this pins: with no contexts the form explains the state AND
+  // still offers the quick-create, so the user is never stranded.
+  it('no contexts: the multi-select explains the state and still offers quick-create', async () => {
+    mockedUseContexts.mockReturnValue({ data: [], error: null, add: jest.fn(async () => undefined) });
+    renderWizard();
+    fireEvent.press(screen.getByText('可以，是行动'));
+    walkToActionForm();
+
+    // The empty state says what an empty selection means…
+    expect(screen.getByText(/还没有场景/)).toBeTruthy();
+    expect(screen.getByText(/不选即随处可执行/)).toBeTruthy();
+
+    // …and the create entry is reachable, so the form is not a dead end.
+    fireEvent.press(screen.getByLabelText('新建场景'));
+    expect(screen.getByLabelText('新场景名称')).toBeTruthy();
+  });
+
+  // The quick-create must actually reach `useContexts().add` — otherwise the
+  // button above is decorative. Kept separate so a failure names which half
+  // broke (rendering vs. wiring).
+  it('the in-form 新建场景 writes through to useContexts().add', async () => {
+    const add = jest.fn(async () => undefined);
+    mockedUseContexts.mockReturnValue({ data: [], error: null, add });
+    renderWizard();
+    fireEvent.press(screen.getByText('可以，是行动'));
+    walkToActionForm();
+
+    fireEvent.press(screen.getByLabelText('新建场景'));
+    fireEvent.changeText(screen.getByLabelText('新场景名称'), '书房');
+    fireEvent.press(screen.getByLabelText('添加场景'));
+
+    expect(add).toHaveBeenCalledWith('书房');
+    // The input closes after a successful create (mirrors the Now screen).
+    expect(screen.queryByLabelText('新场景名称')).toBeNull();
+  });
+
+  // A blank name must not create a whitespace row — `useContexts().add`
+  // would no-op, so the wizard closes its own input and says nothing.
+  it('an empty name does not create a context', async () => {
+    const add = jest.fn(async () => undefined);
+    mockedUseContexts.mockReturnValue({ data: [], error: null, add });
+    renderWizard();
+    fireEvent.press(screen.getByText('可以，是行动'));
+    walkToActionForm();
+
+    fireEvent.press(screen.getByLabelText('新建场景'));
+    fireEvent.changeText(screen.getByLabelText('新场景名称'), '   ');
+    fireEvent.press(screen.getByLabelText('添加场景'));
+
+    expect(add).not.toHaveBeenCalled();
+    // The input stays open so the name can be corrected.
+    expect(screen.getByLabelText('新场景名称')).toBeTruthy();
+  });
 });
 
 describe('WizardBody — calendar form (design §15: date/time pickers, no typed ISO)', () => {
