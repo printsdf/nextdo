@@ -279,8 +279,15 @@ export function WizardBody({
   const { data: allProjects } = useProjects();
   const activeProjects = allProjects.filter((project) => project.status === 'active');
 
-  // The context multi-select's data (seeded contexts + user-created).
-  const { data: contexts } = useContexts();
+  // The context multi-select's data (seeded contexts + user-created), plus
+  // the quick-create the Now screen's scene bar has.
+  //
+  // The create entry is NOT optional here: the five default contexts are
+  // seeded SERVER-side (domain-model.md "Context" — single-writer), so a
+  // client that has not connected to the sync backend yet has an EMPTY
+  // contexts table. Without an inline create the multi-select would render
+  // a bare label over nothing — a dead end with no way forward.
+  const { data: contexts, add: addContextName } = useContexts();
   const contextNames = useMemo(
     () => new Map((contexts ?? []).map((context) => [context.id, context.name] as const)),
     [contexts],
@@ -489,6 +496,7 @@ export function WizardBody({
                 now={now}
                 onField={setField}
                 onContextIds={setContextIds}
+                onCreateContext={(name) => void addContextName(name)}
                 canGoBack={canGoBack}
                 onBack={handleBack}
                 onSubmit={() => handleFormSubmit(state.form, state.fields, state.twoMinute, state.projectId)}
@@ -757,6 +765,9 @@ interface FormCardProps {
    *  `field: 'contextIds'` string[] action via `onContextIds`. */
   onField: (field: Exclude<keyof FormFields, 'contextIds'>, value: string | number | null) => void;
   onContextIds: (value: string[]) => void;
+  /** Quick-create a context from inside the multi-select (offline /
+   *  not-yet-synced clients have no seeded contexts). */
+  onCreateContext: (name: string) => void;
   canGoBack: boolean;
   onBack: () => void;
   onSubmit: () => void;
@@ -772,18 +783,29 @@ function FormCard({
   now,
   onField,
   onContextIds,
+  onCreateContext,
   canGoBack,
   onBack,
   onSubmit,
   disabled,
 }: FormCardProps) {
   const { form, fields } = state;
+  const [addingContext, setAddingContext] = useState(false);
+  const [newContextName, setNewContextName] = useState('');
 
   function toggleContext(contextId: string) {
     const next = fields.contextIds.includes(contextId)
       ? fields.contextIds.filter((entry) => entry !== contextId)
       : [...fields.contextIds, contextId];
     onContextIds(next);
+  }
+
+  function createContext() {
+    const name = newContextName.trim();
+    if (name === '') return;
+    onCreateContext(name);
+    setNewContextName('');
+    setAddingContext(false);
   }
 
   const body = (() => {
@@ -972,7 +994,15 @@ function FormCard({
       {body}
       {CONTEXT_FORMS.includes(form) ? (
         <Field label="在哪里做？（可多选，不选 = 随处可执行）">
-          <View className="flex-row flex-wrap gap-2">
+          {contexts.length === 0 ? (
+            // An empty list is the NORMAL state before the first sync
+            // (defaults are seeded server-side), so say what it means
+            // instead of showing a bare label over nothing.
+            <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+              还没有场景 —— 不选即随处可执行。也可以现在建一个。
+            </Text>
+          ) : null}
+          <View className="flex-row flex-wrap items-center gap-2">
             {contexts.map((context) => (
               <ContextChip
                 key={context.id}
@@ -981,6 +1011,55 @@ function FormCard({
                 onPress={() => toggleContext(context.id)}
               />
             ))}
+            {addingContext ? (
+              <View className="flex-row items-center gap-1.5">
+                <TextInput
+                  className="h-8 w-24 rounded-lg border border-accent/80 bg-surface px-2.5 font-sans text-xs text-ink placeholder:text-muted dark:border-accent-dark/80 dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark"
+                  value={newContextName}
+                  onChangeText={setNewContextName}
+                  placeholder="新场景"
+                  accessibilityLabel="新场景名称"
+                  onSubmitEditing={createContext}
+                  autoFocus
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="添加场景"
+                  onPress={createContext}
+                  className="h-8 items-center justify-center rounded-lg bg-accent px-2.5 active:opacity-85 dark:bg-accent-dark"
+                >
+                  <Text className="font-sans text-xs font-semibold text-on-accent dark:text-on-accent-dark">
+                    加
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="取消添加场景"
+                  onPress={() => {
+                    setAddingContext(false);
+                    setNewContextName('');
+                  }}
+                  className="h-8 items-center justify-center rounded-lg px-1.5 active:bg-surface-container dark:active:bg-surface-container-dark"
+                >
+                  <Text className="font-sans text-xs text-muted dark:text-muted-dark">✕</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="新建场景"
+                accessibilityState={{ selected: false }}
+                onPress={() => setAddingContext(true)}
+                className="h-8 flex-row items-center gap-1 rounded-lg border border-border/80 bg-surface px-2.5 active:bg-surface-container dark:border-border-dark dark:bg-surface-dark dark:active:bg-surface-container-dark"
+              >
+                <Text className="font-sans text-sm font-semibold leading-none text-accent dark:text-accent-dark">
+                  +
+                </Text>
+                <Text className="font-sans text-xs font-medium text-muted dark:text-muted-dark">
+                  场景
+                </Text>
+              </Pressable>
+            )}
           </View>
         </Field>
       ) : null}
