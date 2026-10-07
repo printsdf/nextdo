@@ -644,3 +644,27 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 19: 习惯归属项目（Habits in Projects）
+<!-- trellis-session: v=2 fp=aa6c74381285c4f3 -->
+
+**Date**: 2026-10-07
+**Task**: 习惯归属项目（Habits in Projects）
+**Branch**: `feature/habits-in-projects`
+
+### Summary
+
+为 habits 增加 project_id 字段以支持归属项目，四处 schema 声明与多端同步配置同步扩展；行动池生成补齐项目状态过滤；移动端项目详情页新增习惯列表、21天挑战网格打卡与内嵌创建表单；全量单测、类型检查与 lint 全绿通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a562596` | chore(task): 记录 10-07-habits-in-projects 规划与实施产物 |
+| `e24f006` | feat(core,db,server): 习惯支持归属项目与多端同步扩展 |
+| `ad34f27` | feat(mobile): 项目详情页支持习惯列表、打卡与内嵌创建 |
+
+### Status
+
+[OK] **Completed**

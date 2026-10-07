@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 18
+- **Total Sessions**: 19
 - **Last Active**: 2026-10-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~646 | Active |
+| `journal-1.md` | ~670 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 19 | 2026-10-07 | 习惯归属项目（Habits in Projects） | `a562596`, `e24f006`, `ad34f27` | `feature/habits-in-projects` |
 | 18 | 2026-10-07 | 优化同步配对UI：连接串优先与多端导出配对 | `4c63bb3` | `feature/sync-pairing-ui` |
 | 17 | 2026-10-04 | 0.1.3-beta.1 测试版发布（仅 macOS） | `3bbba41` | `release/v0.1.3-beta.1` |
 | 16 | 2026-10-04 | 习惯创建表单与 21 天挑战启动 | `8bcf46a`, `2c19f05`, `c26cfc2`, `855852d`, `731f17f` | `main` |
