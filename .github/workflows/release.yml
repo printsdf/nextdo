@@ -204,17 +204,31 @@ jobs:
           - { abi: x86_64,      profile: android-x86-64 }
     env:
       # Empty android_abis (or a push event, where inputs are absent) means
-      # build every ABI.
+      # build every ABI. Note the step gates below compare against the
+      # STRING 'true' — env values are strings, and a bare non-empty
+      # "false" is truthy in a step if.
       ABI_SELECTED: ${{ inputs.android_abis == '' || contains(format(',{0},', inputs.android_abis), format(',{0},', matrix.abi)) }}
     steps:
-      - if: ${{ env.ABI_SELECTED }}
+      - if: ${{ env.ABI_SELECTED == 'true' }}
         uses: actions/checkout@v4
-      - if: ${{ env.ABI_SELECTED }}
+      - if: ${{ env.ABI_SELECTED == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+      - if: ${{ env.ABI_SELECTED == 'true' }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - if: ${{ env.ABI_SELECTED == 'true' }}
+        name: Install dependencies
+        # eas build resolves app.json config plugins (expo-notifications,
+        # expo-build-properties) LOCALLY before uploading to the cloud, so
+        # node_modules must exist on the runner. v0.1.2 predates the
+        # plugins block and got away without this; adding the plugins
+        # made the leg fail in 40s without it.
+        run: pnpm install --frozen-lockfile
       - name: Build with EAS
-        if: ${{ env.ABI_SELECTED }}
+        if: ${{ env.ABI_SELECTED == 'true' }}
         env:
           # eas-cli authenticates with EXPO_TOKEN on CI (older releases read
           # EAS_TOKEN); set both from the same secret so it works across
@@ -233,7 +247,7 @@ jobs:
           [ -n "$BID" ] || { echo "could not capture EAS build id" >&2; exit 1; }
           echo "BUILD_ID=$BID" >> "$GITHUB_ENV"
       - name: Download APK
-        if: ${{ env.ABI_SELECTED }}
+        if: ${{ env.ABI_SELECTED == 'true' }}
         env:
           EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
           EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
@@ -245,7 +259,7 @@ jobs:
           VER="$(node -p "require('./app.json').expo.version")"
           curl -fL -o "Nextdo_${VER}_android_${{ matrix.abi }}.apk" "$URL"
       - name: Upload bundle
-        if: ${{ env.ABI_SELECTED }}
+        if: ${{ env.ABI_SELECTED == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: mobile-android-${{ matrix.abi }}
