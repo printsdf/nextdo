@@ -27,6 +27,8 @@ export interface StartHabitArgs {
   actionTitle: string;
   estMinutes: number;
   value: Value;
+  /** At most one project this habit serves; undefined = projectless. */
+  projectId?: string;
   /** "HH:mm" pair, or undefined for an all-day habit. */
   windowStart?: string;
   windowEnd?: string;
@@ -63,6 +65,7 @@ export function useStartHabit(): UseStartHabitResult {
             actionTitle: actionTitle === '' ? title : actionTitle,
             estMinutes: args.estMinutes,
             value: args.value,
+            ...(args.projectId !== undefined ? { projectId: args.projectId } : {}),
             ...(args.windowStart !== undefined ? { windowStart: args.windowStart } : {}),
             ...(args.windowEnd !== undefined ? { windowEnd: args.windowEnd } : {}),
             cycleDays: HABIT_CYCLE_DAYS,

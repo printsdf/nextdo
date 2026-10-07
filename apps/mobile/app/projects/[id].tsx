@@ -24,7 +24,9 @@ import { DateTimePicker } from '@/components/datetime-picker';
 import { localDateKey, type NextAction, type Project, type ProjectStatus, type Value } from '@nextdo/core';
 import { useProjects } from '@/hooks/use-projects';
 import { useProjectActions } from '@/hooks/use-project-actions';
+import { useProjectHabits, type ProjectHabitEntry } from '@/hooks/use-project-habits';
 import { useAddNextAction } from '@/hooks/use-add-next-action';
+import { useStartHabit } from '@/hooks/use-start-habit';
 import { useUpdateProject } from '@/hooks/use-update-project';
 import { useUpdateNextAction } from '@/hooks/use-update-next-action';
 import { useCompleteAction } from '@/hooks/use-complete-action';
@@ -349,20 +351,213 @@ function EditActionForm({ action, now, onDone, onSaved }: { action: NextAction; 
   );
 }
 
+/** The inline add-habit form for a project (compact version, 21-day fixed challenge). */
+function AddProjectHabitForm({
+  projectId,
+  onDone,
+  onAdded,
+}: {
+  projectId: string;
+  onDone: () => void;
+  onAdded: () => void;
+}) {
+  const { start, error } = useStartHabit();
+  const [title, setTitle] = useState('');
+  const [actionTitle, setActionTitle] = useState('');
+  const [estMinutes, setEstMinutes] = useState<number | null>(30);
+  const [customEst, setCustomEst] = useState('');
+  const [value, setValue] = useState<Value>(3);
+  const [submitting, setSubmitting] = useState(false);
+
+  const canSubmit = title.trim() !== '' && estMinutes !== null && !submitting;
+
+  const applyCustomEst = () => {
+    const parsed = Number(customEst);
+    if (Number.isFinite(parsed) && parsed >= 1) setEstMinutes(Math.round(parsed));
+    setCustomEst('');
+  };
+
+  const submit = () => {
+    if (!canSubmit || estMinutes === null) return;
+    setSubmitting(true);
+    void start({
+      title: title.trim(),
+      actionTitle: actionTitle.trim(),
+      estMinutes,
+      value,
+      projectId,
+    }).then((ok) => {
+      setSubmitting(false);
+      if (ok) {
+        setTitle('');
+        setActionTitle('');
+        setEstMinutes(30);
+        setValue(3);
+        onAdded();
+        onDone();
+      }
+    });
+  };
+
+  return (
+    <Card className="gap-3">
+      <Text className="text-sm font-medium text-muted dark:text-muted-dark">
+        新建项目习惯 · 21 天挑战
+      </Text>
+      <TextInput
+        className={INPUT_CLASS}
+        placeholder="习惯名（如 每日晨读文献）"
+        value={title}
+        onChangeText={setTitle}
+      />
+      <TextInput
+        className={INPUT_CLASS}
+        placeholder="每日行动（如 读一章论文，留空同习惯名）"
+        value={actionTitle}
+        onChangeText={setActionTitle}
+      />
+      <View className="flex-row flex-wrap items-center gap-2">
+        <Text className="text-sm font-medium text-ink dark:text-ink-dark">预估时长（分钟）</Text>
+      </View>
+      <View className="flex-row flex-wrap items-center gap-2">
+        {EST_CHIPS.map((chip) => (
+          <Chip key={chip} label={String(chip)} active={estMinutes === chip} onPress={() => setEstMinutes(chip)} />
+        ))}
+        <TextInput
+          className={`${INPUT_CLASS} h-8 w-20 p-1`}
+          placeholder="自定义"
+          keyboardType="number-pad"
+          value={customEst}
+          onChangeText={setCustomEst}
+          onSubmitEditing={applyCustomEst}
+        />
+      </View>
+      <ValueChips value={value} onChange={setValue} />
+      {error !== null ? <Text className="text-sm text-danger">{errorMessage(error)}</Text> : null}
+      <View className="flex-row gap-2">
+        <Button label="开始挑战" onPress={submit} disabled={!canSubmit} />
+        <Button label="取消" variant="secondary" onPress={onDone} />
+      </View>
+    </Card>
+  );
+}
+
+/** One project habit row: title, 第 N/21 天, 21-cell grid, today's check-in button. */
+function ProjectHabitRow({
+  entry,
+  onComplete,
+}: {
+  entry: ProjectHabitEntry;
+  onComplete: (dayId: string) => void;
+}) {
+  const { habit, cycleDay, doneCount, todayDay, grid } = entry;
+  const cycleDays = habit.cycleDays ?? 21;
+
+  return (
+    <Card className="gap-2.5">
+      <View className="flex-row items-center gap-2">
+        <Text className="flex-1 text-base font-semibold text-ink dark:text-ink-dark">
+          {habit.title}
+        </Text>
+        <Tag
+          label={cycleDay === null ? `本期 ${cycleDays} 天` : `第 ${cycleDay}/${cycleDays} 天`}
+          tone="accent"
+        />
+      </View>
+      <Text className="text-sm text-muted dark:text-muted-dark">
+        每日行动：{habit.actionTitle}
+      </Text>
+      <View className="flex-row flex-wrap items-center gap-2">
+        <Tag label={`${habit.estMinutes} 分钟`} />
+        <Tag label={`价值 ${habit.value}`} />
+        <Tag label={`已打卡 ${doneCount} 天`} />
+      </View>
+
+      {/* 21-cell grid strip */}
+      <View className="flex-row flex-wrap items-center gap-1.5 pt-1">
+        {grid.map((cell) => {
+          const isDone = cell.status === 'done';
+          const isToday = cell.isToday;
+          const isActionable = isToday && cell.status === 'today' && todayDay !== null;
+
+          if (isActionable) {
+            return (
+              <Pressable
+                key={cell.dayNumber}
+                accessibilityRole="button"
+                accessibilityLabel={`第 ${cell.dayNumber} 天 今日打卡`}
+                onPress={() => onComplete(todayDay.id)}
+                className="h-6 w-6 items-center justify-center rounded border-2 border-accent bg-accent/20 dark:border-accent-dark dark:bg-accent-dark/20"
+              >
+                <Text className="text-xs font-bold text-accent dark:text-accent-dark">
+                  {cell.dayNumber}
+                </Text>
+              </Pressable>
+            );
+          }
+
+          return (
+            <View
+              key={cell.dayNumber}
+              accessibilityLabel={`第 ${cell.dayNumber} 天 ${isDone ? '已完成' : isToday ? '今日' : cell.status === 'missed' ? '未打卡' : '未到'}`}
+              className={cn(
+                'h-6 w-6 items-center justify-center rounded',
+                isDone
+                  ? 'bg-accent dark:bg-accent-dark'
+                  : isToday
+                    ? 'border border-accent dark:border-accent-dark'
+                    : cell.status === 'missed'
+                      ? 'border border-border bg-muted/10 dark:border-border-dark dark:bg-muted-dark/10'
+                      : 'border border-dashed border-border/60 dark:border-border-dark/60',
+              )}
+            >
+              <Text
+                className={cn(
+                  'text-[10px]',
+                  isDone
+                    ? 'font-bold text-on-accent'
+                    : isToday
+                      ? 'font-bold text-accent dark:text-accent-dark'
+                      : 'text-muted dark:text-muted-dark',
+                )}
+              >
+                {cell.dayNumber}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {todayDay !== null ? (
+        <View className="mt-1 flex-row justify-end">
+          <Button
+            size="sm"
+            label="今日打卡"
+            variant="secondary"
+            onPress={() => onComplete(todayDay.id)}
+          />
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const projectId = typeof id === 'string' ? id : null;
 
   const { data: projects, error: projectsError } = useProjects();
   const { data: actions, error: actionsError, reload } = useProjectActions(projectId);
+  const now = useAppClock();
+  const { data: habits, error: habitsError, reload: reloadHabits } = useProjectHabits(projectId, now);
   const { data: contexts } = useContexts();
   const { error: addError } = useAddNextAction();
   const { complete, error: completeError } = useCompleteAction();
   const { snooze, error: snoozeError } = useSnoozeAction();
   const { trash, error: trashError } = useTrashAction();
-  const now = useAppClock();
 
   const [showForm, setShowForm] = useState(false);
+  const [showHabitForm, setShowHabitForm] = useState(false);
   const [showEditProject, setShowEditProject] = useState(false);
   const [snoozeTarget, setSnoozeTarget] = useState<string | null>(null);
   // One open action edit at a time (R4).
@@ -539,6 +734,49 @@ export default function ProjectDetailScreen() {
                     </>
                   )}
                 </Card>
+              ))
+            )}
+          </View>
+
+          {/* Project Habits section */}
+          <View className="mt-6 flex-row items-center justify-between">
+            <Text className="text-base font-medium text-ink dark:text-ink-dark">项目习惯</Text>
+            <Button
+              label="＋ 添加习惯"
+              variant="secondary"
+              onPress={() => setShowHabitForm((value) => !value)}
+            />
+          </View>
+
+          {showHabitForm ? (
+            <View className="mt-2">
+              <AddProjectHabitForm
+                projectId={projectId}
+                onDone={() => setShowHabitForm(false)}
+                onAdded={reloadHabits}
+              />
+            </View>
+          ) : null}
+
+          <View className="mt-2 gap-2">
+            {habitsError !== null ? (
+              <EmptyState title="加载习惯失败" hint={errorMessage(habitsError)} />
+            ) : habits === null ? (
+              <EmptyState title="加载中…" />
+            ) : habits.length === 0 ? (
+              <EmptyState
+                title="暂无项目习惯"
+                hint="这个项目还没有习惯 —— 点「＋ 添加习惯」建立 21 天挑战。"
+              />
+            ) : (
+              habits.map((entry) => (
+                <ProjectHabitRow
+                  key={entry.habit.id}
+                  entry={entry}
+                  onComplete={(dayId) => {
+                    void complete({ actionKind: 'habit', actionId: dayId }).then(reloadHabits);
+                  }}
+                />
               ))
             )}
           </View>

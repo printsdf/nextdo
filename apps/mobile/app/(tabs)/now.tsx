@@ -28,7 +28,7 @@ import { useSnoozeAction } from '@/hooks/use-snooze-action';
 import { useTrashAction } from '@/hooks/use-trash-action';
 import { useCompleteAction } from '@/hooks/use-complete-action';
 import { useContexts } from '@/hooks/use-contexts';
-import { useHabitDays } from '@/hooks/use-habit-days';
+import { useHabits, type HabitWithProgress } from '@/hooks/use-habits';
 import { useProjectTitles } from '@/hooks/use-project-titles';
 import { useEngineContextSettings, type EngineContextSettings } from '@/lib/engine-context';
 import { errorMessage } from '@/lib/error-messages';
@@ -465,6 +465,60 @@ function ActionRow({
   );
 }
 
+/** One habit in the Now screen's habit block: name + where it stands in
+ *  the 21-day challenge + today's check-in. The check-in is a button only
+ *  when today's HabitDay is still open — a done day (or a day the weekday
+ *  mask excluded) renders as read-only state, so the block never offers a
+ *  completion that `completeAction` would reject. */
+function HabitBlockRow({
+  row,
+  onComplete,
+}: {
+  row: HabitWithProgress;
+  onComplete: () => void;
+}) {
+  const { habit, cycleDay, doneCount, today } = row;
+  const open = today !== null && today.status === 'open';
+  const cycleLabel =
+    cycleDay === null ? `本期 ${habit.cycleDays} 天` : `第 ${cycleDay}/${habit.cycleDays} 天`;
+
+  return (
+    <View className="gap-1.5">
+      <View className="flex-row items-center gap-2">
+        <Text
+          className="flex-1 font-sans text-sm font-medium text-ink dark:text-ink-dark"
+          numberOfLines={1}
+        >
+          {habit.title}
+        </Text>
+        <Tag label={cycleLabel} tone="accent" />
+      </View>
+      <View className="flex-row items-center gap-2">
+        <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+          本期已完成 {doneCount} 天
+        </Text>
+        {open ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`完成习惯：${habit.title}`}
+            hitSlop={CHIP_HIT_SLOP}
+            className="ml-auto h-8 items-center justify-center rounded-full border border-border/80 bg-surface px-3.5 shadow-2xs active:bg-surface-container dark:border-border-dark dark:bg-surface-dark dark:active:bg-surface-container-dark"
+            onPress={onComplete}
+          >
+            <Text className="font-sans text-xs font-medium text-ink dark:text-ink-dark">
+              ✓ 打卡
+            </Text>
+          </Pressable>
+        ) : (
+          <Text className="ml-auto font-sans text-xs text-muted dark:text-muted-dark">
+            {today === null ? '今天无安排' : '今天已完成'}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export default function NowScreen() {
   const now = useAppClock();
   // ONE engine-context instance for the whole screen: the bar writes it,
@@ -475,15 +529,15 @@ export default function NowScreen() {
   const { snooze, error: snoozeError } = useSnoozeAction();
   const { trash, error: trashError } = useTrashAction();
   const { complete, error: completeError } = useCompleteAction();
-  const { days, habitTitles, error: habitError, reload: reloadHabitDays } = useHabitDays(now);
+  const { data: habitRows, error: habitError, reload: reloadHabits } = useHabits(now);
   // Habit rows are read through query-style hooks (no watch query), and
   // the Now tab is NOT unmounted when /habits is pushed on top of it —
   // so a habit created there would stay invisible. Re-read on every
   // focus (design.md §3); the first focus is one extra idempotent read.
   useFocusEffect(
     useCallback(() => {
-      reloadHabitDays();
-    }, [reloadHabitDays]),
+      reloadHabits();
+    }, [reloadHabits]),
   );
   const projectTitles = useProjectTitles();
   const { data: contexts } = useContexts();
@@ -552,7 +606,12 @@ export default function NowScreen() {
     }
   }
 
-  const openHabitDays = (days ?? []).filter((day) => day.status === 'open');
+  const habits = habitRows ?? [];
+  // The block counts only habits that generated a row TODAY (the weekday
+  // mask / cycle boundary can exclude one) — same set the old strip showed,
+  // so 「今天习惯 n/m」 keeps its meaning.
+  const todayRows = habits.filter((row) => row.today !== null);
+  const todayDone = todayRows.filter((row) => row.today?.status === 'done').length;
 
   return (
     <View className="flex-1 bg-canvas dark:bg-canvas-dark">
@@ -752,17 +811,21 @@ export default function NowScreen() {
           </>
         )}
 
-        {/* Habit strip. Renders in BOTH states (task 10-02): with no habit
-         *  days it used to render nothing at all, so the feature was
+        {/* Habit block. Renders in BOTH states (task 10-02): with no habit
+         *  it used to render nothing at all, so the feature was
          *  undiscoverable — the empty state now carries the entry point,
-         *  and a non-empty strip carries a 「管理」 shortcut to /habits.
+         *  and a non-empty block carries a 「管理」 shortcut to /habits.
          *  `reload` runs on focus (useFocusEffect) because the Now tab
-         *  stays mounted under the habits route (design.md §3). */}
-        {days !== null && days.length > 0 ? (
-          <Card className="p-3.5">
-            <View className="mb-2 flex-row items-center justify-between">
+         *  stays mounted under the habits route (design.md §3).
+         *
+         *  Habits stay in the engine pool (they compete for the ONE hero
+         *  recommendation); this block is the batch path — every habit at
+         *  once, with the challenge context the ranked list cannot show. */}
+        {habits.length > 0 ? (
+          <Card className="gap-3 p-3.5">
+            <View className="flex-row items-center justify-between">
               <Text className="font-sans text-xs font-semibold text-muted dark:text-muted-dark">
-                今天习惯 {days.filter((day) => day.status === 'done').length}/{days.length}
+                今天习惯 {todayDone}/{todayRows.length}
               </Text>
               <Button
                 size="sm"
@@ -771,26 +834,19 @@ export default function NowScreen() {
                 onPress={() => router.push('/habits')}
               />
             </View>
-            {openHabitDays.length > 0 ? (
-              <View className="flex-row flex-wrap gap-2">
-                {openHabitDays.map((day) => (
-                  <Pressable
-                    key={day.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`完成习惯：${habitTitles[day.habitId] ?? '习惯'}`}
-                    hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-                    className="h-8 items-center justify-center rounded-full border border-border/80 bg-surface px-3.5 shadow-2xs dark:border-border-dark dark:bg-surface-dark"
-                    onPress={() => void complete({ actionKind: 'habit', actionId: day.id })}
-                  >
-                    <Text className="font-sans text-xs font-medium text-ink dark:text-ink-dark">
-                      ✓ {habitTitles[day.habitId] ?? '习惯'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
+            {habits.map((row) => (
+              <HabitBlockRow
+                key={row.habit.id}
+                row={row}
+                onComplete={() => {
+                  if (row.today !== null) {
+                    void complete({ actionKind: 'habit', actionId: row.today.id });
+                  }
+                }}
+              />
+            ))}
           </Card>
-        ) : days !== null && days.length === 0 ? (
+        ) : habitRows !== null ? (
           <Card className="gap-2 p-3.5">
             <Text className="font-sans text-xs font-semibold text-muted dark:text-muted-dark">
               今天习惯 0/0

@@ -72,11 +72,11 @@
    `useFocusEffect` (re-exported by `expo-router`):
 
    ```ts
-   const { days, reload } = useHabitDays(now);
+   const { data, reload } = useHabits(now);
    useFocusEffect(useCallback(() => { reload(); }, [reload]));
    ```
 
-   Precedent: `use-habit-days.ts` / `now.tsx` (task 10-02). Do NOT reach for an
+   Precedent: `use-habits.ts` / `now.tsx` (the habit block). Do NOT reach for an
    event bus or a new watch query to solve this — the refresh is one local
    idempotent read, and adding a subscription to a deliberately query-style hook
    is the larger cost. See the testing caveat in Rule 8.
