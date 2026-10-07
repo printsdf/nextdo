@@ -34,6 +34,10 @@ on:
         description: "macOS CPU targets: aarch64, x86_64, or both (comma list). aarch64 alone = Apple Silicon only."
         required: false
         default: "aarch64,x86_64"
+      android_abis:
+        description: "Comma list of Android ABIs to build (arm64-v8a,armeabi-v7a,x86,x86_64). Empty = all four."
+        required: false
+        default: ""
 
 concurrency:
   group: release
@@ -177,10 +181,14 @@ jobs:
     name: Build Android (EAS, ${{ matrix.abi }})
     # Tag push builds every platform; a manual dispatch builds Android only
     # when build_targets asks for it. This job is the expensive one (one
-    # cloud build per ABI), so it stays opt-in on manual runs.
+    # cloud build per ABI), so it stays opt-in on manual runs, and within
+    # Android only the requested ABIs run — an EAS build per skipped ABI
+    # is pure queue time.
     if: >-
-      github.event_name == 'push' ||
-      contains(format(',{0},', inputs.build_targets), ',android,')
+      (github.event_name == 'push' ||
+       contains(format(',{0},', inputs.build_targets), ',android,')) &&
+      (inputs.android_abis == '' ||
+       contains(format(',{0},', inputs.android_abis), format(',{0},', matrix.abi)))
     runs-on: ubuntu-latest
     # One EAS release build per CPU ABI (profiles in apps/mobile/eas.json).
     # Each leg emits a single-ABI .apk so a user downloads only the libs their
