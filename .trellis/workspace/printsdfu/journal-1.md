@@ -691,3 +691,26 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 21: 统一澄清向导返回键与 0.1.3-beta.2 macOS DMG 打包
+<!-- trellis-session: v=2 fp=56b1c1ee8a972eea -->
+
+**Date**: 2026-10-07
+**Task**: 统一澄清向导返回键与 0.1.3-beta.2 macOS DMG 打包
+**Branch**: `release/v0.1.3-beta.2`
+
+### Summary
+
+优化澄清向导（`clarify-wizard`）的头部导航交互，解决此前进入多步流程后退出返回键在左上角与右上角之间跳变的问题，将 `← 返回` 固定锚定在左上角，并使 `← 上一步` 并列置于左侧；将整体工程版本号升级至 `0.1.3-beta.2`，通过全量单元测试与类型检查，并成功完成 macOS Apple Silicon (aarch64) DMG 安装包构建。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4a85f08` | fix(mobile): 统一澄清向导返回按钮至左上角 |
+| `c948a0b` | chore(release): 0.1.3-beta.2 |
+
+### Status
+
+[OK] **Completed**

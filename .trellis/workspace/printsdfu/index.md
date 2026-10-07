@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 20
+- **Total Sessions**: 21
 - **Last Active**: 2026-10-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~693 | Active |
+| `journal-1.md` | ~717 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 21 | 2026-10-07 | 统一澄清向导返回键与 0.1.3-beta.2 macOS DMG 打包 | `4a85f08`, `c948a0b` | `release/v0.1.3-beta.2` |
 | 20 | 2026-10-07 | 场景软删除管理与二级页面返回键统一样式 | `ba5063f`, `61c1894` | `feat/context-trash` |
 | 19 | 2026-10-07 | 习惯归属项目（Habits in Projects） | `a562596`, `e24f006`, `ad34f27` | `feature/habits-in-projects` |
 | 18 | 2026-10-07 | 优化同步配对UI：连接串优先与多端导出配对 | `4c63bb3` | `feature/sync-pairing-ui` |
