@@ -45,6 +45,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: read
 
 env:
   PNPM_VERSION: "12.5.1"
@@ -131,8 +132,19 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build (nsis + msi)
-        run: pnpm --filter @nextdo/desktop exec tauri build --bundles nsis,msi
+      - name: Build Windows installer
+        shell: bash
+        run: |
+          # WiX MSI requires purely numeric versions. For prereleases (e.g. -beta.X),
+          # only build the NSIS installer (.exe). For stable releases, build both NSIS and MSI.
+          VER="$(node -p "require('./apps/desktop/package.json').version")"
+          if [[ "$VER" == *-* ]]; then
+            echo "Pre-release version $VER detected: building NSIS only"
+            pnpm --filter @nextdo/desktop exec tauri build --bundles nsis
+          else
+            echo "Stable version $VER detected: building NSIS and MSI"
+            pnpm --filter @nextdo/desktop exec tauri build --bundles nsis,msi
+          fi
       - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:
@@ -140,7 +152,7 @@ jobs:
           path: |
             apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
             apps/desktop/src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: error
+          if-no-files-found: warn
 
   build-linux:
     name: Build Linux
@@ -285,11 +297,22 @@ jobs:
       # gh release create shells out to git, so the workspace must be a
       # checkout.
       - uses: actions/checkout@v4
-      # Without run-id this downloads the artifacts THIS run just produced,
-      # which is the normal path for a build_targets dispatch.
-      - uses: actions/download-artifact@v4
+      # If a prior run_id is supplied, download its artifacts into bundles first
+      # (e.g. reusing previously built macOS/Linux/Android artifacts).
+      - name: Download artifacts from previous run
+        if: ${{ inputs.run_id != '' }}
+        uses: actions/download-artifact@v4
         with:
           run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: bundles
+          merge-multiple: true
+      # Download artifacts produced by the current run (if any were built).
+      - name: Download artifacts from current run
+        if: ${{ github.event_name == 'push' || inputs.build_targets != '' || inputs.run_id == '' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
           path: bundles
           merge-multiple: true
       - name: Publish release
@@ -316,6 +339,9 @@ jobs:
             KIND="Release"
           fi
           FILES=$(find bundles -type f | sort)
+          echo "Found bundles to publish:"
+          echo "$FILES"
+          [ -n "$FILES" ] || { echo "No bundle files found in bundles directory!" >&2; exit 1; }
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Release already exists (e.g. this tag was re-run after a
             # pipeline fix) — just (re)upload the assets.
