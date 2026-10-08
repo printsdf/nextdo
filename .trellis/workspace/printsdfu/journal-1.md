@@ -714,3 +714,26 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 22: 实现服务端首次免密认领与移除设置页习惯入口
+<!-- trellis-session: v=2 fp=1c652dc4b4a9468c -->
+
+**Date**: 2026-10-08
+**Task**: 实现服务端首次免密认领与移除设置页习惯入口
+**Branch**: `release/v0.1.3-beta.2`
+
+### Summary
+
+移除设置页冗余习惯卡片收拢至核心执行界面；服务端支持未预设token时的首台设备自动免密认领与64-hex随机Token生成持久化，打通首台直连与后续设备扫码配对闭环
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7c1ccbe` | refactor(mobile): 将习惯管理入口从设置页移出并收拢至核心行动界面 |
+| `653d0b2` | feat(sync): 服务端支持首次免密认领与自动生成 token，打通首台一键绑定与扫码配对 |
+
+### Status
+
+[OK] **Completed**
