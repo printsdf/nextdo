@@ -15,10 +15,10 @@
    - 现状：`.github/workflows/release.yml` 覆盖桌面三平台 + Android 按 ABI 拆 APK（EAS）；iOS 被明确排除在流水线外（需 Apple 签名凭证）。主力机是 iPhone 的话这是发布阻断项。
    - 形态：EAS iOS 构建（App Store Connect / 至少 TestFlight），接入 release 流水线。
    - 依据：release.yml 注释「iOS is NOT part of this pipeline」；09-30 核查。
-3. **核心对象展示/管理入口**（09-30 合并原候选「参考资料的展示入口」+ 新发现）
-   - 现状：Clarify 流程能把事项落进 Waiting For / Someday / Reference（功能通），之后无专屏 —— 仅 Weekly Review 的 snapshot 计数 + follow-up 勾选；**Reference 落库后完全无展示入口**，用户存的资料再也看不到；Waiting For 无跟进管理屏。
-   - 形态（brainstorm 时细化）：最低限度入口 —— 独立屏或 Inbox 内过滤视图（资料 / 等待 / 有空再说）。
-   - 依据：Proposal MVP 核心对象列表（Waiting For / Someday/Maybe / Reference）；09-22-app-ui-screens Deferred #8；09-30 核查。
+3. **核心对象展示/管理入口：Waiting For 事项跟进**（10-08 用户明确裁决：References 属于外部知识库软件范畴，Nextdo 不做专屏；专注于 Waiting For）
+   - 现状：Clarify 流程能把事项落进 Waiting For，且底层已有表和数据（`waiting_for_items`），但前端缺乏日常查看、修改和跟进的统一管理页面。
+   - 形态：独立二级页面（`app/waiting.tsx`）+ 收件箱入口导航，支持列表展示（等待对象、到期时间、状态）、快捷新建、更新与软删除（标记完成/清除）。
+   - 依据：用户指令「references 不需要，这是知识库软件的功能，不属于本软件，可以写一个 waiting for」；Proposal MVP 核心对象列表。
 
 ## 上线前建议（P1）
 

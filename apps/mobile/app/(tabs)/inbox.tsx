@@ -30,6 +30,7 @@ import { Button, Card, EmptyState, Tag } from '@nextdo/ui';
 import { useInboxItems } from '@/hooks/use-inbox-items';
 import { useAddInboxItem } from '@/hooks/use-add-inbox-item';
 import { useTrashInboxItem } from '@/hooks/use-trash-inbox-item';
+import { useWaitingForItems } from '@/hooks/use-waiting-for';
 import { useAppClock } from '@/hooks/use-app-clock';
 import { formatRelativeTime } from '@/lib/format';
 import { errorMessage } from '@/lib/error-messages';
@@ -123,6 +124,7 @@ function GtdTipCard() {
 }
 export default function InboxScreen() {
   const { data, error } = useInboxItems();
+  const { data: waitingItems } = useWaitingForItems();
   const { add, error: captureError } = useAddInboxItem();
   const { trash, error: trashError } = useTrashInboxItem();
   const now = useAppClock();
@@ -213,8 +215,18 @@ export default function InboxScreen() {
       ) : (
         <>
           {/* Count row */}
-          <View className="mb-3 mt-3.5 flex-row items-center gap-2">
+          <View className="mb-3 mt-3.5 flex-row items-center justify-between">
             <Tag label="待处理" count={data.length} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="查看等待事项"
+              className="flex-row items-center gap-1 py-1"
+              onPress={() => router.push('/waiting')}
+            >
+              <Text className="font-sans text-xs font-medium text-accent dark:text-accent-dark">
+                等待事项 ({waitingItems.length}) →
+              </Text>
+            </Pressable>
           </View>
 
           {data.length === 0 ? (
