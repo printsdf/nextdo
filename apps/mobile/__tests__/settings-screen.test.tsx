@@ -468,6 +468,81 @@ describe('settings cloud-sync block', () => {
     expect(screen.getByRole('button', { name: '扫码配对' })).toBeTruthy();
   });
 
+  /* ---------------- onboarding: mode switching & token guidance ---------------- */
+
+  it('switching to 「自建服务器」 mode renders the server address as primary input without expanding advanced settings', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    // Default mode: pair (connection string input is visible, server address is hidden)
+    expect(screen.getByPlaceholderText(TOKEN_PLACEHOLDER)).toBeTruthy();
+    expect(screen.queryByPlaceholderText(SERVER_PLACEHOLDER)).toBeNull();
+
+    // Switch to self_host mode
+    fireEvent.press(screen.getByRole('button', { name: '模式：自建服务器' }));
+    await flush();
+
+    // Primary input is now the server address directly on the main surface
+    expect(screen.getByPlaceholderText(SERVER_PLACEHOLDER)).toBeTruthy();
+    expect(screen.queryByPlaceholderText(TOKEN_PLACEHOLDER)).toBeNull();
+    expect(
+      screen.getByText(/首台免密绑定：只需输入服务器地址，连接后自动生成密钥完成绑定/),
+    ).toBeTruthy();
+
+    // Can switch back to pair mode
+    fireEvent.press(screen.getByRole('button', { name: '模式：连接串配对' }));
+    await flush();
+
+    expect(screen.getByPlaceholderText(TOKEN_PLACEHOLDER)).toBeTruthy();
+    expect(screen.queryByPlaceholderText(SERVER_PLACEHOLDER)).toBeNull();
+  });
+
+  it('toggling 「什么是 Token 指引」 reveals and collapses detailed onboarding guidance', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    const guideBtn = screen.getByRole('button', { name: '什么是 Token 指引' });
+    expect(guideBtn).toBeTruthy();
+    expect(screen.queryByText(/1. 首台绑定（自己部署的服务端）/)).toBeNull();
+
+    // Expand guide
+    fireEvent.press(guideBtn);
+    await flush();
+
+    expect(screen.getByText(/1. 首台绑定（自己部署的服务端）/)).toBeTruthy();
+    expect(screen.getByText(/2. 后续设备（多端同步配对）/)).toBeTruthy();
+    expect(screen.getByText(/3. 静态环境变量部署/)).toBeTruthy();
+
+    // Collapse guide
+    fireEvent.press(guideBtn);
+    await flush();
+
+    expect(screen.queryByText(/1. 首台绑定（自己部署的服务端）/)).toBeNull();
+  });
+
+  it('first device in 「自建服务器」 mode inputs address and connects with empty token → auto-claims seamlessly', async () => {
+    mockAuth.claimStatus = false;
+    mockAuth.claimToken = 'server-generated-claim-token-123';
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    // Switch to self_host mode
+    fireEvent.press(screen.getByRole('button', { name: '模式：自建服务器' }));
+    await flush();
+
+    // Fill only the server address (token left completely empty)
+    fireEvent.changeText(screen.getByPlaceholderText(SERVER_PLACEHOLDER), SERVER_ADDRESS);
+    await flush();
+    expect(connectButtonDisabled()).toBe(false);
+
+    await pressConnect();
+
+    expect(mockAuth.storedToken).toBe('server-generated-claim-token-123');
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+    expect(screen.getByText(/已连接/)).toBeTruthy();
+  });
+
   it('401 → inline 「token 不正确」, stays disconnected, nothing is stored, retry is possible', async () => {
     mockAuth.validate = () => ({ ok: false, kind: 'rejected', status: 401 });
 

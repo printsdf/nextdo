@@ -78,6 +78,8 @@ const ADVANCED_BACKEND_PLACEHOLDER = 'https://nextdo.example.com/api';
 const ADVANCED_ENDPOINT_PLACEHOLDER = 'https://nextdo.example.com/sync';
 const TOKEN_ACCESSIBILITY_LABEL = '连接串或 owner token';
 
+type SyncMode = 'pair' | 'self_host';
+
 export default function SettingsScreen() {
   const { preference, updatePreference } = useAppTheme();
   const { state, storedConfig, ownerToken, connect, disconnect } = useCloudSync();
@@ -86,6 +88,10 @@ export default function SettingsScreen() {
   // as `?syncError=…` so the user SEES the reason instead of a silent
   // no-op. Read once per arrival (the value is a fresh string each time).
   const { syncError } = useLocalSearchParams<{ syncError?: string }>();
+  // Mode switcher for onboarding: 'pair' (paste connection string / scan QR)
+  // vs 'self_host' (first device connecting to newly self-hosted server without token).
+  const [syncMode, setSyncMode] = useState<SyncMode>('pair');
+  const [showTokenGuide, setShowTokenGuide] = useState(false);
   // The simple form: ONE server address (the two URLs are derived from it)
   // plus one field that accepts a connection string OR a bare owner token.
   const [serverAddress, setServerAddress] = useState('');
@@ -398,25 +404,157 @@ export default function SettingsScreen() {
         ) : (
           <View className="gap-3">
             <Text className="font-sans text-sm text-muted dark:text-muted-dark">
-              未连接 — 数据仅保存在这台设备上。粘贴来自其他设备或服务器的连接串，或填写你的同步服务器地址与 owner token 即可开启同步。
+              未连接 — 数据仅保存在这台设备上。粘贴来自其他设备或服务器的连接串，或填写你的同步服务器地址即可开启同步。
             </Text>
-            <TextInput
-              className={INPUT_CLASS}
-              placeholder={TOKEN_PLACEHOLDER}
-              value={token}
-              onChangeText={(next) => {
-                setToken(next);
-                clearError();
+
+            {/* 场景分流选择器 */}
+            <View className="flex-row gap-2">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="模式：连接串配对"
+                accessibilityState={{ selected: syncMode === 'pair' }}
+                onPress={() => {
+                  setSyncMode('pair');
+                  clearError();
+                }}
+                className={cn(
+                  'flex-1 items-center justify-center rounded-lg border py-2',
+                  syncMode === 'pair'
+                    ? 'border-accent bg-accent/15 dark:border-accent-dark dark:bg-accent-dark/20'
+                    : 'border-border/80 bg-surface dark:border-border-dark dark:bg-surface-dark',
+                )}
+              >
+                <Text
+                  className={cn(
+                    'font-sans text-xs font-semibold',
+                    syncMode === 'pair'
+                      ? 'text-accent dark:text-accent-dark'
+                      : 'text-ink dark:text-ink-dark',
+                  )}
+                >
+                  连接串配对
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="模式：自建服务器"
+                accessibilityState={{ selected: syncMode === 'self_host' }}
+                onPress={() => {
+                  setSyncMode('self_host');
+                  clearError();
+                }}
+                className={cn(
+                  'flex-1 items-center justify-center rounded-lg border py-2',
+                  syncMode === 'self_host'
+                    ? 'border-accent bg-accent/15 dark:border-accent-dark dark:bg-accent-dark/20'
+                    : 'border-border/80 bg-surface dark:border-border-dark dark:bg-surface-dark',
+                )}
+              >
+                <Text
+                  className={cn(
+                    'font-sans text-xs font-semibold',
+                    syncMode === 'self_host'
+                      ? 'text-accent dark:text-accent-dark'
+                      : 'text-ink dark:text-ink-dark',
+                  )}
+                >
+                  自建服务器
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* 对应模式下的主输入区域 */}
+            {syncMode === 'pair' ? (
+              <View className="gap-2">
+                <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+                  在已连接设备上点击「复制连接串」或「扫码配对」，在此粘贴：
+                </Text>
+                <TextInput
+                  className={INPUT_CLASS}
+                  placeholder={TOKEN_PLACEHOLDER}
+                  value={token}
+                  onChangeText={(next) => {
+                    setToken(next);
+                    clearError();
+                  }}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  returnKeyType="go"
+                  onSubmitEditing={() => {
+                    void handleSubmit();
+                  }}
+                  accessibilityLabel={TOKEN_ACCESSIBILITY_LABEL}
+                />
+              </View>
+            ) : (
+              <View className="gap-2">
+                <Text className="font-sans text-xs font-medium text-accent dark:text-accent-dark">
+                  💡 首台免密绑定：只需输入服务器地址，连接后自动生成密钥完成绑定，无需寻找 Token。
+                </Text>
+                <TextInput
+                  className={INPUT_CLASS}
+                  placeholder={SERVER_ADDRESS_PLACEHOLDER}
+                  value={serverAddress}
+                  onChangeText={handleServerAddressChange}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  returnKeyType="go"
+                  onSubmitEditing={() => {
+                    void handleSubmit();
+                  }}
+                  accessibilityLabel="服务器地址"
+                />
+              </View>
+            )}
+
+            {/* 常见疑问引导卡片：什么是 Token？去哪里找？ */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="什么是 Token 指引"
+              onPress={() => {
+                setShowTokenGuide((prev) => !prev);
               }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="off"
-              returnKeyType="go"
-              onSubmitEditing={() => {
-                void handleSubmit();
-              }}
-              accessibilityLabel={TOKEN_ACCESSIBILITY_LABEL}
-            />
+              className="flex-row items-center justify-between rounded-lg border border-border/60 bg-surface/50 p-2.5 dark:border-border-dark/60 dark:bg-surface-dark/50"
+            >
+              <Text className="font-sans text-xs font-medium text-ink dark:text-ink-dark">
+                💡 什么是 Token？去哪里找？
+              </Text>
+              <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+                {showTokenGuide ? '收起 ▴' : '查看说明 ▾'}
+              </Text>
+            </Pressable>
+            {showTokenGuide ? (
+              <View className="gap-2 rounded-lg border border-border/40 bg-surface/30 p-3 dark:border-border-dark/40 dark:bg-surface-dark/30">
+                <View className="gap-0.5">
+                  <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
+                    1. 首台绑定（自己部署的服务端）
+                  </Text>
+                  <Text className="font-sans text-xs text-muted dark:text-muted-dark leading-relaxed">
+                    无需寻找 Token。直接切换至上方「自建服务器」模式，填入地址点击连接，系统会自动免密认领并持久化密钥。
+                  </Text>
+                </View>
+                <View className="gap-0.5">
+                  <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
+                    2. 后续设备（多端同步配对）
+                  </Text>
+                  <Text className="font-sans text-xs text-muted dark:text-muted-dark leading-relaxed">
+                    无需手动抄写 Token。在已连接设备（如电脑或首台手机）的设置中点击「扫码配对」或「复制连接串」，在此直接粘贴。
+                  </Text>
+                </View>
+                <View className="gap-0.5">
+                  <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
+                    3. 静态环境变量部署
+                  </Text>
+                  <Text className="font-sans text-xs text-muted dark:text-muted-dark leading-relaxed">
+                    仅当你在部署服务器时设置了 NEXTDO_OWNER_TOKEN 环境变量，才需要在下方「高级设置」中手动填写。
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
+            {/* 高级设置手风琴 */}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="高级设置"
@@ -435,19 +573,42 @@ export default function SettingsScreen() {
             </Pressable>
             {advancedOpen ? (
               <View className="gap-3 pt-1">
-                <Text className="font-sans text-xs text-muted dark:text-muted-dark">
-                  手动输入服务器基础地址（未粘贴完整连接串时使用）：
-                </Text>
-                <TextInput
-                  className={INPUT_CLASS}
-                  placeholder={SERVER_ADDRESS_PLACEHOLDER}
-                  value={serverAddress}
-                  onChangeText={handleServerAddressChange}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="off"
-                  accessibilityLabel="服务器地址"
-                />
+                {syncMode === 'pair' ? (
+                  <>
+                    <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+                      手动输入服务器基础地址（未粘贴完整连接串时使用）：
+                    </Text>
+                    <TextInput
+                      className={INPUT_CLASS}
+                      placeholder={SERVER_ADDRESS_PLACEHOLDER}
+                      value={serverAddress}
+                      onChangeText={handleServerAddressChange}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="off"
+                      accessibilityLabel="服务器地址"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+                      静态部署 Owner Token（仅当服务器预设了环境变量时填写，通常留空）：
+                    </Text>
+                    <TextInput
+                      className={INPUT_CLASS}
+                      placeholder="静态部署的 64-hex Token（选填）"
+                      value={token}
+                      onChangeText={(next) => {
+                        setToken(next);
+                        clearError();
+                      }}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="off"
+                      accessibilityLabel="手动 Owner Token"
+                    />
+                  </>
+                )}
                 <Text className="font-sans text-xs text-muted dark:text-muted-dark">
                   自定义反代路径时才需要：两项都填写时优先于上面的服务器地址。
                 </Text>
