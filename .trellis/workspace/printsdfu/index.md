@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
+- **Total Sessions**: 25
 - **Last Active**: 2026-10-08
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~803 | Active |
+| `journal-1.md` | ~837 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-10-08 | 优化「现在」Tab 行动加载与渲染性能 | `409c8e0` | `main` |
 | 24 | 2026-10-08 | Waiting For 事项管理独立页与数据流 | `390641d` | `feat/waiting-for-management` |
 | 22 | 2026-10-08 | 实现服务端首次免密认领与移除设置页习惯入口 | `7c1ccbe`, `653d0b2` | `release/v0.1.3-beta.2` |
 | 21 | 2026-10-07 | 统一澄清向导返回键与 0.1.3-beta.2 macOS DMG 打包 | `4a85f08`, `c948a0b` | `release/v0.1.3-beta.2` |

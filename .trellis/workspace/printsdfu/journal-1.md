@@ -801,3 +801,37 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 25: 优化「现在」Tab 行动加载与渲染性能
+<!-- trellis-session: v=2 fp=4acaff27b1a14b8e -->
+
+**Date**: 2026-10-08
+**Task**: 优化「现在」Tab 行动加载与渲染性能
+**Branch**: `main`
+
+### Summary
+
+完成「现在」Tab 底层 SQL 并发、飞行查询去重、原生 Keychain 缓存与视图组件 Memoization 优化
+
+### Main Changes
+
+- 将 queryEnginePool 的 8 个串行 SQL 查询改用 Promise.all 并发执行，并添加在飞 Promise 去重
+- 在 engine-context.ts 中增加 SecureStore 模块级单例内存缓存与 Promise 复用
+- 在 use-project-titles.ts 和 use-contexts.ts 中加入模块级内存缓存，实现 0 延迟首屏瞬时渲染
+- 在 now.tsx 中为核心子组件与派生数据添加 memo/useMemo/useCallback，并消除首屏 mount 重复查询
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `409c8e0` | perf(now): optimize action loading and render performance |
+
+### Testing
+
+- [OK] 运行 pnpm -r typecheck 静态类型检查全绿
+- [OK] 运行 pnpm test 全仓库 653 个测试全部 PASS
+
+### Status
+
+[OK] **Completed**
