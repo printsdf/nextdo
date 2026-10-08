@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
+- **Total Sessions**: 24
 - **Last Active**: 2026-10-08
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~739 | Active |
+| `journal-1.md` | ~803 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 24 | 2026-10-08 | Waiting For 事项管理独立页与数据流 | `390641d` | `feat/waiting-for-management` |
 | 22 | 2026-10-08 | 实现服务端首次免密认领与移除设置页习惯入口 | `7c1ccbe`, `653d0b2` | `release/v0.1.3-beta.2` |
 | 21 | 2026-10-07 | 统一澄清向导返回键与 0.1.3-beta.2 macOS DMG 打包 | `4a85f08`, `c948a0b` | `release/v0.1.3-beta.2` |
 | 20 | 2026-10-07 | 场景软删除管理与二级页面返回键统一样式 | `ba5063f`, `61c1894` | `feat/context-trash` |

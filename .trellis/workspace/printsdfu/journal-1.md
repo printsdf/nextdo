@@ -768,3 +768,36 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 
 [OK] **Completed**
 
+
+
+## Session 24: Waiting For 事项管理独立页与数据流
+<!-- trellis-session: v=2 fp=2f6eea4e7862c991 -->
+
+**Date**: 2026-10-08
+**Task**: Waiting For 事项管理独立页与数据流
+**Branch**: `feat/waiting-for-management`
+
+### Summary
+
+根据用户决策移除 references 独立展示规划，增加 Waiting For 事项管理专屏、响应式 Hook 与收件箱入口导航
+
+### Main Changes
+
+- db: 新增 waitingForWatchQuery 响应式查询，导出 add/trashWaitingForItem 操作
+- mobile: 新增 useWaitingForItems hook 与 waiting.tsx 管理页，在收件箱顶部提供跳转入口
+- backlog: 更新推荐池，明确 References 移出由知识库承接，聚焦 Waiting For
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `390641d` | feat(mobile): 增加 Waiting For 事项管理独立页、响应式 Hook 与收件箱入口 |
+
+### Testing
+
+- [OK] packages/db 单元测试全绿（275/275）
+- [OK] apps/mobile 屏幕测试全绿（410/410）
+
+### Status
+
+[OK] **Completed**
