@@ -40,6 +40,7 @@ import {
   trashWaitingForItem,
   updateWaitingForItem,
 } from '../queries/waiting';
+import { waitingForWatchQuery } from '../queries/watch-queries';
 import { openTestDb, type TestDb } from './query-helpers';
 import { FIXTURE_IDS, FIXTURE_NOW } from './fixtures';
 
@@ -106,6 +107,22 @@ describe('WaitingFor', () => {
       await expect(
         updateWaitingForItem(db, { ...item, waitingOn: 'x', updatedAt: toIso(FIXTURE_NOW) }),
       ).rejects.toMatchObject({ code: 'waitingForItem.not-found' });
+    } finally {
+      await close();
+    }
+  });
+
+  it('waitingForWatchQuery compiles and returns non-deleted items', async () => {
+    const { db, close } = await open(true);
+    try {
+      const q = waitingForWatchQuery(db);
+      const compiled = q.compile();
+      expect(compiled.sql).toMatch(/waiting_for_items/);
+      expect(compiled.sql).toMatch(/deleted_at/);
+      // Run compiled query through execute()
+      const mapped = await q.execute();
+      expect(mapped).toHaveLength(2);
+      expect(mapped[0]!.waitingOn).toBeDefined();
     } finally {
       await close();
     }

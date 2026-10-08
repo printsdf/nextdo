@@ -55,6 +55,7 @@ jest.mock('@nextdo/db', () => {
     inboxItemsWatchQuery: compilable,
     projectsWatchQuery: compilable,
     reviewRecordsWatchQuery: compilable,
+    waitingForWatchQuery: compilable,
     skipAction: async () => undefined,
     completeAction: async () => undefined,
     snoozeAction: async () => undefined,

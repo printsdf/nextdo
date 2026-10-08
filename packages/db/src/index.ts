@@ -62,7 +62,12 @@ export type { ScheduledReminderRow } from './queries/reminders';
 // Project mutations.
 export { addProject, trashProject, updateProject } from './queries/projects';
 // Waiting / someday / calendar / context lists (review + Now screens).
-export { listWaitingForItems } from './queries/waiting';
+export {
+  addWaitingForItem,
+  listWaitingForItems,
+  trashWaitingForItem,
+  updateWaitingForItem,
+} from './queries/waiting';
 export { listSomedayMaybeItems, trashSomedayMaybeItem } from './queries/someday';
 export { listCalendarActions } from './queries/calendar';
 // Context queries + the soft delete (the contexts screen's per-row 删除).
@@ -95,6 +100,7 @@ export {
   projectCardsWatchQuery,
   projectsWatchQuery,
   reviewRecordsWatchQuery,
+  waitingForWatchQuery,
 } from './queries/watch-queries';
 export type { ProjectCard, ProjectWithCoverage } from './queries/watch-queries';
 export { wrapDb } from './kysely';

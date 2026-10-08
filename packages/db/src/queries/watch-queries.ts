@@ -9,9 +9,15 @@
  * are expressed as watchable queries so the React hooks update live.
  */
 import { sql } from 'kysely';
-import type { InboxItem, Project, ReviewRecord } from '@nextdo/core';
+import type { InboxItem, Project, ReviewRecord, WaitingForItem } from '@nextdo/core';
 import type { CompilableQuery } from '@powersync/common';
-import { inboxItemFromRow, parseJson, projectFromRow, reviewRecordFromRow } from '../schema';
+import {
+  inboxItemFromRow,
+  parseJson,
+  projectFromRow,
+  reviewRecordFromRow,
+  waitingForItemFromRow,
+} from '../schema';
 import { toCompilableQuery } from '../watch-query';
 import { poolWatchQuery } from './pool';
 import type { NextdoDb } from '../types';
@@ -185,3 +191,16 @@ export function reviewRecordsWatchQuery(db: NextdoDb): CompilableQuery<ReviewRec
 export function poolTriggerWatchQuery(db: NextdoDb): CompilableQuery<{ id: string }> {
   return toCompilableQuery(poolWatchQuery(db));
 }
+
+/**
+ * WaitingForItem watch query (live, non-deleted items, newest first).
+ */
+export function waitingForWatchQuery(db: NextdoDb): CompilableQuery<WaitingForItem> {
+  const builder = db
+    .selectFrom('waiting_for_items')
+    .selectAll()
+    .where('deleted_at', 'is', null)
+    .orderBy('created_at', 'desc');
+  return toCompilableQuery(builder, waitingForItemFromRow);
+}
+
