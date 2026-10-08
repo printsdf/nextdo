@@ -34,7 +34,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { useAppTheme, type ThemePreference } from '@/lib/theme';
