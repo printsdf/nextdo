@@ -32,9 +32,8 @@
 
 7. Clarify 进阶字段（时间窗口、场景绑定）（原候选 #4）
 8. 引擎上下文的 settings 表化（进同步面）（原候选 #5）
-9. PR 级 CI 质量门（lint / typecheck / test；当前仅本地执行，仓库只有 release 流水线）（09-30 新增）
-10. CalendarAction 支持 projectId（journal-1 session 10 Next Steps）
-11. 商店素材与版本细节：splash 屏（`app.json` 无 splash 配置）、EAS `submit` 配置为空、版本号不齐（mobile 0.1.2 / desktop 0.1.1 / 根 0.1.1）（09-30 新增）
+9. CalendarAction 支持 projectId（journal-1 session 10 Next Steps）
+10. 商店素材与版本细节：splash 屏（`app.json` 无 splash 配置）、EAS `submit` 配置为空、版本号不齐（mobile 0.1.2 / desktop 0.1.1 / 根 0.1.1）（09-30 新增）
 
 ## 09-30 清理的过时条目
 
@@ -45,6 +44,10 @@
 ## 10-03 清理的过时条目
 
 - ~~习惯创建表单（含 21 天挑战启动）~~（原 P1 #4）：已由 10-02-habit-create-challenge 交付 —— 独立路由 `apps/mobile/app/habits.tsx`（创建表单 + 第 N/21 天进度列表 + 删除），提交走 `startHabit` 原子事务，入口在设置页与 Now 屏习惯条（空态引导 / 非空「管理」）。
+
+## 10-08 清理的过时条目
+
+- ~~PR 级 CI 质量门~~（原候选 #9）：已由 10-08-ci-quality-gate 交付 —— 增加 `.github/workflows/ci.yml`，在 push 与 pull_request 到 main 时自动并行执行 lint、typecheck、test，并通过 Quality Gate 聚合兜底。
 
 ## 备注
 
