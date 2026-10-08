@@ -36,6 +36,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { requireOwnerToken } from './auth.js';
+import type { ClaimState } from './claim.js';
 import { mintPowerSyncJwt } from './credentials.js';
 import { withTransaction, type DbPool } from './db.js';
 import { logger } from './logger.js';
@@ -44,10 +45,10 @@ import { applyCrudBatch, parseUploadBody } from './upload.js';
 export interface ServerConfig {
   /** Postgres pool (injected — tests use an in-memory mock). */
   pool: DbPool;
-  /** The shared owner token — `NEXTDO_OWNER_TOKEN`, required at boot
-   *  (src/owner-token.ts refuses to start without it). Immutable for the
-   *  process's life. */
-  ownerToken: string;
+  /** The shared owner token — static boot value or omitted when using claimState. */
+  ownerToken?: string | null;
+  /** Dynamic claim state manager for pairing & token bootstrap. */
+  claimState?: ClaimState;
   /** base64url shared secret the PowerSync service verifies with (JWT_SECRET). */
   jwtSecret: string;
   /** The public PowerSync stream URL — `NEXTDO_SYNC_ENDPOINT`, required at
@@ -62,10 +63,10 @@ export interface ServerConfig {
 /** Build the Hono app (pure — no env reads, so it is unit-testable). */
 export function createApp(config: ServerConfig): Hono {
   const now = config.now ?? (() => new Date());
-  // The token is IMMUTABLE for the process's life (env-only — see
-  // src/owner-token.ts), so the guard can reference it directly: no
-  // closure indirection, no per-request re-read.
-  const requireAuth = requireOwnerToken(config.ownerToken);
+  const tokenResolver = config.claimState
+    ? () => config.claimState!.getOwnerToken()
+    : (config.ownerToken ?? null);
+  const requireAuth = requireOwnerToken(tokenResolver);
   const app = new Hono();
 
   // CORS first (before the auth middleware): every response to an
@@ -80,6 +81,33 @@ export function createApp(config: ServerConfig): Hono {
       allowMethods: ['GET', 'POST', 'OPTIONS'],
     }),
   );
+
+  app.get('/claim/status', async (c) => {
+    const claimed = config.claimState
+      ? config.claimState.isClaimed()
+      : config.ownerToken != null && config.ownerToken.trim() !== '';
+    return c.json({ claimed });
+  });
+
+  app.post('/claim', async (c) => {
+    if (!config.claimState) {
+      return c.json({ error: 'already_claimed', code: 'claim.already_claimed' }, 409);
+    }
+    if (config.claimState.isClaimed()) {
+      return c.json({ error: 'already_claimed', code: 'claim.already_claimed' }, 409);
+    }
+    let body: { ownerToken?: string } = {};
+    try {
+      body = (await c.req.json()) as { ownerToken?: string };
+    } catch {
+      // Empty or non-JSON payload is allowed (auto-generate token)
+    }
+    const result = await config.claimState.claim(body.ownerToken);
+    if (!result.ok) {
+      return c.json({ error: 'already_claimed', code: result.code }, 409);
+    }
+    return c.json({ ok: true, ownerToken: result.ownerToken });
+  });
 
   app.get(
     '/credentials',

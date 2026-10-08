@@ -56,11 +56,17 @@ const ENDPOINT_PLACEHOLDER = 'https://nextdo.example.com/sync';
 const mockAuth: {
   storedToken: string | null;
   storedConfig: { backendUrl: string; endpoint: string } | null;
+  claimStatus: boolean;
+  claimToken: string;
+  claimFails: boolean;
   /** Per-test behavior of the /credentials round-trip. */
   validate: (config: unknown, token: string) => MockValidateResult;
 } = {
   storedToken: null,
   storedConfig: null,
+  claimStatus: true,
+  claimToken: 'auto-generated-token',
+  claimFails: false,
   // Default: permissive (accept anything, no endpoint — the old-server
   // shape, which is what makes the fallback path the DEFAULT under test).
   validate: () => ({ ok: true, token: 'ps-jwt' }),
@@ -114,6 +120,14 @@ jest.mock('@nextdo/db', () => {
   return {
     createPowerSyncDatabase: () => powersync,
     deriveSyncConfig,
+    fetchClaimStatus: async () =>
+      mockAuth.claimFails
+        ? { ok: false, kind: 'network', detail: 'network down' }
+        : { ok: true, claimed: mockAuth.claimStatus },
+    claimServer: async () =>
+      mockAuth.claimFails
+        ? { ok: false, kind: 'network', detail: 'network down' }
+        : { ok: true, ownerToken: mockAuth.claimToken },
     // --- the auth + config surface (mutable per test; multi-listener) ---
     getOwnerToken: async () => mockAuth.storedToken,
     getStoredBackendConfig: async () => mockAuth.storedConfig,
@@ -284,6 +298,9 @@ async function flush(rounds = 10): Promise<void> {
 beforeEach(() => {
   mockAuth.storedToken = null;
   mockAuth.storedConfig = null;
+  mockAuth.claimStatus = true;
+  mockAuth.claimToken = 'auto-generated-token';
+  mockAuth.claimFails = false;
   mockAuth.validate = () => ({ ok: true, token: 'ps-jwt' });
   mockTokenListeners.clear();
   mockFetchCalls = 0;
@@ -413,24 +430,42 @@ describe('settings cloud-sync block', () => {
     expect(mockAuth.storedToken).toBe('good-token');
   });
 
-  it('empty token + a valid address → inline 「请先输入 owner token」, nothing stored, ZERO network', async () => {
+  it('empty token + claimed server → inline error directing user to scan QR code or enter token', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
-    // The token input is left EMPTY — a legal button press, an invalid
-    // connect(): the requirement is connect()'s inline error, not the
-    // button (same pattern as the address validity check).
+    mockAuth.claimStatus = true;
     await fillSimpleForm(SERVER_ADDRESS, '');
     expect(connectButtonDisabled()).toBe(false);
     await pressConnect();
 
-    expect(screen.getByText('请先输入 owner token')).toBeTruthy();
-    expect(mockFetchCalls).toBe(0); // ZERO network round-trips
-    expect(mockAuth.storedToken).toBeNull(); // nothing stored…
-    expect(mockAuth.storedConfig).toBeNull(); // …not even the addresses
+    expect(
+      screen.getByText('该服务器已绑定主人设备，请输入 owner token 或使用已配对设备扫码'),
+    ).toBeTruthy();
+    expect(mockAuth.storedToken).toBeNull();
+    expect(mockAuth.storedConfig).toBeNull();
     expect(screen.getByText(/未连接/)).toBeTruthy();
-    // …and the token input is still there (the user can type it in).
     expect(screen.getByPlaceholderText(TOKEN_PLACEHOLDER)).toBeTruthy();
+  });
+
+  it('empty token on unclaimed server → auto-claims with generated token and lands in connected view with pairing options', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    mockAuth.claimStatus = false;
+    mockAuth.claimToken = 'server-generated-64hex-token';
+
+    await fillSimpleForm(SERVER_ADDRESS, '');
+    await pressConnect();
+
+    // Auto-claimed token is stored
+    expect(mockAuth.storedToken).toBe('server-generated-64hex-token');
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+
+    // Transitions to connected block with pairing affordances
+    expect(screen.getByText(/已连接/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '复制连接串' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '扫码配对' })).toBeTruthy();
   });
 
   it('401 → inline 「token 不正确」, stays disconnected, nothing is stored, retry is possible', async () => {
@@ -907,13 +942,16 @@ describe('connect() input branches (button cannot reach)', () => {
     expect(mockFetchCalls).toBe(0);
   });
 
-  it('empty token + a valid server address → 「请先输入 owner token」, ZERO network, nothing stored', async () => {
+  it('empty token + a valid server address (claimed) → guidance to scan or enter token', async () => {
     render(<ConnectHarness />);
     const result = await act(async () =>
       hook!.connect({ serverAddress: SERVER_ADDRESS, token: '   ' }),
     );
-    expect(result).toEqual({ ok: false, message: '请先输入 owner token' });
-    expect(mockFetchCalls).toBe(0); // ZERO network round-trips
+    expect(result).toEqual({
+      ok: false,
+      message: '该服务器已绑定主人设备，请输入 owner token 或使用已配对设备扫码',
+    });
+    expect(mockFetchCalls).toBe(0); // ZERO credentials fetch calls
     expect(mockAuth.storedConfig).toBeNull();
     expect(mockAuth.storedToken).toBeNull();
   });
@@ -946,7 +984,7 @@ describe('connect() input branches (button cannot reach)', () => {
         }),
       ),
     ).resolves.toEqual({ ok: false, message: '地址无效，应以 http:// 或 https:// 开头' });
-    // Empty token.
+    // Empty token on claimed server.
     await expect(
       act(async () =>
         hook!.connect({
@@ -955,8 +993,11 @@ describe('connect() input branches (button cannot reach)', () => {
           token: '  ',
         }),
       ),
-    ).resolves.toEqual({ ok: false, message: '请先输入 owner token' });
-    expect(mockFetchCalls).toBe(0); // ZERO network round-trips overall
+    ).resolves.toEqual({
+      ok: false,
+      message: '该服务器已绑定主人设备，请输入 owner token 或使用已配对设备扫码',
+    });
+    expect(mockFetchCalls).toBe(0); // ZERO credentials calls overall
   });
 
   // The server-supplied endpoint reaching storage through the hook is

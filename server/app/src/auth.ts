@@ -58,13 +58,20 @@ export function timingSafeTokenEqual(presented: string, expected: string): boole
 /**
  * Hono middleware: verify `Authorization: Bearer <ownerToken>` and answer
  * 401 (no body hints at WHY — all rejections look identical) on failure.
- * `expectedToken` is the immutable boot value (env-only — the server
- * refuses to start without it; see src/owner-token.ts).
+ * `expectedTokenOrResolver` is either a static token string, a dynamic
+ * resolver function (returning null when unclaimed), or null.
  */
-export function requireOwnerToken(expectedToken: string) {
+export function requireOwnerToken(
+  expectedTokenOrResolver: string | (() => string | null) | null,
+) {
   return async (c: Context, next: Next): Promise<Response | void> => {
     const presented = parseBearerToken(c.req.header('authorization'));
-    if (presented === null || !timingSafeTokenEqual(presented, expectedToken)) {
+    const expected =
+      typeof expectedTokenOrResolver === 'function'
+        ? expectedTokenOrResolver()
+        : expectedTokenOrResolver;
+
+    if (expected === null || presented === null || !timingSafeTokenEqual(presented, expected)) {
       return c.json({ error: 'unauthorized', code: AUTH_UNAUTHORIZED_CODE }, 401);
     }
     await next();

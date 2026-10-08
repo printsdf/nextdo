@@ -39,8 +39,10 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
+  claimServer,
   clearOwnerToken,
   deriveSyncConfig,
+  fetchClaimStatus,
   fetchCredentialsOnce,
   getOwnerToken,
   getStoredBackendConfig,
@@ -184,14 +186,39 @@ export function useCloudSync(): {
         config = { backendUrl: trimmedBackend, endpoint: trimmedEndpoint };
       }
 
-      if (trimmedToken === '') {
-        // The token is REQUIRED (deploy-owned: generated once at deploy
-        // time, entered manually on each device) — refuse BEFORE any
-        // network, the same pattern as the address checks above.
-        return { ok: false, message: TOKEN_MISSING };
+      let effectiveToken = trimmedToken;
+      if (effectiveToken === '') {
+        // Token is empty: check if the server is unclaimed and can be auto-claimed.
+        const claimStatus = await fetchClaimStatus(config.backendUrl);
+        if (!claimStatus.ok) {
+          if (claimStatus.kind === 'network') {
+            return { ok: false, message: '连不上服务器，请稍后重试' };
+          }
+          return { ok: false, message: TOKEN_MISSING };
+        }
+
+        if (claimStatus.claimed) {
+          return {
+            ok: false,
+            message: '该服务器已绑定主人设备，请输入 owner token 或使用已配对设备扫码',
+          };
+        }
+
+        // Server is unclaimed: auto-claim and establish initial token
+        const claimResult = await claimServer(config.backendUrl);
+        if (!claimResult.ok) {
+          if (claimResult.kind === 'already_claimed') {
+            return {
+              ok: false,
+              message: '该服务器已绑定主人设备，请输入 owner token 或使用已配对设备扫码',
+            };
+          }
+          return { ok: false, message: '连不上服务器，请稍后重试' };
+        }
+        effectiveToken = claimResult.ownerToken;
       }
 
-      const result = await fetchCredentialsOnce(config, trimmedToken);
+      const result = await fetchCredentialsOnce(config, effectiveToken);
       if (result.ok) {
         // The deployment's own stream URL (NEXTDO_SYNC_ENDPOINT, handed
         // back with the credentials) WINS over the derived one — that is
@@ -205,7 +232,7 @@ export function useCloudSync(): {
         };
         try {
           await setStoredBackendConfig(finalConfig); // config first…
-          await setOwnerToken(trimmedToken); // …then the token (the poke)
+          await setOwnerToken(effectiveToken); // …then the token (the poke)
           return { ok: true };
         } catch (error) {
           logger.error('sync config save failed', toError(error));

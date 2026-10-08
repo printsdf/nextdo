@@ -16,35 +16,36 @@
 import { serve } from '@hono/node-server';
 import { pathToFileURL } from 'node:url';
 import { createApp } from './app.js';
+import {
+  initSystemSettingsTable,
+  readPersistedOwnerToken,
+  ServerClaimManager,
+} from './claim.js';
 import { createPool } from './db.js';
 import { logger } from './logger.js';
-import { resolveOwnerToken } from './owner-token.js';
+import { resolveStaticOwnerToken } from './owner-token.js';
 import { seedDefaultContexts } from './seed.js';
 import { resolveSyncEndpoint } from './sync-endpoint.js';
 
-/** Read the environment, refuse to boot on a missing secret, serve.
- *  (The owner token comes ONLY from NEXTDO_OWNER_TOKEN — missing/empty
- *  refuses the boot; see src/owner-token.ts. The PowerSync stream URL
- *  comes ONLY from NEXTDO_SYNC_ENDPOINT — missing/empty/not-http(s)
- *  refuses the boot; see src/sync-endpoint.ts.) */
+/** Read the environment, open the pool, initialize claim management, and serve. */
 export async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   const jwtSecret = process.env.JWT_SECRET;
   if (databaseUrl === undefined || databaseUrl === '') {
     throw new Error('DATABASE_URL is not set');
   }
-  // The token is env-only and REQUIRED: a missing/empty value throws here
-  // and the boot is refused (the message names the generation command +
-  // the .env location). The token value itself never reaches a log line.
-  const ownerToken = resolveOwnerToken();
-  logger.info('owner token source: env');
+
+  const staticOwnerToken = resolveStaticOwnerToken();
+  if (staticOwnerToken !== null) {
+    logger.info('owner token source: env');
+  } else {
+    logger.info('owner token source: claimable / database');
+  }
+
   if (jwtSecret === undefined || jwtSecret === '') {
     throw new Error('JWT_SECRET is not set');
   }
-  // Likewise REQUIRED and env-only: the public sync-stream URL every device
-  // receives from /credentials. Upgrading an existing deployment without
-  // this variable makes the api container refuse to start (README
-  // "Operations" documents the upgrade step).
+  // REQUIRED and env-only: the public sync-stream URL every device receives from /credentials.
   const syncEndpoint = resolveSyncEndpoint();
   logger.info('sync endpoint source: env');
   const portRaw = process.env.PORT;
@@ -54,17 +55,42 @@ export async function main(): Promise<void> {
   }
 
   const pool = createPool(databaseUrl);
-  // Seed the default contexts on a FRESH database (domain-model.md "Context").
-  // SINGLE-WRITER (the server entry) — it cannot race the way client-side
-  // seeding did (two fresh clients seeding two sets of defaults). No-op when
-  // the table already holds any row. Non-fatal: a seed failure must not block
-  // startup — the user can create contexts in the UI, and the next boot retries.
+
+  // Initialize system_settings table and resolve claim state
+  try {
+    await initSystemSettingsTable(pool);
+  } catch (error) {
+    logger.error('failed to initialize system_settings table', error);
+  }
+
+  let initialDynamicToken: string | null = null;
+  if (staticOwnerToken === null) {
+    try {
+      initialDynamicToken = await readPersistedOwnerToken(pool);
+    } catch (error) {
+      logger.error('failed to read persisted owner token', error);
+    }
+  }
+
+  const claimState = new ServerClaimManager({
+    pool,
+    staticToken: staticOwnerToken,
+    initialDynamicToken,
+  });
+
+  // Seed default contexts on a fresh database
   try {
     await seedDefaultContexts(pool);
   } catch (error) {
     logger.error('context seeding failed', error);
   }
-  const app = createApp({ pool, ownerToken, jwtSecret, syncEndpoint });
+
+  const app = createApp({
+    pool,
+    claimState,
+    jwtSecret,
+    syncEndpoint,
+  });
   serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`listening on :${info.port}`);
   });

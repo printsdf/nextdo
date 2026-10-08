@@ -20,14 +20,23 @@ export interface OwnerTokenEnv {
 }
 
 /**
+ * Resolve the owner token from environment variables if present.
+ * Returns the trimmed string, or null if missing/empty.
+ */
+export function resolveStaticOwnerToken(env: OwnerTokenEnv = process.env): string | null {
+  const trimmed = env.NEXTDO_OWNER_TOKEN?.trim();
+  return trimmed && trimmed !== '' ? trimmed : null;
+}
+
+/**
  * Resolve the owner token for this boot. Synchronous and side-effect-free
  * (env-only — the file path is gone). Throws on a missing/empty value so
  * the boot refuses instead of running unauthenticated.
  */
 export function resolveOwnerToken(env: OwnerTokenEnv = process.env): string {
-  const trimmed = env.NEXTDO_OWNER_TOKEN?.trim();
-  if (trimmed !== undefined && trimmed !== '') {
-    return trimmed;
+  const token = resolveStaticOwnerToken(env);
+  if (token !== null) {
+    return token;
   }
   throw new Error(
     'NEXTDO_OWNER_TOKEN is not set — generate one with: openssl rand -hex 32 and set it in server/deploy/.env',
