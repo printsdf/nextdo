@@ -10,10 +10,17 @@ import { usePowerSync } from '@powersync/react';
 import { listProjects, wrapDb } from '@nextdo/db';
 import { logger } from '@nextdo/core';
 
+let cachedProjectTitles: Record<string, string> = {};
+
+/** Test hook: reset module cache between test runs. */
+export function __clearProjectTitlesCacheForTests(): void {
+  cachedProjectTitles = {};
+}
+
 export function useProjectTitles(): Record<string, string> {
   const powersync = usePowerSync();
   const db = useMemo(() => wrapDb(powersync), [powersync]);
-  const [titles, setTitles] = useState<Record<string, string>>({});
+  const [titles, setTitles] = useState<Record<string, string>>(() => cachedProjectTitles);
 
   useEffect(() => {
     let cancelled = false;
@@ -22,6 +29,7 @@ export function useProjectTitles(): Record<string, string> {
         if (cancelled) return;
         const map: Record<string, string> = {};
         for (const project of projects) map[project.id] = project.title;
+        cachedProjectTitles = map;
         setTitles(map);
       })
       .catch((err: unknown) => {

@@ -36,11 +36,18 @@ export interface UseContextsResult {
   reload: () => void;
 }
 
+let cachedContexts: Context[] | null = null;
+
+/** Test hook: reset module cache between test runs. */
+export function __clearContextsCacheForTests(): void {
+  cachedContexts = null;
+}
+
 export function useContexts(): UseContextsResult {
   const powersync = usePowerSync();
   const db = useMemo(() => wrapDb(powersync), [powersync]);
   const now = useAppClock();
-  const [data, setData] = useState<Context[] | null>(null);
+  const [data, setData] = useState<Context[] | null>(() => cachedContexts);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -53,6 +60,7 @@ export function useContexts(): UseContextsResult {
     listContexts(db)
       .then((contexts) => {
         if (!cancelled) {
+          cachedContexts = contexts;
           setData(contexts);
           setError(null);
         }

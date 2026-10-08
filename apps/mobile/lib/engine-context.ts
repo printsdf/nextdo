@@ -59,6 +59,8 @@ function createSecureStoreStore(): KeyValue {
 }
 
 let backend: KeyValue | null = null;
+let cachedSettings: EngineContextSettings | null = null;
+let pendingLoad: Promise<EngineContextSettings> | null = null;
 
 function getBackend(): KeyValue {
   if (backend === null) {
@@ -70,6 +72,8 @@ function getBackend(): KeyValue {
 /** Test hook: point the module at a specific backend (null = reset). */
 export function __setEngineContextStoreForTests(store: KeyValue | null): void {
   backend = store;
+  cachedSettings = null;
+  pendingLoad = null;
 }
 
 /**
@@ -100,10 +104,29 @@ export function parseEngineContext(raw: string | null): EngineContextSettings {
 }
 
 export async function loadEngineContext(): Promise<EngineContextSettings> {
-  return parseEngineContext(await getBackend().getItem(ENGINE_CONTEXT_KEY));
+  if (cachedSettings !== null) {
+    return cachedSettings;
+  }
+  if (pendingLoad !== null) {
+    return pendingLoad;
+  }
+  pendingLoad = getBackend()
+    .getItem(ENGINE_CONTEXT_KEY)
+    .then((raw) => {
+      const parsed = parseEngineContext(raw);
+      cachedSettings = parsed;
+      pendingLoad = null;
+      return parsed;
+    })
+    .catch((err: unknown) => {
+      pendingLoad = null;
+      throw err;
+    });
+  return pendingLoad;
 }
 
 export async function saveEngineContext(settings: EngineContextSettings): Promise<void> {
+  cachedSettings = settings;
   await getBackend().setItem(
     ENGINE_CONTEXT_KEY,
     JSON.stringify({ contextIds: settings.contextIds, availableMinutes: settings.availableMinutes }),
@@ -123,9 +146,9 @@ export interface UseEngineContextSettingsResult {
 }
 
 export function useEngineContextSettings(): UseEngineContextSettingsResult {
-  const [settings, setSettings] = useState<EngineContextSettings | null>(null);
+  const [settings, setSettings] = useState<EngineContextSettings | null>(cachedSettings);
   const [error, setError] = useState<string | null>(null);
-  const settingsRef = useRef<EngineContextSettings | null>(null);
+  const settingsRef = useRef<EngineContextSettings | null>(cachedSettings);
   settingsRef.current = settings;
 
   // One load per mount — the value is cached in state thereafter.

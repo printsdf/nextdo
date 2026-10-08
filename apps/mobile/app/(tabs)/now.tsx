@@ -15,7 +15,7 @@
  * context (bar) and the list filter (chips) are two INDEPENDENT state
  * sets: the filter never touches the recommendation (state-management).
  */
-import { useCallback, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { router, useFocusEffect } from 'expo-router';
@@ -104,7 +104,7 @@ function ConditionLabel({
  * user-created, `office` or `厨房` — renders through the exact same class string.
  * Nothing depends on the name (preventing false selection signals from hash tones).
  */
-function SceneOption({
+const SceneOption = memo(function SceneOption({
   label,
   selected,
   onPress,
@@ -142,14 +142,14 @@ function SceneOption({
       </Text>
     </Pressable>
   );
-}
+});
 
 /**
  * Engine-bar minutes option — the SINGLE-SELECT vocabulary:
  * A subtle tinted terracotta tile with a radio dot indicator when selected,
  * clearly contrasting with the multi-select checkmark of the scene row.
  */
-function MinutesOption({
+const MinutesOption = memo(function MinutesOption({
   label,
   selected,
   onPress,
@@ -187,7 +187,7 @@ function MinutesOption({
       </Text>
     </Pressable>
   );
-}
+});
 
 /** The free-form minutes field, styled at 32px (h-8) to share the row rhythm. */
 function CustomMinutesInput({
@@ -428,18 +428,18 @@ function Chip({
 }
 
 /** One stats cell of the stats row (small muted label + value). */
-function StatsCell({ label, value }: { label: string; value: string }) {
+const StatsCell = memo(function StatsCell({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-1 items-center gap-0.5 px-1 py-2">
       <Text className="font-sans text-xs text-muted dark:text-muted-dark">{label}</Text>
       <Text className="font-sans text-base font-semibold text-ink dark:text-ink-dark">{value}</Text>
     </View>
   );
-}
+});
 
 /** One always-visible eligible row (design §5): title + project chip +
  *  read-only context chips + due label + 稍后/删除. */
-function ActionRow({
+const ActionRow = memo(function ActionRow({
   entry,
   now,
   projectName,
@@ -451,8 +451,8 @@ function ActionRow({
   now: Date;
   projectName: string | undefined;
   contextName: (id: string) => string;
-  onSnooze: () => void;
-  onTrash: () => void;
+  onSnooze: (kind: CandidateKind, id: string) => void;
+  onTrash: (kind: CandidateKind, id: string) => void;
 }) {
   const action = entry.action;
   return (
@@ -481,19 +481,19 @@ function ActionRow({
         </View>
       </View>
       <View className="flex-row justify-end gap-2">
-        <Button size="sm" label="稍后" variant="ghost" onPress={onSnooze} />
-        <Button size="sm" label="删除" variant="ghost" onPress={onTrash} />
+        <Button size="sm" label="稍后" variant="ghost" onPress={() => onSnooze(action.kind, action.id)} />
+        <Button size="sm" label="删除" variant="ghost" onPress={() => onTrash(action.kind, action.id)} />
       </View>
     </Card>
   );
-}
+});
 
 /** One habit in the Now screen's habit block: name + where it stands in
  *  the 21-day challenge + today's check-in. The check-in is a button only
  *  when today's HabitDay is still open — a done day (or a day the weekday
  *  mask excluded) renders as read-only state, so the block never offers a
  *  completion that `completeAction` would reject. */
-function HabitBlockRow({
+const HabitBlockRow = memo(function HabitBlockRow({
   row,
   onComplete,
 }: {
@@ -540,7 +540,7 @@ function HabitBlockRow({
       </View>
     </View>
   );
-}
+});
 
 export default function NowScreen() {
   const now = useAppClock();
@@ -555,10 +555,16 @@ export default function NowScreen() {
   const { data: habitRows, error: habitError, reload: reloadHabits } = useHabits(now);
   // Habit rows are read through query-style hooks (no watch query), and
   // the Now tab is NOT unmounted when /habits is pushed on top of it —
-  // so a habit created there would stay invisible. Re-read on every
-  // focus (design.md §3); the first focus is one extra idempotent read.
+  // so a habit created there would stay invisible. Re-read on subsequent
+  // focuses (design.md §3); the first focus is skipped since useHabits
+  // already loads on mount.
+  const isFirstHabitFocusRef = useRef(true);
   useFocusEffect(
     useCallback(() => {
+      if (isFirstHabitFocusRef.current) {
+        isFirstHabitFocusRef.current = false;
+        return;
+      }
       reloadHabits();
     }, [reloadHabits]),
   );
@@ -578,33 +584,48 @@ export default function NowScreen() {
   const mutationError = skipError ?? snoozeError ?? trashError ?? completeError ?? habitError;
 
   const eligible = data?.eligible ?? [];
-  const displayed =
-    eligible.find((entry) => !skippedViewIds.includes(entry.action.id)) ??
-    eligible[0] ??
-    null;
+  const displayed = useMemo(
+    () =>
+      eligible.find((entry) => !skippedViewIds.includes(entry.action.id)) ??
+      eligible[0] ??
+      null,
+    [eligible, skippedViewIds],
+  );
 
   // Stats row: eligible vs total pool, Σ est minutes, the load band.
   const totalCount = eligible.length + (data?.filtered.length ?? 0);
-  const totalEst = eligible.reduce((sum, entry) => sum + entry.action.estMinutes, 0);
+  const totalEst = useMemo(
+    () => eligible.reduce((sum, entry) => sum + entry.action.estMinutes, 0),
+    [eligible],
+  );
 
   // Context-less actions are runnable ANYWHERE: they survive every filter
   // selection.
-  const visible = eligible.filter(
-    (entry) =>
-      selectedContextIds.length === 0 ||
-      entry.action.contextIds.length === 0 ||
-      entry.action.contextIds.some((id) => selectedContextIds.includes(id)),
+  const visible = useMemo(
+    () =>
+      eligible.filter(
+        (entry) =>
+          selectedContextIds.length === 0 ||
+          entry.action.contextIds.length === 0 ||
+          entry.action.contextIds.some((id) => selectedContextIds.includes(id)),
+      ),
+    [eligible, selectedContextIds],
   );
 
-  const toggleFilterContext = (contextId: string) =>
-    setSelectedContextIds((prev) =>
-      prev.includes(contextId) ? prev.filter((id) => id !== contextId) : [...prev, contextId],
-    );
+  const toggleFilterContext = useCallback(
+    (contextId: string) =>
+      setSelectedContextIds((prev) =>
+        prev.includes(contextId) ? prev.filter((id) => id !== contextId) : [...prev, contextId],
+      ),
+    [],
+  );
 
-  const contextName = (id: string) =>
-    contexts?.find((entry) => entry.id === id)?.name ?? id;
+  const contextName = useCallback(
+    (id: string) => contexts?.find((entry) => entry.id === id)?.name ?? id,
+    [contexts],
+  );
 
-  const handleSkip = () => {
+  const handleSkip = useCallback(() => {
     if (displayed === null) return;
     void skip({ actionKind: displayed.action.kind, actionId: displayed.action.id });
     // Already excluded (we wrapped around) → restart the cycle from here.
@@ -613,28 +634,45 @@ export default function NowScreen() {
         ? [displayed.action.id]
         : [...prev, displayed.action.id],
     );
-  };
+  }, [displayed, skip]);
 
-  const subtitleParts: string[] = [];
-  if (displayed !== null) {
-    if (displayed.action.projectId !== undefined) {
-      const title = projectTitles[displayed.action.projectId];
-      if (title !== undefined) subtitleParts.push(title);
+  const handleSnooze = useCallback((kind: CandidateKind, id: string) => {
+    setSnoozeTarget({ kind, id });
+  }, []);
+
+  const handleTrash = useCallback(
+    (actionKind: CandidateKind, actionId: string) => {
+      void trash({ actionKind, actionId });
+    },
+    [trash],
+  );
+
+  const subtitleParts = useMemo(() => {
+    const parts: string[] = [];
+    if (displayed !== null) {
+      if (displayed.action.projectId !== undefined) {
+        const title = projectTitles[displayed.action.projectId];
+        if (title !== undefined) parts.push(title);
+      }
+      if (displayed.action.kind === 'calendar') {
+        parts.push(`开始 ${formatLocalDateTime(displayed.action.startsAt)}`);
+      }
+      if (displayed.action.deadline !== undefined) {
+        parts.push(`截止 ${formatLocalDate(displayed.action.deadline)}`);
+      }
     }
-    if (displayed.action.kind === 'calendar') {
-      subtitleParts.push(`开始 ${formatLocalDateTime(displayed.action.startsAt)}`);
-    }
-    if (displayed.action.deadline !== undefined) {
-      subtitleParts.push(`截止 ${formatLocalDate(displayed.action.deadline)}`);
-    }
-  }
+    return parts;
+  }, [displayed, projectTitles]);
 
   const habits = habitRows ?? [];
   // The block counts only habits that generated a row TODAY (the weekday
   // mask / cycle boundary can exclude one) — same set the old strip showed,
   // so 「今天习惯 n/m」 keeps its meaning.
-  const todayRows = habits.filter((row) => row.today !== null);
-  const todayDone = todayRows.filter((row) => row.today?.status === 'done').length;
+  const todayRows = useMemo(() => habits.filter((row) => row.today !== null), [habits]);
+  const todayDone = useMemo(
+    () => todayRows.filter((row) => row.today?.status === 'done').length,
+    [todayRows],
+  );
 
   return (
     <View className="flex-1 bg-canvas dark:bg-canvas-dark">
@@ -819,12 +857,8 @@ export default function NowScreen() {
                             : undefined
                         }
                         contextName={contextName}
-                        onSnooze={() =>
-                          setSnoozeTarget({ kind: entry.action.kind, id: entry.action.id })
-                        }
-                        onTrash={() =>
-                          void trash({ actionKind: entry.action.kind, actionId: entry.action.id })
-                        }
+                        onSnooze={handleSnooze}
+                        onTrash={handleTrash}
                       />
                     ))}
                   </View>

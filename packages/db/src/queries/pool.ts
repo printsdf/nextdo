@@ -39,6 +39,24 @@ export interface EnginePool {
 const PREEMPTION_WINDOW_MS = 60 * 60_000;
 const DAY_MS = 86_400_000;
 
+const inFlightQueries = new WeakMap<object, Map<number, Promise<EnginePool>>>();
+
+function getInFlightQuery(db: NextdoDb, timeMs: number): Promise<EnginePool> | undefined {
+  return inFlightQueries.get(db)?.get(timeMs);
+}
+
+function setInFlightQuery(db: NextdoDb, timeMs: number, promise: Promise<EnginePool>): void {
+  let map = inFlightQueries.get(db);
+  if (!map) {
+    map = new Map();
+    inFlightQueries.set(db, map);
+  }
+  map.set(timeMs, promise);
+  promise.finally(() => {
+    map?.delete(timeMs);
+  });
+}
+
 function baseFromRow(row: {
   id: string;
   title: string | null;
@@ -100,26 +118,76 @@ export function habitCycleDay(startedAt: string, cycleDays: number, localDate: s
   return null;
 }
 
-export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePool> {
+async function doQueryEnginePool(db: NextdoDb, now: Date): Promise<EnginePool> {
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
   const todayIso = toIso(startOfToday);
   const soonIso = toIso(new Date(now.getTime() + PREEMPTION_WINDOW_MS));
   const todayKey = localDateKey(now);
 
-  // Pool contract: ids of DONE (non-deleted) actions, per kind.
-  const doneIds = new Set<string>();
-  for (const table of ['next_actions', 'calendar_actions', 'habit_days'] as const) {
-    const rows = await db
-      .selectFrom(table)
+  // Execute all pool-relevant queries concurrently with Promise.all to avoid
+  // waterfall latency over the local database connection.
+  const [
+    doneNextRows,
+    doneCalRows,
+    doneHabitRows,
+    projectRows,
+    nextRows,
+    dayRows,
+    habitRows,
+    calendarRows,
+  ] = await Promise.all([
+    db
+      .selectFrom('next_actions')
       .select('id')
       .where('status', '=', 'done')
       .where('deleted_at', 'is', null)
-      .execute();
-    for (const row of rows) {
-      doneIds.add(row.id);
-    }
-  }
+      .execute(),
+    db
+      .selectFrom('calendar_actions')
+      .select('id')
+      .where('status', '=', 'done')
+      .where('deleted_at', 'is', null)
+      .execute(),
+    db
+      .selectFrom('habit_days')
+      .select('id')
+      .where('status', '=', 'done')
+      .where('deleted_at', 'is', null)
+      .execute(),
+    db
+      .selectFrom('projects')
+      .select(['id', 'value', 'status'])
+      .where('deleted_at', 'is', null)
+      .execute(),
+    db
+      .selectFrom('next_actions')
+      .selectAll()
+      .where('status', '=', 'open')
+      .where('deleted_at', 'is', null)
+      .execute(),
+    db
+      .selectFrom('habit_days')
+      .selectAll()
+      .where('status', '=', 'open')
+      .where('deleted_at', 'is', null)
+      .where('local_date', '=', todayKey)
+      .execute(),
+    db.selectFrom('habits').selectAll().execute(),
+    db
+      .selectFrom('calendar_actions')
+      .selectAll()
+      .where('status', '=', 'open')
+      .where('deleted_at', 'is', null)
+      .execute(),
+  ]);
+
+  // Pool contract: ids of DONE (non-deleted) actions, per kind.
+  const doneIds = new Set<string>();
+  for (const row of doneNextRows) doneIds.add(row.id);
+  for (const row of doneCalRows) doneIds.add(row.id);
+  for (const row of doneHabitRows) doneIds.add(row.id);
+
   const resolveDependency = (dependsOnId?: string): boolean =>
     dependsOnId === undefined || doneIds.has(dependsOnId);
 
@@ -128,22 +196,11 @@ export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePo
   // Projects (all non-deleted; the engine applies the `active` check for
   // scoring). Loaded first: the same rows back the R5 pool filter below —
   // a NextAction bound to a non-active project is not a candidate.
-  const projectRows = await db
-    .selectFrom('projects')
-    .select(['id', 'value', 'status'])
-    .where('deleted_at', 'is', null)
-    .execute();
   const activeProjectIds = new Set(
     projectRows.filter((row) => row.status === 'active').map((row) => row.id),
   );
 
   // 1. Open NextActions.
-  const nextRows = await db
-    .selectFrom('next_actions')
-    .selectAll()
-    .where('status', '=', 'open')
-    .where('deleted_at', 'is', null)
-    .execute();
   for (const row of nextRows) {
     // Pool contract (R5): bound to a project that is not active (or
     // deleted/missing) → not a candidate. Projectless actions pass.
@@ -154,14 +211,6 @@ export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePo
   }
 
   // 2. Today's open HabitDays (of live, active habits).
-  const dayRows = await db
-    .selectFrom('habit_days')
-    .selectAll()
-    .where('status', '=', 'open')
-    .where('deleted_at', 'is', null)
-    .where('local_date', '=', todayKey)
-    .execute();
-  const habitRows = await db.selectFrom('habits').selectAll().execute();
   const habitById = new Map(habitRows.map((habit) => [habit.id, habit]));
   for (const day of dayRows) {
     const habit = habitById.get(day.habit_id ?? '');
@@ -201,12 +250,6 @@ export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePo
   }
 
   // 3. CalendarActions: today or starting soon (preemption window).
-  const calendarRows = await db
-    .selectFrom('calendar_actions')
-    .selectAll()
-    .where('status', '=', 'open')
-    .where('deleted_at', 'is', null)
-    .execute();
   const blocks: CalendarBlock[] = [];
   for (const row of calendarRows) {
     const startsAt = row.starts_at;
@@ -233,6 +276,17 @@ export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePo
   }));
 
   return { actions, calendar: blocks, projects };
+}
+
+export async function queryEnginePool(db: NextdoDb, now: Date): Promise<EnginePool> {
+  const timeMs = now.getTime();
+  const existing = getInFlightQuery(db, timeMs);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const promise = doQueryEnginePool(db, now);
+  setInFlightQuery(db, timeMs, promise);
+  return promise;
 }
 
 /**
