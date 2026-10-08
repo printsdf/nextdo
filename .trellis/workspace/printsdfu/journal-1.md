@@ -737,3 +737,34 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 23: 自动化 CI 质量门禁配置与主干同步准备
+<!-- trellis-session: v=2 fp=ci-quality-gate -->
+
+**Date**: 2026-10-08
+**Task**: 自动化 CI 质量门禁配置与主干同步准备
+**Branch**: `release/v0.1.3-beta.2`
+
+### Summary
+
+配置 GitHub Actions PR/Push 自动化质量门禁工作流（lint、typecheck、test 与聚合 quality-gate），统一对齐 Node 22、pnpm 12.5.1 与 UTC 时区基准，并更新 backlog 归档。
+
+### Main Changes
+
+- 新增 `.github/workflows/ci.yml`，在 push 和 PR 到 main 分支时并行执行 lint、typecheck、test，并通过 Quality Gate 进行聚合状态汇总
+- 对齐 Node 22、pnpm 12.5.1 环境版本，开启 pnpm store 缓存以加快构建
+- 本地验证根门禁全绿（ESLint 零告警、全 workspace TypeScript 零错误、近 900 项单测全部通过）
+- 更新 `.trellis/backlog.md` 归档已交付的 PR 级 CI 门禁项
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c773102` | ci: 增加 GitHub Actions 自动化质量门禁 (lint, typecheck, test) |
+| `cf80cf5` | chore(task): archive 10-08-ci-quality-gate |
+
+### Status
+
+[OK] **Completed**
+
