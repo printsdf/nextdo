@@ -94,6 +94,7 @@ jobs:
             mkdir -p "$OUT/dmg"
             STAGE="$(mktemp -d)"
             cp -R "$OUT/macos/Nextdo.app" "$STAGE/"
+            ln -s /Applications "$STAGE/Applications"
             diskutil image create from "$STAGE" --volumeName Nextdo \
               --format UDZO "$OUT/dmg/Nextdo_${VER}_${ARCH}.dmg"
             rm -rf "$STAGE"
