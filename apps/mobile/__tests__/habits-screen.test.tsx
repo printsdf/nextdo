@@ -357,13 +357,15 @@ describe('habits screen', () => {
     expect(screen.queryByText(/^\d{2}:\d{2}–\d{2}:\d{2}$/)).toBeNull();
   });
 
-  it('the Settings card entry reaches the screen and the zero-habit empty state renders', async () => {
+  it('settings page has no habit entry, and Now tab entry reaches habits screen with zero-habit empty state', async () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
-    // The Settings card (the entry point) is visible from the parent route.
-    expect(screen.getByRole('button', { name: '管理习惯' })).toBeTruthy();
-    fireEvent.press(screen.getByRole('button', { name: '管理习惯' }));
+    // The Settings tab no longer hosts the habits card
+    expect(screen.queryByRole('button', { name: '管理习惯' })).toBeNull();
+
+    // Navigate to /habits and verify the zero-habit empty state
+    testRouter.navigate('/habits');
     await flush();
 
     await waitFor(() => expect(screen.getByText('还没有习惯')).toBeTruthy());
