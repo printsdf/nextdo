@@ -49,6 +49,8 @@ export interface ServerConfig {
   ownerToken?: string | null;
   /** Dynamic claim state manager for pairing & token bootstrap. */
   claimState?: ClaimState;
+  /** Optional secret required to claim the server, preventing unauthorized claim on public endpoints. */
+  claimSecret?: string | null;
   /** base64url shared secret the PowerSync service verifies with (JWT_SECRET). */
   jwtSecret: string;
   /** The public PowerSync stream URL — `NEXTDO_SYNC_ENDPOINT`, required at
@@ -274,7 +276,10 @@ export function createApp(config: ServerConfig): Hono {
     const claimed = config.claimState
       ? config.claimState.isClaimed()
       : config.ownerToken != null && config.ownerToken.trim() !== '';
-    return c.json({ claimed });
+    const requiresSecret = Boolean(
+      !claimed && config.claimSecret && config.claimSecret.trim().length > 0,
+    );
+    return c.json({ claimed, requiresSecret });
   });
 
   api.post('/claim', async (c) => {
@@ -284,12 +289,33 @@ export function createApp(config: ServerConfig): Hono {
     if (config.claimState.isClaimed()) {
       return c.json({ error: 'already_claimed', code: 'claim.already_claimed' }, 409);
     }
-    let body: { ownerToken?: string } = {};
+    let body: { ownerToken?: string; claimSecret?: string } = {};
     try {
-      body = (await c.req.json()) as { ownerToken?: string };
+      body = (await c.req.json()) as { ownerToken?: string; claimSecret?: string };
     } catch {
       // Empty or non-JSON payload is allowed (auto-generate token)
     }
+
+    if (config.claimSecret && config.claimSecret.trim().length > 0) {
+      const headerSecret = c.req.header('x-claim-secret')?.trim();
+      const authHeader = c.req.header('authorization')?.trim();
+      const bearerSecret = authHeader?.startsWith('Bearer ')
+        ? authHeader.slice(7).trim()
+        : undefined;
+      const providedSecret = headerSecret || bearerSecret || body.claimSecret?.trim();
+
+      if (!providedSecret || providedSecret !== config.claimSecret.trim()) {
+        return c.json(
+          {
+            error: 'forbidden',
+            code: 'claim.invalid_secret',
+            message: 'A valid claim secret is required to claim this server.',
+          },
+          403,
+        );
+      }
+    }
+
     const result = await config.claimState.claim(body.ownerToken);
     if (!result.ok) {
       return c.json({ error: 'already_claimed', code: result.code }, 409);

@@ -93,9 +93,15 @@ export async function main(): Promise<void> {
     logger.error('context seeding failed', error);
   }
 
+  const claimSecret = process.env.NEXTDO_CLAIM_SECRET?.trim() || null;
+  if (claimSecret !== null) {
+    logger.info('claim secret: configured');
+  }
+
   const app = createApp({
     pool,
     claimState,
+    claimSecret,
     jwtSecret,
     syncEndpoint,
   });

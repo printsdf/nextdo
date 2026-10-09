@@ -23,7 +23,7 @@ describe('server claim and pairing protocol', () => {
       const res = await app.request('/claim/status');
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body).toEqual({ claimed: true });
+      expect(body).toEqual({ claimed: true, requiresSecret: false });
     });
 
     it('POST /claim returns 409 already_claimed', async () => {
@@ -100,7 +100,7 @@ describe('server claim and pairing protocol', () => {
       // 1. Initial status is unclaimed
       const statusRes1 = await app.request('/claim/status');
       expect(statusRes1.status).toBe(200);
-      expect(await statusRes1.json()).toEqual({ claimed: false });
+      expect(await statusRes1.json()).toEqual({ claimed: false, requiresSecret: false });
 
       // 2. Before claiming, requests to /credentials with any token are unauthorized (401)
       const credsBefore = await app.request('/credentials', {
@@ -119,7 +119,7 @@ describe('server claim and pairing protocol', () => {
       // 4. Status is now claimed
       const statusRes2 = await app.request('/claim/status');
       expect(statusRes2.status).toBe(200);
-      expect(await statusRes2.json()).toEqual({ claimed: true });
+      expect(await statusRes2.json()).toEqual({ claimed: true, requiresSecret: false });
 
       // 5. Subsequent POST /claim is rejected with 409
       const secondClaim = await app.request('/claim', { method: 'POST' });
@@ -143,6 +143,124 @@ describe('server claim and pairing protocol', () => {
         headers: { authorization: 'Bearer wrong-token' },
       });
       expect(credsWrong.status).toBe(401);
+    });
+  });
+
+  describe('protected mode (NEXTDO_CLAIM_SECRET configured)', () => {
+    function setupProtectedApp(claimSecret = 'my-claim-secret') {
+      const storedSettings = new Map<string, string>();
+      const customPool = {
+        async query(text: string, values?: readonly unknown[]) {
+          const upper = text.trim().toUpperCase();
+          if (upper.startsWith('SELECT VALUE FROM SYSTEM_SETTINGS')) {
+            const key = values?.[0] as string;
+            const val = storedSettings.get(key);
+            return { rows: val ? [{ value: val }] : [] };
+          }
+          if (upper.startsWith('INSERT INTO SYSTEM_SETTINGS')) {
+            const key = values?.[0] as string;
+            const val = values?.[1] as string;
+            if (storedSettings.has(key)) {
+              return { rows: [] };
+            }
+            storedSettings.set(key, val);
+            return { rows: [{ key }] };
+          }
+          return { rows: [] };
+        },
+        async connect() {
+          return {
+            query: this.query,
+            release() {},
+          };
+        },
+        async end() {},
+      };
+
+      const claimState = new ServerClaimManager({
+        pool: customPool,
+        staticToken: null,
+        initialDynamicToken: null,
+        now: () => NOW,
+      });
+
+      const app = createApp({
+        pool: customPool,
+        claimState,
+        claimSecret,
+        jwtSecret: JWT_SECRET,
+        syncEndpoint: SYNC_ENDPOINT,
+        now: () => NOW,
+      });
+
+      return { app, claimState };
+    }
+
+    it('reports requiresSecret=true when unclaimed', async () => {
+      const { app } = setupProtectedApp();
+      const res = await app.request('/claim/status');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ claimed: false, requiresSecret: true });
+    });
+
+    it('refuses POST /claim without secret with 403 forbidden', async () => {
+      const { app } = setupProtectedApp();
+      const res = await app.request('/claim', { method: 'POST' });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({
+        error: 'forbidden',
+        code: 'claim.invalid_secret',
+        message: 'A valid claim secret is required to claim this server.',
+      });
+    });
+
+    it('refuses POST /claim with invalid secret with 403 forbidden', async () => {
+      const { app } = setupProtectedApp();
+      const res = await app.request('/claim', {
+        method: 'POST',
+        headers: { 'x-claim-secret': 'wrong-secret' },
+      });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({
+        error: 'forbidden',
+        code: 'claim.invalid_secret',
+        message: 'A valid claim secret is required to claim this server.',
+      });
+    });
+
+    it('allows POST /claim with correct secret in x-claim-secret header', async () => {
+      const { app } = setupProtectedApp('valid-token-123');
+      const res = await app.request('/claim', {
+        method: 'POST',
+        headers: { 'x-claim-secret': 'valid-token-123' },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; ownerToken: string };
+      expect(body.ok).toBe(true);
+      expect(typeof body.ownerToken).toBe('string');
+    });
+
+    it('allows POST /claim with correct secret in Authorization: Bearer header', async () => {
+      const { app } = setupProtectedApp('bearer-secret');
+      const res = await app.request('/claim', {
+        method: 'POST',
+        headers: { authorization: 'Bearer bearer-secret' },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; ownerToken: string };
+      expect(body.ok).toBe(true);
+    });
+
+    it('allows POST /claim with correct secret in json body', async () => {
+      const { app } = setupProtectedApp('body-secret');
+      const res = await app.request('/claim', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ claimSecret: 'body-secret' }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; ownerToken: string };
+      expect(body.ok).toBe(true);
     });
   });
 });

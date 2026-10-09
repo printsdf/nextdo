@@ -20,6 +20,7 @@ export interface WorkerEnv {
   JWT_SECRET: string;
   NEXTDO_SYNC_ENDPOINT: string;
   NEXTDO_OWNER_TOKEN?: string;
+  NEXTDO_CLAIM_SECRET?: string;
   HYPERDRIVE?: { connectionString: string };
 }
 
@@ -82,9 +83,15 @@ async function initApp(env: WorkerEnv): Promise<ReturnType<typeof createApp>> {
     logger.error('context seeding failed', error);
   }
 
+  const claimSecret = env.NEXTDO_CLAIM_SECRET?.trim() || null;
+  if (claimSecret !== null) {
+    logger.info('claim secret: configured');
+  }
+
   const app = createApp({
     pool,
     claimState,
+    claimSecret,
     jwtSecret: env.JWT_SECRET,
     syncEndpoint: env.NEXTDO_SYNC_ENDPOINT,
   });

@@ -109,6 +109,9 @@
      - `DATABASE_URL`：步骤一中获取的 Neon 数据库连接串（类型选 **Secret**）
      - `JWT_SECRET`：步骤二中填写的 JWT 密钥（类型选 **Secret**）
      - `NEXTDO_SYNC_ENDPOINT`：步骤二中记录的 PowerSync Instance URL（类型选 **Text**）
+     - （可选安全项）`NEXTDO_CLAIM_SECRET` 或 `NEXTDO_OWNER_TOKEN`：
+       - `NEXTDO_CLAIM_SECRET`：首次设备绑定配对密钥（Secret），防止公网 Worker 被陌生人扫描抢占绑定。
+       - 或直接设置 `NEXTDO_OWNER_TOKEN`：预先设定的固定主令牌，部署完成后即为已认领状态。
 4. 在 Worker 详情页面右上角点击 **Edit Code**（在线代码编辑器）：
    - 点击打开 [👉 **server/deploy/worker.js**](https://github.com/printsdf/Nextdo/blob/main/server/deploy/worker.js)（点击 GitHub 页面右上角的 **Copy raw file** 按钮即可一键复制全部代码），或从 [GitHub Releases](https://github.com/printsdf/Nextdo/releases) 附件中直接下载 `worker.js`；
    - 全选复制代码并粘贴覆盖编辑器的所有内容，点击右上角 **Deploy**！
