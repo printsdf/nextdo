@@ -11,7 +11,7 @@
 [![Local-First](https://img.shields.io/badge/Data-Local--First-success.svg)](#-本地优先与数据主权)
 [![Tech Stack](https://img.shields.io/badge/Stack-React%20Native%20%7C%20Expo%20%7C%20Tauri%20v2%20%7C%20PowerSync-orange.svg)](#-技术架构)
 
-[功能特性](#-核心特性) • [GTD 工作流](#-设计哲学与-gtd-工作流) • [快速下载](#-下载与安装) • [多端同步](#-多端同步与自托管) • [技术架构](#-技术架构) • [本地开发](#-本地开发指南)
+[🌐 在线体验 (PWA)](https://nextdo-cew.pages.dev) • [功能特性](#-核心特性) • [GTD 工作流](#-设计哲学与-gtd-工作流) • [快速下载](#-下载与安装) • [多端同步](#-多端同步与自托管) • [技术架构](#-技术架构) • [本地开发](#-本地开发指南)
 
 </div>
 
@@ -130,8 +130,8 @@ Nextdo 严格映射大卫·艾伦（David Allen）提出的 GTD 五步法：
 | **Windows** | 64 位 (x86_64) | `Nextdo_x.x.x_x64-setup.exe`<br>`Nextdo_x.x.x_x64_en-US.msi` | 提供 NSIS 快捷安装包与企业级 MSI 包<br>适配 Windows 10 / 11 |
 | **Linux** | 64 位 (x86_64) | `Nextdo_x.x.x_amd64.AppImage`<br>`Nextdo_x.x.x_amd64.deb` | AppImage 即开即用，deb 适配 Debian/Ubuntu<br>兼容主流桌面发行版 |
 | **Android** | arm64-v8a (主流机型)<br>armeabi-v7a / x86_64 | `Nextdo_x.x.x_android_arm64-v8a.apk`<br>`Nextdo_x.x.x_android_armeabi-v7a.apk` | 推荐绝大多数现代 64 位手机下载 `arm64-v8a`<br>适配 Android 8.0 及以上 |
-| **Web / PWA** | 现代主流浏览器 | 网页直接访问 / PWA 应用 | 支持 Chrome / Safari / Edge 等现代浏览器<br>可直接「添加至主屏幕」享受无缝沉浸体验 |
-| **iOS** | - | PWA 模式可用 / 原生端筹备中 | 支持通过 Safari「添加到主屏幕」即开即用<br>App Store 原生客户端正在筹备中 |
+| **Web / PWA** | 现代主流浏览器 | [🌐 在线网页版 (PWA)](https://nextdo-cew.pages.dev) | 支持 Chrome / Safari / Edge 等现代浏览器<br>可直接「添加至主屏幕」享受独立窗口与离线秒开 |
+| **iOS** | iPhone / iPad | [📲 Safari 添加至主屏幕](https://nextdo-cew.pages.dev) | 无需 App Store，使用 Safari 打开网页版并点击「分享」→「添加到主屏幕」即可像原生 App 一样全屏使用、离线存取与支持提醒 |
 
 <details>
 <summary><b>💡 首次安装与安全提示（macOS / Windows）</b></summary>
