@@ -921,3 +921,28 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 29: 优化推荐理由权重贡献、可信度过滤与 Now 页面视觉层级
+<!-- trellis-session: v=2 fp=042a090e447cb923 -->
+
+**Date**: 2026-10-09
+**Task**: 优化推荐理由权重贡献、可信度过滤与 Now 页面视觉层级
+**Branch**: `main`
+
+### Summary
+
+按实际加权得分贡献重排序推荐理由、过滤低价值标签、支持软到期日紧急度推导，并在 Now 页面增加备选事项清单折叠功能与精简统计栏样式
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `13b348f` | docs: 完善各平台安装包架构与格式说明 |
+| `001e6fb` | feat(core): 优化推荐理由权重贡献排序与软到期日紧急度 |
+| `c71c038` | feat(mobile): 精简 Now 页面视觉负荷并支持备选事项清单折叠 |
+| `ee47a4e` | docs(spec): 更新推荐引擎规范中的软到期日与理由过滤规则 |
+
+### Status
+
+[OK] **Completed**
