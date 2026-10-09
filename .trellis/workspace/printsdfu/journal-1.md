@@ -898,3 +898,26 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 28: 优化 P1 可靠性缺陷并重写 README 与 TopBook 鸣谢
+<!-- trellis-session: v=2 fp=1ce5b55ac053fb8d -->
+
+**Date**: 2026-10-09
+**Task**: 优化 P1 可靠性缺陷并重写 README 与 TopBook 鸣谢
+**Branch**: `main`
+
+### Summary
+
+优化桌面端场景/时间持久化、修复习惯周期夏令时时区偏移、增加应用时钟前台唤醒立即校准机制；全面重构 README，补充软件 GTD 理念、核心特性、架构与 TopBook 特别致谢。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `084b366` | fix(desktop,db,mobile): 优化桌面端设置持久化、习惯时区计算与时钟前台校准 |
+| `c07a4ae` | docs: 全面重构 README 并增加系统介绍与 TopBook 致谢 |
+
+### Status
+
+[OK] **Completed**

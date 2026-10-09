@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 27
+- **Total Sessions**: 28
 - **Last Active**: 2026-10-09
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~900 | Active |
+| `journal-1.md` | ~923 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 28 | 2026-10-09 | 优化 P1 可靠性缺陷并重写 README 与 TopBook 鸣谢 | `084b366`, `c07a4ae` | `main` |
 | 27 | 2026-10-09 | Fix P0 core issues: context filter, claim security, sync rejection handling | `3ff142e`, `345147d`, `ccf766f` | `main` |
 | 25 | 2026-10-08 | 优化「现在」Tab 行动加载与渲染性能 | `409c8e0` | `main` |
 | 24 | 2026-10-08 | Waiting For 事项管理独立页与数据流 | `390641d` | `feat/waiting-for-management` |
