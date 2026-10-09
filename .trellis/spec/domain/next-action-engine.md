@@ -150,7 +150,7 @@ score = Σ W[c] × signal(c)          (each signal in [0, 1])
 
 | code | signal |
 |------|--------|
-| `deadline-urgency` | let `h = deadline − now` (no deadline → 0): `h ≤ 0` (overdue) → 1.0; `0 < h ≤ 24 h` → 0.9; `24 h < h ≤ 72 h` → 0.7; `72 h < h ≤ 168 h` → 0.4; `h > 168 h` → 0. Band edges are inclusive on the upper bound, so "3 天后" (h = 72 h) → 0.7 — matching the worked example |
+| `deadline-urgency` | Hard deadline takes strict precedence over soft `dueDate`:<br>• **Hard `deadline`**: let `h = deadline − now`: `h ≤ 0` (overdue) → 1.0; `0 < h ≤ 24 h` → 0.9; `24 h < h ≤ 72 h` → 0.7; `72 h < h ≤ 168 h` → 0.4; `h > 168 h` → 0. Band edges are inclusive on the upper bound.<br>• **Soft `dueDate`** (fallback when no `deadline`): evaluated against local end-of-day (`23:59:59.999`), let `h = dueEndOfDay − now`: `h ≤ 0` (soft overdue) → 0.85; `0 < h ≤ 24 h` (due today) → 0.75; `24 h < h ≤ 72 h` (within 3 days) → 0.5; `72 h < h ≤ 168 h` (within 7 days) → 0.25; `h > 168 h` → 0. |
 | `goal-value` | `value / 5` |
 | `project-importance` | `project.value / 5` when `projectId` set and project `active`, else 0 |
 | `time-fit` | `max(0, 1 − estMinutes / availableMinutes)` |
@@ -158,11 +158,16 @@ score = Σ W[c] × signal(c)          (each signal in [0, 1])
 | `habit-commitment` | habit candidates only: `0.5`, + `0.5` when `now` ≥ `windowEnd − ⅓ × window length`; 0 for other kinds |
 | `health-protection` | `1` when `category === "health"`, else 0 — a normal weighted **boost, not a top-slot guarantee**. Each value level is worth 0.16 score (0.8 × 1/5), so the 0.4 boost equals **+2.5 value levels**: a value-3 health action (0.8×0.6 + 0.4 = **0.88**) beats an otherwise identical value-5 work action (0.8×1.0 = **0.80**), but a deadline still outranks it (value-5 with deadline ≤ 72 h: 0.80 + 0.70 = **1.50**). "Protection" = health habits are not buried near-equal work |
 
-A `Reason` of `type: "score"` is emitted for every code with signal > 0;
+A `Reason` of `type: "score"` is emitted for every code with signal > 0, subject to **credibility filtering**:
+- `goal-value` is only emitted when `candidate.value >= 3` (avoiding confusingly labeling low-value 1-2 items as high value);
+- `project-importance` is only emitted when `project.value >= 3`.
+
+Reasons are **sorted descending by actual weighted score contribution** (`W[code] × signals[code]`). Equal contributions preserve the canonical `SCORE_CODES` index order.
 `type: "eligibility"` reasons record *why it can run right now* (`context-match`,
 `window-open`, `time-fits`, `dependency-clear`, `calendar-preempt`) — these are not
-weighted. **"Why this?"** renders the top 3 score reasons by `W × signal`
-contribution plus the eligibility summary (Proposal §6.3).
+weighted. **"Why this?"** renders the top 3 score reasons by weighted
+contribution (with the highest-ranked reason visually accented as the primary driver)
+plus the eligibility summary (Proposal §6.3).
 
 **Worked example (Proposal §6.2, `availableMinutes = 60`), a required regression test:**
 
