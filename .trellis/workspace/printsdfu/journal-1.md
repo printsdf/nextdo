@@ -874,3 +874,27 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 27: Fix P0 core issues: context filter, claim security, sync rejection handling
+<!-- trellis-session: v=2 fp=958c7fd0fd32d483 -->
+
+**Date**: 2026-10-09
+**Task**: Fix P0 core issues: context filter, claim security, sync rejection handling
+**Branch**: `main`
+
+### Summary
+
+修复空场景筛选不匹配任意任务的缺陷；增加服务端 claimSecret 保护首次认领；记录并暴露客户端同步上传失败与死信 op 并在设置页中提供状态反馈
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3ff142e` | fix(core): 允许空场景筛选匹配所有任务并更新规范 |
+| `345147d` | feat(server): 增加可选 claimSecret 防护首次认领接口 |
+| `ccf766f` | feat(db,mobile): 记录同步上传被拒操作并在设置页面展示状态 |
+
+### Status
+
+[OK] **Completed**
