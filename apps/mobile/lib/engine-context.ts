@@ -6,7 +6,8 @@
  * settings table — adding one would touch the sync surface, which this
  * task must not do):
  *   native (iOS/Android) → `expo-secure-store`
- *   browser web / Tauri / Node → in-memory (re-selected after a restart)
+ *   browser web / Tauri → `localStorage` (persisted across sessions)
+ *   Node / fallback → in-memory (re-selected after a restart)
  * Importing this file is safe on plain Node/jest (lazy backend selection,
  * the `expo-secure-store` require only runs on a native runtime).
  */
@@ -45,6 +46,60 @@ function createMemoryStore(): KeyValue {
   };
 }
 
+interface WebStorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+function getWebLocalStorage(): WebStorageLike | null {
+  const g = globalThis as {
+    window?: { localStorage?: WebStorageLike };
+    localStorage?: WebStorageLike;
+  };
+  return g.window?.localStorage ?? g.localStorage ?? null;
+}
+
+function isLocalStorageAvailable(): boolean {
+  try {
+    const storage = getWebLocalStorage();
+    if (!storage) return false;
+    const testKey = '__nextdo_probe__';
+    storage.setItem(testKey, '1');
+    storage.removeItem(testKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function createLocalStorageStore(): KeyValue {
+  return {
+    async getItem(key) {
+      try {
+        const storage = getWebLocalStorage();
+        if (storage) {
+          return storage.getItem(key);
+        }
+      } catch {
+        // Fall back gracefully on storage access denied
+      }
+      return null;
+    },
+    async setItem(key, value) {
+      try {
+        const storage = getWebLocalStorage();
+        if (storage) {
+          storage.setItem(key, value);
+          return;
+        }
+      } catch {
+        // Ignore quota / security errors
+      }
+    },
+  };
+}
+
 /** Keychain / Keystore — required lazily so plain Node never loads Expo. */
 function createSecureStoreStore(): KeyValue {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -64,7 +119,13 @@ let pendingLoad: Promise<EngineContextSettings> | null = null;
 
 function getBackend(): KeyValue {
   if (backend === null) {
-    backend = isReactNativeRuntime() ? createSecureStoreStore() : createMemoryStore();
+    if (isReactNativeRuntime()) {
+      backend = createSecureStoreStore();
+    } else if (isLocalStorageAvailable()) {
+      backend = createLocalStorageStore();
+    } else {
+      backend = createMemoryStore();
+    }
   }
   return backend;
 }

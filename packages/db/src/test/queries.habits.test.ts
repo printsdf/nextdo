@@ -19,6 +19,7 @@ import {
   trashHabit,
   updateHabit,
 } from '../queries/habits';
+import { habitCycleDay } from '../queries/pool';
 import { openTestDb, type TestDb } from './query-helpers';
 import { FIXTURE_IDS, FIXTURE_NOW, fixtureHabitDayId } from './fixtures';
 
@@ -235,3 +236,36 @@ describe('startHabit (the start-challenge transaction)', () => {
     }
   });
 });
+
+describe('habitCycleDay', () => {
+  it('maps each consecutive calendar day to 1-based cycle index', () => {
+    const startedAt = '2026-10-01T08:00:00.000Z';
+    expect(habitCycleDay(startedAt, 21, '20261001')).toBe(1);
+    expect(habitCycleDay(startedAt, 21, '20261002')).toBe(2);
+    expect(habitCycleDay(startedAt, 21, '20261021')).toBe(21);
+    expect(habitCycleDay(startedAt, 21, '20261022')).toBeNull();
+    expect(habitCycleDay(startedAt, 21, '20260930')).toBeNull();
+  });
+
+  it('correctly handles month boundaries without day drift', () => {
+    const startedAt = '2026-01-30T10:00:00.000Z';
+    // 2026-01-30 (day 1), 2026-01-31 (day 2), 2026-02-01 (day 3)
+    expect(habitCycleDay(startedAt, 5, '20260130')).toBe(1);
+    expect(habitCycleDay(startedAt, 5, '20260131')).toBe(2);
+    expect(habitCycleDay(startedAt, 5, '20260201')).toBe(3);
+    expect(habitCycleDay(startedAt, 5, '20260202')).toBe(4);
+    expect(habitCycleDay(startedAt, 5, '20260203')).toBe(5);
+    expect(habitCycleDay(startedAt, 5, '20260204')).toBeNull();
+  });
+
+  it('preserves calendar day progression even when started near midnight', () => {
+    // 23:45 local time
+    const start = new Date(2026, 9, 1, 23, 45, 0);
+    const startedAt = toIso(start);
+    expect(habitCycleDay(startedAt, 3, localDateKey(new Date(2026, 9, 1)))).toBe(1);
+    expect(habitCycleDay(startedAt, 3, localDateKey(new Date(2026, 9, 2)))).toBe(2);
+    expect(habitCycleDay(startedAt, 3, localDateKey(new Date(2026, 9, 3)))).toBe(3);
+    expect(habitCycleDay(startedAt, 3, localDateKey(new Date(2026, 9, 4)))).toBeNull();
+  });
+});
+

@@ -81,4 +81,39 @@ describe('load/save round-trip', () => {
     __setEngineContextStoreForTests(store);
     await expect(loadEngineContext()).resolves.toEqual(DEFAULT_ENGINE_CONTEXT);
   });
+
+  it('persists through web localStorage when available', async () => {
+    const storageMap = new Map<string, string>();
+    const fakeLocalStorage = {
+      getItem: (key: string) => storageMap.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storageMap.set(key, value);
+      },
+      removeItem: (key: string) => {
+        storageMap.delete(key);
+      },
+    };
+    Object.defineProperty(globalThis, 'window', {
+      value: { localStorage: fakeLocalStorage },
+      writable: true,
+      configurable: true,
+    });
+
+    try {
+      // Clear any cached test backend
+      __setEngineContextStoreForTests(null);
+      const settings: EngineContextSettings = { contextIds: ['desktop-home'], availableMinutes: 45 };
+      await saveEngineContext(settings);
+
+      // Reset cache to simulate app restart/re-mount
+      __setEngineContextStoreForTests(null);
+      const reloaded = await loadEngineContext();
+      expect(reloaded).toEqual(settings);
+      expect(storageMap.has('nextdo.settings.engine-context')).toBe(true);
+    } finally {
+      // @ts-expect-error cleanup global window
+      delete globalThis.window;
+      __setEngineContextStoreForTests(null);
+    }
+  });
 });

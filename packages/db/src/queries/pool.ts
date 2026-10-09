@@ -37,7 +37,6 @@ export interface EnginePool {
 }
 
 const PREEMPTION_WINDOW_MS = 60 * 60_000;
-const DAY_MS = 86_400_000;
 
 const inFlightQueries = new WeakMap<object, Map<number, Promise<EnginePool>>>();
 
@@ -107,11 +106,19 @@ function baseFromRow(row: {
  *
  * Exported: shared by the pool query and the `startHabit` seeding
  * (queries/habits.ts) — the generation logic lives in ONE place.
+ *
+ * Uses calendar date arithmetic anchored at local noon rather than
+ * fixed 86,400,000ms steps, preventing day drift across daylight saving
+ * transitions (23/25 hour days) and timezone shifts.
  */
 export function habitCycleDay(startedAt: string, cycleDays: number, localDate: string): number | null {
-  const startedAtMs = parseIso(startedAt).getTime();
+  const start = parseIso(startedAt);
+  const year = start.getFullYear();
+  const month = start.getMonth();
+  const date = start.getDate();
   for (let day = 0; day < cycleDays; day++) {
-    if (localDateKey(new Date(startedAtMs + day * DAY_MS)) === localDate) {
+    const current = new Date(year, month, date + day, 12, 0, 0);
+    if (localDateKey(current) === localDate) {
       return day + 1;
     }
   }
