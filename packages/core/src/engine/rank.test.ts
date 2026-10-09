@@ -199,4 +199,73 @@ describe('score = Σ W[c] × signal(c)', () => {
     );
     expect(reasons.every((r) => r.type === 'score')).toBe(true);
   });
+
+  it('sorts reasons descending by weighted contribution (W[code] * signal)', () => {
+    // deadline-urgency: 0.7 * 1.0 = 0.7
+    // goal-value: (5/5) * 0.8 = 0.8  --> highest!
+    // time-fit: (1 - 30/60) * 0.2 = 0.1
+    const c = makeNext({
+      value: 5,
+      estMinutes: 30,
+      deadline: iso(48 * 3_600_000), // h = 48 -> signal 0.7
+    });
+    const { reasons } = scoreCandidate(c, input(c));
+    expect(reasons.map((r) => r.code)).toEqual([
+      'goal-value',        // 0.8
+      'deadline-urgency',  // 0.7
+      'time-fit',          // 0.1
+    ]);
+  });
+
+  it('filters out goal-value and project-importance when value is low (< 3)', () => {
+    const lowValue = makeNext({
+      value: 2,
+      estMinutes: 10,
+      projectId: 'p-low',
+    });
+    const { reasons, signals } = scoreCandidate(
+      lowValue,
+      input(lowValue, { projects: [{ id: 'p-low', value: 2, status: 'active' }] }),
+    );
+    // signals still have positive contribution to score
+    expect(signals['goal-value']).toBeGreaterThan(0);
+    expect(signals['project-importance']).toBeGreaterThan(0);
+    // but reasons suppress misleading "high value" labels
+    const codes = reasons.map((r) => r.code);
+    expect(codes).not.toContain('goal-value');
+    expect(codes).not.toContain('project-importance');
+  });
+});
+
+describe('dueDate urgency (soft deadline)', () => {
+  it('applies tiered urgency when deadline is not provided', () => {
+    // NOW is 2026-09-21T09:00:00.000Z
+    // Overdue (yesterday): 2026-09-20
+    const overdue = makeNext({ dueDate: '2026-09-20' });
+    expect(scoreCandidate(overdue, input(overdue)).signals['deadline-urgency']).toBe(0.85);
+
+    // Due today: 2026-09-21
+    const today = makeNext({ dueDate: '2026-09-21' });
+    expect(scoreCandidate(today, input(today)).signals['deadline-urgency']).toBe(0.75);
+
+    // Due in 2 days (within 72 hours): 2026-09-23
+    const soon = makeNext({ dueDate: '2026-09-23' });
+    expect(scoreCandidate(soon, input(soon)).signals['deadline-urgency']).toBe(0.5);
+
+    // Due in 5 days (within 168 hours): 2026-09-26
+    const thisWeek = makeNext({ dueDate: '2026-09-26' });
+    expect(scoreCandidate(thisWeek, input(thisWeek)).signals['deadline-urgency']).toBe(0.25);
+
+    // Due in 10 days (> 168 hours): 2026-10-01
+    const far = makeNext({ dueDate: '2026-10-01' });
+    expect(scoreCandidate(far, input(far)).signals['deadline-urgency']).toBe(0);
+  });
+
+  it('hard deadline takes precedence over soft dueDate', () => {
+    const c = makeNext({
+      deadline: iso(10 * 3_600_000), // h = 10 -> signal 0.9
+      dueDate: '2026-09-20',          // soft would be 0.85
+    });
+    expect(scoreCandidate(c, input(c)).signals['deadline-urgency']).toBe(0.9);
+  });
 });
