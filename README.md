@@ -81,34 +81,9 @@ Nextdo 将 GTD 的核心决策树转化为直观的单步向导，一步一问�
 
 Nextdo 严格映射大卫·艾伦（David Allen）提出的 GTD 五步法：
 
-```
-       [ 灵感 / 事务 / 冲动 ]
-                 │
-                 ▼
-          【 1. 收集 CAPTURE 】 ──── 全局快速捕获进入 Inbox
-                 │
-                 ▼
-          【 2. 厘清 CLARIFY 】 ──── 交互式决策向导（两分钟原则 / 项目分解）
-                 │
-      ┌──────────┼───────────────┬────────────────┐
-      ▼          ▼               ▼                ▼
-[ 参考资料 ]  [ 垃圾箱 ]   [ 等待他人 ]      [ 组织成可执行实体 ]
-                              (Waiting)           │
-                                                  ▼
-                                         【 3. 组织 ORGANIZE 】
-                                         ├── 关联目标项目 (Project)
-                                         ├── 绑定执行场景 (@Context)
-                                         └── 设定耗时与时间窗
-                                                  │
-                                                  ▼
-                                         【 4. 执行 ENGAGE 】
-                                         └── Now 引擎精算当下唯一解
-                                             进入 Focus 专注倒计时
-                                                  │
-                                                  ▼
-                                         【 5. 回顾 REFLECT 】
-                                         └── 日/周复盘校准，保持系统生命力
-```
+<div align="center">
+  <img src="./docs/assets/gtd-workflow.png" alt="Nextdo × GTD 五步法" width="100%" />
+</div>
 
 ---
 
