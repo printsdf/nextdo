@@ -24,6 +24,8 @@ export interface UseReminderPermissionResult {
   /** iOS (denied state): jump to this app's system notification settings;
    *  no-op on other platforms. */
   openSystemSettings: () => void;
+  /** Request notification permission (supported on web/PWA and native). */
+  requestPermission: () => Promise<ReminderPermissionState>;
 }
 
 export function useReminderPermission(): UseReminderPermissionResult {
@@ -61,5 +63,11 @@ export function useReminderPermission(): UseReminderPermissionResult {
     void adapter.openSystemSettings();
   }, [adapter]);
 
-  return { state, openSystemSettings };
+  const requestPermission = useCallback(async () => {
+    const next = await adapter.requestPermission();
+    setState(next);
+    return next;
+  }, [adapter]);
+
+  return { state, openSystemSettings, requestPermission };
 }

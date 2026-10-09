@@ -16,8 +16,8 @@
  */
 import { Platform } from 'react-native';
 import { createNativeAdapter } from './native';
-import { createNoopAdapter } from './noop';
 import { createTauriAdapter } from './tauri';
+import { createWebAdapter } from './web';
 import type { DeliveryAdapter } from './types';
 
 /**
@@ -34,7 +34,7 @@ function isTauriRuntime(): boolean {
 
 function createAdapterForPlatform(): DeliveryAdapter {
   if (Platform.OS === 'web') {
-    return isTauriRuntime() ? createTauriAdapter() : createNoopAdapter();
+    return isTauriRuntime() ? createTauriAdapter() : createWebAdapter();
   }
   return createNativeAdapter();
 }

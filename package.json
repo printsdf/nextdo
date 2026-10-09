@@ -10,7 +10,8 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "build:web": "pnpm --filter @nextdo/mobile build:web"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

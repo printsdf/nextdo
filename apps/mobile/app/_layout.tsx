@@ -53,6 +53,7 @@ import { PlusJakartaSans_600SemiBold } from '@expo-google-fonts/plus-jakarta-san
 import { PlusJakartaSans_700Bold } from '@expo-google-fonts/plus-jakarta-sans/700Bold';
 import { PowerSyncContext } from '@powersync/react';
 import { useReminderDelivery } from '@/hooks/use-reminder-delivery';
+import { IosInstallPrompt } from '@/components/ios-install-prompt';
 import {
   clearOwnerToken,
   createPowerSyncConnector,
@@ -436,6 +437,7 @@ export default function RootLayout() {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       <PowerSyncProvider>
         <Stack screenOptions={{ headerShown: false }} />
+        <IosInstallPrompt />
       </PowerSyncProvider>
     </SafeAreaProvider>
   );

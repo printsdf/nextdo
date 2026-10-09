@@ -82,6 +82,15 @@ function isPlainHttpUrl(value: string): boolean {
   return true;
 }
 
+function isIosWebSafari(): boolean {
+  if (Platform.OS !== 'web') return false;
+  const host = globalThis as unknown as {
+    window?: { navigator?: { userAgent?: string; standalone?: boolean } };
+  };
+  const ua = host.window?.navigator?.userAgent ?? '';
+  return /iPad|iPhone|iPod/.test(ua) && host.window?.navigator?.standalone !== true;
+}
+
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
   { value: 'system', label: '跟随系统' },
   { value: 'light', label: '浅色模式' },
@@ -104,7 +113,8 @@ type SyncMode = 'pair' | 'self_host';
 export default function SettingsScreen() {
   const { preference, updatePreference } = useAppTheme();
   const { state, storedConfig, ownerToken, connect, disconnect } = useCloudSync();
-  const { state: notificationPermission, openSystemSettings } = useReminderPermission();
+  const { state: notificationPermission, openSystemSettings, requestPermission } =
+    useReminderPermission();
   // The deep-link route (`app/sync.tsx`) hands a failed connect back here
   // as `?syncError=…` so the user SEES the reason instead of a silent
   // no-op. Read once per arrival (the value is a fresh string each time).
@@ -347,9 +357,30 @@ export default function SettingsScreen() {
               检查中…
             </Text>
           ) : notificationPermission.platform === 'web' ? (
-            <Text className="font-sans text-sm text-muted dark:text-muted-dark">
-              浏览器环境不支持通知。
-            </Text>
+            notificationPermission.status === 'granted' ? (
+              <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+                已授权 — 稍后与日历提醒会通过 Web 浏览器通知按时提醒。
+              </Text>
+            ) : notificationPermission.status === 'denied' ? (
+              <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+                通知已被拒绝 — 可在浏览器设置中允许此网站发送通知。
+              </Text>
+            ) : (
+              <View className="gap-2">
+                <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+                  {isIosWebSafari()
+                    ? 'iOS Safari 需将 Nextdo「添加到主屏幕」后即可接收系统通知。'
+                    : '尚未授权 — 点击可开启浏览器提醒通知。'}
+                </Text>
+                <Button
+                  label="开启通知"
+                  variant="secondary"
+                  onPress={() => {
+                    void requestPermission();
+                  }}
+                />
+              </View>
+            )
           ) : notificationPermission.platform === 'tauri' ? (
             <Text className="font-sans text-sm text-muted dark:text-muted-dark">
               桌面通知跟随系统设置（当前
@@ -737,6 +768,26 @@ export default function SettingsScreen() {
           </View>
         )}
       </Card>
+
+      {/* Web & PWA info card (only visible on Web) */}
+      {Platform.OS === 'web' ? (
+        <Card className="mt-4 gap-2.5 p-3.5">
+          <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
+            📱 极简 PWA 与主屏幕安装
+          </Text>
+          <Text className="font-sans text-xs text-muted dark:text-muted-dark leading-relaxed">
+            Nextdo 已全面支持渐进式 Web 应用 (PWA)。无需通过 App Store，iPhone 用户使用 Safari 访问并点击「分享」→「添加到主屏幕」即可安装为原生全屏 App，享有独立窗口、离线秒开及提醒支持。
+          </Text>
+          <View className="rounded-lg bg-canvas/60 p-2 dark:bg-canvas-dark/60 gap-1">
+            <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
+              💡 离线与缓存说明
+            </Text>
+            <Text className="font-sans text-[11px] text-muted dark:text-muted-dark leading-relaxed">
+              数据默认保存在本地浏览器 SQLite 数据库中，断网也可流畅操作；重新联网后自动实时双向同步。
+            </Text>
+          </View>
+        </Card>
+      ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );
