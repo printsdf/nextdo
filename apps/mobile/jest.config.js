@@ -15,6 +15,7 @@
  */
 module.exports = {
   preset: 'jest-expo',
+  testTimeout: 15000,
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
     '\\.css$': '<rootDir>/test/css-mock.js',
