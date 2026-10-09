@@ -369,7 +369,11 @@ jobs:
             # Release already exists (e.g. this tag was re-run after a
             # pipeline fix) — just (re)upload the assets.
             gh release upload "$TAG" $FILES --clobber
-            gh release edit "$TAG" $PRERELEASE
+            # `gh release edit` requires at least one flag. Stable tags set
+            # PRERELEASE="" so skip edit in that case.
+            if [ -n "$PRERELEASE" ]; then
+              gh release edit "$TAG" $PRERELEASE
+            fi
           else
             gh release create "$TAG" \
               --target "${{ github.sha }}" \
