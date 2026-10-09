@@ -1,143 +1,257 @@
+<div align="center">
+
 # Nextdo
 
-> **行动先于计划，清空大脑，进入心流。**  
-> 一款以 GTD（Getting Things Done）心流哲学与执行力为核心的开源个人任务与习惯助手，支持 macOS、Android、iOS、Windows 与 Web。
+**行动先于计划，清空大脑，进入心流。**
+
+一款以 **GTD（Getting Things Done）** 哲学与科学执行力为内核的现代、开源、本地优先（Local-First）个人任务与习惯助手。
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Android%20%7C%20iOS%20%7C%20Windows%20%7C%20Web-lightgrey.svg)](#-下载与安装)
+[![Local-First](https://img.shields.io/badge/Data-Local--First-success.svg)](#-本地优先与数据主权)
+[![Tech Stack](https://img.shields.io/badge/Stack-React%20Native%20%7C%20Expo%20%7C%20Tauri%20v2%20%7C%20PowerSync-orange.svg)](#-技术架构)
+
+[功能特性](#-核心特性) • [GTD 工作流](#-设计哲学与-gtd-工作流) • [快速下载](#-下载与安装) • [多端同步](#-多端同步与自托管) • [技术架构](#-技术架构) • [本地开发](#-本地开发指南)
+
+</div>
 
 ---
 
-## 快速下载与安装
+## 为什么选择 Nextdo？
 
-无需编译源码，直接前往 [GitHub Releases](https://github.com/printsdf/Nextdo/releases) 下载对应平台的安装包：
+市面上的大多数待办清单（Todo Lists）往往只是**静态的列表堆叠**：任务越积越多，未完成项不断延期，最终演变成令人窒息的焦虑来源。
 
-| 平台 | 下载文件 | 说明 |
+**Nextdo 的不同之处在于：**
+- **拒绝清单选择困难**：清单不应成为你的决策负担。Nextdo 拥有内置的**智能当下推荐引擎（Now Engine）**，根据你当前的物理环境、碎片时间和事件优先级，直接推送**当前唯一应当执行的最佳下一步行动**。
+- **严格遵循 GTD 闭环**：从低阻力的闪念捕获，到引导式单步厘清向导，再到聚焦执行与定期系统检视，形成完整心流闭环。
+- **终结假性拖延**：多次跳过的死任务会自动触发**重新厘清机制（Re-clarify）**，逼迫面对阻碍，而不是任由其在清单底层腐烂。
+- **真正的本地优先（Local-First）**：毫秒级离线读写，无需联网也能流畅使用全功能；同时支持去中心化、零成本的多端增量实时同步。
+
+---
+
+## ✨ 核心特性
+
+### 1. 🧠 闪念收集箱（Capture / Inbox）
+- **零阻力捕捉**：灵感与杂务转瞬即逝，无需当场分类、打标签或估算耗时，一键收集，立即重回当前工作。
+- **清空大脑**：大脑是用来思考的，不是用来记事的。将所有心理负担迅速卸载到本地数字存储中。
+
+### 2. 🔀 交互式厘清向导（Clarify Wizard）
+Nextdo 将 GTD 的核心决策树转化为直观的单步向导，一步一问，消除模棱两可：
+- **可行动吗？** 否 → 归档为参考资料（Reference）、暂存将来也许（Someday/Maybe）或直接放入垃圾箱。
+- **需要多个步骤？** 是 → 自动创建或关联到对应项目（Project）。
+- **两分钟原则？** 2 分钟内可搞定 → 立即执行（Do Now），不生成冗余任务。
+- **由谁负责？** 委托他人 → 归入等待清单（Waiting For），设置预期与跟进时间。
+- **固定时间还是灵活行动？** 具有硬性时间点 → 日历动作（Calendar Action）；其余均转为可落地的下一步行动（Next Action）。
+
+### 3. 🎯 智能当下推荐引擎（The "Now" Engine - 杀手级能力）
+告别对着几百条待办事项发呆的决策疲劳，点击底栏 **「当下 (Now)」**：
+- **场景与时间自适应**：选择你此刻所处的场景（如 `@电脑`、`@办公室`、`@外出`、`@居家`）与可用碎片时间（15 分钟、30 分钟、1 小时等）。
+- **多维科学评分模型**：
+  - 截止日期紧迫度（Deadline Urgency）
+  - 目标与项目价值（Goal & Project Value）
+  - 时间碎片契合度（Time Fit）
+  - 习惯坚持契约（Habit Commitment）
+  - 心理防倦怠与健康关怀（Health Protection）
+- **The ONE Recommendation**：系统精算出当前唯一最推荐的事项，并透明展示推荐理由（Why this?）。
+- **防拖延 Re-clarify 机制**：若某项任务连续跳过超过阈值，系统判定该任务粒度过大或存在心理阻力，强制唤起重新厘清，拒绝死任务自我欺骗。
+
+### 4. ⏱️ 沉浸专注模式（Focus Mode）
+- **全屏极简倒计时**：启动当前推荐行动后，自动进入心流专注屏，屏蔽一切多余干扰。
+- **计时与状态追溯**：记录每一次专注会话（Focus Session），为后续复盘提供真实的时间消耗数据。
+
+### 5. 📂 成果导向的项目管理（Projects）
+- **必须明确完成成果（Outcome）**：拒绝“学英语”、“搞科研”等模糊空话，强制定义可验收的目标状态。
+- **停滞项目自动预警**：系统自动检测缺乏后续动作的“孤儿项目”，督促拆解推进，杜绝烂尾。
+
+### 6. 🌱 21 天微习惯追踪（Habits & Challenges）
+- **习惯原子化**：将宏大愿景落实为每日微习惯，支持设定时间窗口与循环周期。
+- **项目强绑定**：习惯可直接归属于具体项目（如“每日阅读 15 分钟论文”归属“毕业课题”）。
+- **坚持轨迹可视化**：直观的进度环与连续完成打卡轨迹。
+
+### 7. ⏳ 等待与委托清单（Waiting For）
+- 结构化记录交由他人推进的事项，标记委托对象、承诺日期与跟进节点，不再遗忘外部依赖。
+
+### 8. 📊 双轨复盘与系统检视（Daily & Weekly Review）
+- **今日回顾（Daily Review）**：睡前或下班前 3 分钟，快速结算今日完成、排期顺延与次日必做，清空心理账本。
+- **每周检视（Weekly Review）**：深度审视收件箱、活跃项目进度、停滞阻塞、习惯走势与委托事项，让系统持续保持值得信赖的健康状态。
+
+---
+
+## 🧭 设计哲学与 GTD 工作流
+
+Nextdo 严格映射大卫·艾伦（David Allen）提出的 GTD 五步法：
+
+```
+       [ 灵感 / 事务 / 冲动 ]
+                 │
+                 ▼
+          【 1. 收集 CAPTURE 】 ──── 全局快速捕获进入 Inbox
+                 │
+                 ▼
+          【 2. 厘清 CLARIFY 】 ──── 交互式决策向导（两分钟原则 / 项目分解）
+                 │
+      ┌──────────┼───────────────┬────────────────┐
+      ▼          ▼               ▼                ▼
+[ 参考资料 ]  [ 垃圾箱 ]   [ 等待他人 ]      [ 组织成可执行实体 ]
+                              (Waiting)           │
+                                                  ▼
+                                         【 3. 组织 ORGANIZE 】
+                                         ├── 关联目标项目 (Project)
+                                         ├── 绑定执行场景 (@Context)
+                                         └── 设定耗时与时间窗
+                                                  │
+                                                  ▼
+                                         【 4. 执行 ENGAGE 】
+                                         └── Now 引擎精算当下唯一解
+                                             进入 Focus 专注倒计时
+                                                  │
+                                                  ▼
+                                         【 5. 回顾 REFLECT 】
+                                         └── 日/周复盘校准，保持系统生命力
+```
+
+---
+
+## 🛡️ 本地优先与数据主权
+
+- **极速本地存储**：数据首要存储于本地 SQLite 数据库（移动端原生驱动，桌面端与网页端嵌入式引擎），毫秒级启动与查询，无网络状态下全功能离线可用。
+- **数据完全属于你**：无商业公司服务器偷窥或分析你的个人隐私，数据库账本掌握在你自己的设备中。
+- **流式实时同步**：基于 [PowerSync](https://powersync.com/) 与 PostgreSQL 的 WAL（Write-Ahead Logging）机制，实现轻量、实时、低功耗的多端双向增量同步。
+
+---
+
+## 📦 下载与安装
+
+无需自行配置代码环境，直接前往 **[GitHub Releases](https://github.com/printsdf/Nextdo/releases)** 下载对应平台的最新安装包：
+
+| 平台 | 安装包 / 形式 | 说明 |
 | :--- | :--- | :--- |
-| **macOS** | `Nextdo-x.x.x.dmg` | 支持 Apple Silicon (M系列) 与 Intel 架构 |
-| **Android** | `Nextdo-x.x.x.apk` | 适用于 Android 8.0 及以上版本手机与平板 |
-| **Windows / Web** | 见 Releases 列表 | 即开即用 |
+| **macOS** | `Nextdo-x.x.x.dmg` | 原生轻量窗口，支持 Apple Silicon (M系列) 与 Intel 架构 |
+| **Android** | `Nextdo-x.x.x.apk` | 适配 Android 8.0 及以上版本手机与平板 |
+| **Windows / Linux** | 见 Releases 列表 | 即开即用桌面客户端 |
+| **iOS / Web** | 网页即开即用 / PWA | 支持移动端与桌面浏览器，添加至主屏幕体验如原生 App |
 
 ---
 
-## 核心特色
+## ☁️ 多端同步与自托管
 
-- 🧠 **清空大脑 (Inbox)**：随时捕获灵感与杂务，无需立即分类，保留心流状态。
-- ⚡ **下一步行动 (Next Actions)**：将模糊的目标分解为最小可执行的物理动作。
-- 🎯 **聚焦与专注 (Focus Mode)**：全屏极简专注倒计时，排除一切干扰。
-- 🔄 **循环习惯 (Habits)**：培养 21 天微习惯，记录执行轨迹。
-- 📅 **日历与提醒 (Calendar & Reminders)**：智能时间窗与系统级通知，到时精准触发。
-- 🛡️ **本地优先 (Local-First)**：离线秒开，数据始终存储于你的本地设备。
+Nextdo 专为个人设计了极简的多端同步方案，既可零成本免维护白嫖云服务，也可在自备服务器上一键容器化部署：
+
+### 方案 A：零成本 Serverless 免费云同步（最推荐 · 纯网页搞定）
+利用三大主流云平台的**永久免费套餐**搭建，**无需服务器、无需终端命令、无需下载源码**：
+- **数据库**：[Neon](https://neon.tech/)（免费 PostgreSQL，自动初始化 14 张业务表，无需写建表 SQL）
+- **同步引擎**：[PowerSync Cloud](https://powersync.com/)（免费流引擎，实时同步增量）
+- **后端网关**：[Cloudflare Workers](https://dash.cloudflare.com/)（全球边缘计算，在线粘贴代码一键发布）
+
+> 📖 **完整图文教程**：查看 [零成本免费云同步完整部署指南](./server/deploy/FREE_CLOUD_DEPLOY.md)，约 3~5 分钟即可在网页中完成配置。
+
+### 方案 B：私有 VPS 单机一键 Docker 部署
+如果你拥有一台 Linux VPS，可使用单机版 Docker Compose 一键拉起完整后端服务：
+> 📖 **Docker 部署文档**：查看 [Production Deployment 文档](./server/deploy/README.md)。
+
+### 多端秒级扫码配对
+1. 在首台设备（如 Mac 电脑）的「设置」中输入你的服务网址，点击连接即可完成免密绑定；
+2. 在第二台设备（如手机）打开设置，直接扫描电脑屏幕生成的二维码，秒级加入同一同步账本！
 
 ---
 
-## 多端云同步（零成本·纯网页搭建·无需下载源码）
+## 🛠️ 技术架构
 
-Nextdo 支持多设备之间实时自动双向同步。我们设计了**极简云同步架构**，利用各大云平台的永久免费套餐，普通用户在**网页浏览器中点几下即可完成搭建**：
-
-> **✨ 为什么极简？**
-> 1. **无需下载源代码**：全部在云平台网页控制台中操作，无需安装 Node.js、Git 或在本地打开终端。
-> 2. **数据库全自动建表**：无需在数据库 SQL Editor 中复制执行任何建表脚本，服务首次启动自动初始化全部 14 张表与索引。
-> 3. **客户端只需填写 Workers 网址**：打开 App「设置」粘贴你的 Workers 网址点击连接，系统自动免密绑定并下发同步端点，无需寻找 Token，无需手动填写 PowerSync 地址！
-> 4. **多端扫码即连**：首台设备连接后，手机直接扫码电脑屏幕即可一键加入同步。
-
-### 极简搭建三步走（总耗时约 3~5 分钟）
+Nextdo 采用现代化的 TypeScript Monorepo 架构设计，逻辑分层解耦，保证极致的性能与多端复用能力：
 
 ```
-[免费 PostgreSQL (Neon)]  +  [免费流引擎 (PowerSync)]  +  [免费 API (Cloudflare Workers)]
-         └──────────────────────────┬────────────────────────────┘
-                                    ▼
-                   在 Nextdo App 中仅需填写 Workers 网址！
+Nextdo Monorepo
+├── apps/
+│   ├── mobile/         # 核心客户端：Expo (React Native 0.86 / iOS / Android / Web)
+│   └── desktop/        # 桌面壳工程：Tauri v2 (Rust 编写的高性能轻量桌面容器)
+├── packages/
+│   ├── core/           # 纯领域内核：GTD 状态机、Now 推荐评分算法、无外部副作用
+│   ├── db/             # 数据持久层：PowerSync + SQLite + Kysely 查询构建器
+│   └── ui/             # 共享跨端设计系统：Tailwind CSS / NativeWind 原子化组件
+└── server/
+    ├── app/            # Hono 轻量 API 运行时 (认证下发、数据上报)
+    └── deploy/         # Cloudflare Workers 部署包与 Docker Compose 配置
 ```
 
-#### 第一步：创建免费数据库（推荐 Neon，无需建表）
-1. 访问 [Neon 官网](https://neon.tech/)，使用 GitHub 登录并创建免费项目。
-2. 在 **Project Settings** 中，开启 **Logical Replication**（勾选开启即可）。
-3. 复制连接字符串（格式形如 `postgresql://user:pass@ep-xyz.aws.neon.tech/neondb?sslmode=require`）。
-> 💡 *无需在数据库中执行任何建表 SQL！后续步骤中后端会自动建表。*
-
-#### 第二步：创建免费 PowerSync 同步流引擎
-1. 访问 [PowerSync 官网](https://powersync.com/) 注册并创建免费实例（Free Plan）。
-2. **连接数据库**：粘贴第一步获取的 Neon 连接字符串，测试连接。
-3. **部署同步规则 (Sync Rules)**：在左侧进入 **Sync Rules**，将下方规则复制粘贴进去，点击 **Deploy**：
-   ```yaml
-   config:
-     edition: 3
-   streams:
-     all:
-       auto_subscribe: true
-       queries:
-         - SELECT id, created_at, updated_at, deleted_at, title, captured_at FROM inbox_items WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, title, outcome, value, status FROM projects WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, title, project_id, context_ids, est_minutes, value, category, due_date, deadline, depends_on_id, window_start, window_end, window_days, snoozed_until, last_snoozed_at, consecutive_skips, last_skipped_at, status, source_inbox_id, replaces_action_id FROM next_actions WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, title, waiting_on, expected_by, follow_up_at FROM waiting_for_items WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, title, starts_at, context_ids, est_minutes, value, category, deadline, snoozed_until, last_snoozed_at, consecutive_skips, last_skipped_at, status, source_inbox_id, replaces_action_id FROM calendar_actions WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, title, note FROM someday_maybe_items WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, title, url, note FROM reference_items WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, name FROM contexts WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, title, action_title, est_minutes, value, category, project_id, window_start, window_end, window_days, cycle_days, started_at, status FROM habits WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, habit_id, local_date, status, snoozed_until, last_snoozed_at, consecutive_skips, last_skipped_at FROM habit_days WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, action_kind, action_id, fires_at, intensity, state FROM reminders WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, action_id, action_kind, mode, planned_minutes, started_at, paused_sec, ended_at, status FROM focus_sessions WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, kind, at, snapshot, answers FROM review_records WHERE deleted_at IS NULL
-         - SELECT id, created_at, updated_at, deleted_at, action_kind, action_id, completed_at, est_minutes FROM completion_records WHERE deleted_at IS NULL
-   ```
-4. **设置 JWT 认证**：在控制台的 **Authentication** 中选择 **HS256**，随便输入一串自定义密钥（例如 32 位随机字符），保存。
-5. **记录 Instance URL**：复制分配给你的端点（例如 `https://xxxx.powersync.journeyapps.com`）。
-
-#### 第三步：部署 Cloudflare Workers 后端（纯网页在线粘贴，无需安装任何工具）
-1. 访问 [Cloudflare Dashboard](https://dash.cloudflare.com/)，在 **Workers & Pages** 中点击 **Create application** -> **Create Worker**（名称可填 `nextdo-server`，点击 **Deploy**）。
-2. 在该 Worker 详情页进入 **Settings** -> **Variables and Secrets**，添加以下 3 个变量（点击 **Add**，类型选择 Secret 或 Text）：
-   - `DATABASE_URL`：步骤一中获取的 Neon 数据库连接串（类型选 **Secret**）
-   - `JWT_SECRET`：步骤二中填写的 JWT 密钥（类型选 **Secret**）
-   - `NEXTDO_SYNC_ENDPOINT`：步骤二中复制的 PowerSync Instance URL（类型选 **Text**）
-3. **复制代码并一键部署**：
-   - 在 Worker 页面右上角点击 **Edit Code**（进入 Cloudflare 在线网页代码编辑器）；
-   - 点击打开 [👉 **server/deploy/worker.js**](https://github.com/printsdf/Nextdo/blob/main/server/deploy/worker.js)（或在 [Releases](https://github.com/printsdf/Nextdo/releases) 附件中下载 `worker.js`），在页面右上角点击 **Copy raw file** 按钮复制全部代码；
-   - 切换回 Cloudflare 网页编辑器，全选覆盖并粘贴，点击右上角 **Deploy**！
-4. 复制分配给你的 Worker 网址（形如 `https://nextdo-server.<你的用户名>.workers.dev`）。
-
-> 💡 **无需手动建表**：在浏览器中直接访问该 Worker 网址，系统将自动连接 Neon 完成全部 14 张表的创建，并展示漂亮的就绪状态面板！
-
-> 📖 想要查看更详细的图文部署指南与高级技巧？请参阅 [零成本免费云同步完整部署指南](./server/deploy/FREE_CLOUD_DEPLOY.md)。
-> 🖥️ 如果你拥有一台 Linux VPS 并喜欢 Docker，可直接使用单机一键式 Docker 部署：[Docker 部署文档](./server/deploy/README.md)。
+- **前端技术栈**：React 19、React Native 0.86、Expo SDK 57、NativeWind 4 (Tailwind CSS)
+- **桌面容器**：Tauri v2
+- **本地存储与同步**：SQLite (`@op-engineering/op-sqlite`)、PowerSync (`@powersync/react-native` / `@powersync/web`)
+- **服务端**：Hono、Cloudflare Workers、PostgreSQL 16
 
 ---
 
-## 在 Nextdo App 中开启同步
+## 💻 本地开发指南
 
-当你完成上述步骤得到 Worker 网址后，即可在已安装的应用中开启多端同步：
+如果你希望参与 Nextdo 的功能开发或自行编译定制版本，可参考以下步骤：
 
-### 1. 首台设备连接（如 Mac 电脑上的 dmg 应用）
-1. 打开 Nextdo 应用，点击底部导航栏的 **设置**。
-2. 在 **云同步** 区域的输入框中，直接填入你的 **Workers 网址**（例如 `https://nextdo-server.xyz.workers.dev`）。
-3. 点击 **连接**：
-   - 系统将自动与服务器握手并完成首台设备免密绑定；
-   - 自动获取流端点并开启实时数据同步，界面显示 **已连接**！
+### 准备环境
+- Node.js `>= 22.13`
+- pnpm `>= 12.5.1`
+- （如需编译桌面端）Rust 1.78+ 及 Cargo
 
-### 2. 后续设备配对（如手机上的 apk 应用）
-1. 在已连接的首台设备（Mac 电脑）上，点击 **扫码配对** 或 **复制连接串**。
-2. 在第二台设备（手机）打开 Nextdo 设置：
-   - 用手机摄像头扫码，或直接粘贴连接串，点击 **连接** 即可瞬间加入同一数据账本！
+### 快速起步
+```bash
+# 1. 克隆代码仓库
+git clone https://github.com/printsdf/Nextdo.git
+cd Nextdo
 
----
+# 2. 安装项目依赖
+pnpm install
 
-## 常见问题
+# 3. 运行代码检查与全量测试套件
+pnpm lint
+pnpm typecheck
+pnpm test
 
-<details>
-<summary><b>Q: 我需要付费吗？</b></summary>
-完全不需要。Neon、PowerSync Cloud 和 Cloudflare Workers 均提供非常充裕的永久免费配额（每天 10 万次请求、每月 2GB 同步流量），对个人或家庭日常 GTD 使用绰绰有余。
-</details>
+# 4. 启动移动端/Web端开发服务器
+cd apps/mobile
+pnpm start        # 交互式菜单（按 w 启动 Web 模式，按 a 启动 Android，按 i 启动 iOS）
 
-<details>
-<summary><b>Q: 为什么我不需要在数据库里建表？</b></summary>
-Nextdo 服务端内置了自动迁移机制。当 Worker 首次接收到连接请求时，会自动执行建表逻辑，创建所需的 14 张业务表和相关索引。
-</details>
-
-<details>
-<summary><b>Q: 数据是安全的吗？</b></summary>
-数据完全存储在你自己的私有 PostgreSQL 数据库和你的本地设备上，没有任何第三方中心服务器收集你的任务或个人隐私。
-</details>
+# 5. （可选）启动桌面端 Tauri 调试
+cd ../desktop
+pnpm dev
+```
 
 ---
 
-## License
+## 🗺️ 路线图 (Roadmap)
 
-[MIT License](./LICENSE)
+- [x] GTD 完整生命周期闭环（收集箱、向导式厘清、项目拆解）
+- [x] 智能当下推荐引擎（场景/时间约束与多维权重精算）
+- [x] 21 天习惯契约与项目联动追踪
+- [x] 全屏极简心流专注模式
+- [x] 双轨日常与每周系统复盘
+- [x] 本地优先与全自动零成本多端云同步
+- [x] 多端设备二维码扫码配对
+- [ ] 外部日历导入与系统日历双向互通 (CalDAV / Google Calendar / Apple Calendar)
+- [ ] 本地自然语言快速捕获解析（如“明天下午三点跟张三开会”）
+- [ ] 专注时长热力图与长期统计报表
+- [ ] 跨平台全局快捷捕获呼出栏
+
+---
+
+## 🤝 参与贡献
+
+我们非常欢迎各种形式的社区贡献！无论是提出新想法、报告 Bug 还是提交代码改进：
+1. 提交 [Issue](https://github.com/printsdf/Nextdo/issues) 提出你的功能建议或缺陷反馈；
+2. Fork 本仓库，创建新的特性分支（`git checkout -b feat/awesome-feature`）；
+3. 遵循现有的代码规范与测试流程，提交变更；
+4. 开启 Pull Request，我们会在第一时间进行 Review 与讨论。
+
+---
+
+## 💖 致谢与鸣谢
+
+特别感谢 **[TopBook](https://topbook.cc/)** 团队长期以来在高效工作流、个人知识管理与 GTD 哲学普及上的卓越分享，为 Nextdo 的产品理念与心流设计提供了深刻的启发。
+
+---
+
+## 📄 开源协议
+
+本项目采用 [MIT 许可证](./LICENSE) 开源，允许商业与非商业场景下的自由使用、修改与分发。
+
+---
+
+<div align="center">
+  <sub>如果 Nextdo 帮助你找回了专注与心流，欢迎在 GitHub 上为我们点亮一颗 ⭐️！</sub>
+</div>
