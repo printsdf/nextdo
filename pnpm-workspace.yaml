@@ -5,11 +5,14 @@ packages:
 
 # pnpm 10+ blocks build scripts by default; op-sqlite needs its native build
 allowBuilds:
-  esbuild: set this to true or false
-  workerd: set this to true or false
+  '@op-engineering/op-sqlite': true
+  esbuild: true
+  workerd: true
 
 minimumReleaseAgeExclude:
   - '@op-engineering/op-sqlite@18.2.5'
 
 onlyBuiltDependencies:
   - '@op-engineering/op-sqlite'
+  - esbuild
+  - workerd

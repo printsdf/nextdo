@@ -229,7 +229,7 @@ export function createApp(config: ServerConfig): Hono {
     <div class="box">
       <div class="box-title">你的同步服务器网址</div>
       <div class="url-row">
-        <input class="url-input" id="srvUrl" value="\${origin}" readonly />
+        <input class="url-input" id="srvUrl" value="${origin}" readonly />
         <button onclick="navigator.clipboard.writeText(document.getElementById('srvUrl').value); this.innerText='已复制'; setTimeout(()=>this.innerText='复制', 2000)">复制</button>
       </div>
     </div>

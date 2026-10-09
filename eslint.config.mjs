@@ -19,6 +19,7 @@ export default tseslint.config(
       // deliberately outside the root lint/typecheck/test gates (see
       // e2e/README.md; task 09-22-e2e-sync-roundtrip).
       'e2e/**',
+      'server/deploy/**',
     ],
   },
   js.configs.recommended,
@@ -54,7 +55,8 @@ export default tseslint.config(
   {
     // logger modules are the sanctioned console wrappers (spec: only logging
     // path). The server has its own (Rule 1: it cannot import core's).
-    files: ['packages/core/src/lib/logger.ts', 'server/app/src/logger.ts'],
+    // init-db.ts is a CLI setup script with direct terminal output.
+    files: ['packages/core/src/lib/logger.ts', 'server/app/src/logger.ts', 'server/app/src/init-db.ts'],
     rules: { 'no-console': 'off' },
   },
   {
