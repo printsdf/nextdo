@@ -33,7 +33,7 @@
  * boundary); this screen owns only the form's transient state.
  */
 import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { useAppInsets } from '@/lib/use-app-insets';
@@ -59,6 +59,21 @@ import { QRCode } from '@/components/qr-code';
  */
 function stripDerivedSuffix(backendUrl: string): string {
   return backendUrl.replace(/\/+$/, '').replace(/\/(api|sync)$/, '');
+}
+
+/**
+ * Detect if a string looks like a plain HTTP/HTTPS server address
+ * (not a connection string like `<base>|<token>` or a `nextdo://` deep link).
+ */
+function isPlainHttpUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    return false;
+  }
+  if (trimmed.includes('|') || trimmed.startsWith('nextdo://')) {
+    return false;
+  }
+  return true;
 }
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
@@ -191,9 +206,14 @@ export default function SettingsScreen() {
   // carries its own address, so it satisfies the presence check on its
   // own: the user pasted a complete instruction and should not also have
   // to retype the address into the field above.
+  // When the user pastes a plain HTTP/HTTPS server address into the token
+  // field, we also treat the address as present so one-tap connecting works
+  // seamlessly without forcing them to manually switch tabs.
   const hasAdvanced = advancedBackendUrl.trim() !== '' && advancedEndpoint.trim() !== '';
   const connectionString = parseConnectionString(token);
-  const addressPresent = hasAdvanced || connectionString !== null || serverAddress.trim() !== '';
+  const tokenIsPlainUrl = isPlainHttpUrl(token);
+  const addressPresent =
+    hasAdvanced || connectionString !== null || tokenIsPlainUrl || serverAddress.trim() !== '';
   // The button only checks PRESENCE, not validity: address VALIDITY and
   // the token REQUIREMENT are both left to connect's inline error, not the
   // button (the pre-existing contract).
@@ -209,18 +229,29 @@ export default function SettingsScreen() {
       // the address field — the user pasted a complete, authoritative
       // instruction. A BARE token (parse → null) keeps the pre-existing
       // behavior of "this field is just the token".
-      const result = connectionString
-        ? await connect({
-            serverAddress: connectionString.serverAddress,
-            token: connectionString.token,
-          })
-        : hasAdvanced
-          ? await connect({
-              backendUrl: advancedBackendUrl,
-              endpoint: advancedEndpoint,
-              token,
-            })
-          : await connect({ serverAddress, token });
+      // If the user entered a plain server URL in the token field with no
+      // explicit serverAddress, we treat it adaptively as a serverAddress
+      // with an empty token (triggers automatic server claim if unclaimed).
+      let result;
+      if (connectionString) {
+        result = await connect({
+          serverAddress: connectionString.serverAddress,
+          token: connectionString.token,
+        });
+      } else if (hasAdvanced) {
+        result = await connect({
+          backendUrl: advancedBackendUrl,
+          endpoint: advancedEndpoint,
+          token,
+        });
+      } else if (tokenIsPlainUrl && serverAddress.trim() === '') {
+        result = await connect({
+          serverAddress: token.trim(),
+          token: '',
+        });
+      } else {
+        result = await connect({ serverAddress, token });
+      }
       // ok → the hook's owner-token subscription flips the block to the
       // connected view (the inputs unmount with it).
       if (result.ok) {
@@ -407,6 +438,21 @@ export default function SettingsScreen() {
               未连接 — 数据仅保存在这台设备上。粘贴来自其他设备或服务器的连接串，或填写你的同步服务器地址即可开启同步。
             </Text>
 
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel="打开云同步搭建教程"
+              onPress={() => {
+                void Linking.openURL(
+                  'https://github.com/printsdf/Nextdo#多端云同步零成本纯网页搭建无需下载源码',
+                );
+              }}
+              className="flex-row items-center gap-1.5 self-start py-0.5"
+            >
+              <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
+                📖 查看 3 分钟零成本多端云同步教程 (纯网页·无需下载源码) →
+              </Text>
+            </Pressable>
+
             {/* 场景分流选择器 */}
             <View className="flex-row gap-2">
               <Pressable
@@ -467,7 +513,7 @@ export default function SettingsScreen() {
             {syncMode === 'pair' ? (
               <View className="gap-2">
                 <Text className="font-sans text-xs text-muted dark:text-muted-dark">
-                  在已连接设备上点击「复制连接串」或「扫码配对」，在此粘贴：
+                  粘贴来自其他设备的连接串，或直接填入自建 Workers 网址：
                 </Text>
                 <TextInput
                   className={INPUT_CLASS}
@@ -529,10 +575,10 @@ export default function SettingsScreen() {
               <View className="gap-2 rounded-lg border border-border/40 bg-surface/30 p-3 dark:border-border-dark/40 dark:bg-surface-dark/30">
                 <View className="gap-0.5">
                   <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
-                    1. 首台绑定（自己部署的服务端）
+                    1. 首台绑定（自己部署的 Workers 服务端）
                   </Text>
                   <Text className="font-sans text-xs text-muted dark:text-muted-dark leading-relaxed">
-                    无需寻找 Token。直接切换至上方「自建服务器」模式，填入地址点击连接，系统会自动免密认领并持久化密钥。
+                    无需寻找 Token。在网页按照教程搭建完 Workers 后，将分配的 Workers 网址（如 https://xxx.workers.dev）直接填入上方输入框点击连接，系统会自动免密认领绑定。
                   </Text>
                 </View>
                 <View className="gap-0.5">
@@ -540,15 +586,15 @@ export default function SettingsScreen() {
                     2. 后续设备（多端同步配对）
                   </Text>
                   <Text className="font-sans text-xs text-muted dark:text-muted-dark leading-relaxed">
-                    无需手动抄写 Token。在已连接设备（如电脑或首台手机）的设置中点击「扫码配对」或「复制连接串」，在此直接粘贴。
+                    无需手动输入任何信息。在已连接的第一台设备（如电脑）设置中点击「扫码配对」或「复制连接串」，手机扫码或粘贴即可秒级加入。
                   </Text>
                 </View>
                 <View className="gap-0.5">
                   <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
-                    3. 静态环境变量部署
+                    3. 零成本·纯网页搭建
                   </Text>
                   <Text className="font-sans text-xs text-muted dark:text-muted-dark leading-relaxed">
-                    仅当你在部署服务器时设置了 NEXTDO_OWNER_TOKEN 环境变量，才需要在下方「高级设置」中手动填写。
+                    无需下载源代码，无需自备服务器，利用主流云平台永久免费套餐全程在网页中点选即可搭建，数据完全属于你自己。
                   </Text>
                 </View>
               </View>

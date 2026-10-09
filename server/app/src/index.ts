@@ -24,6 +24,7 @@ import {
 import { createPool } from './db.js';
 import { logger } from './logger.js';
 import { resolveStaticOwnerToken } from './owner-token.js';
+import { initDatabaseSchema } from './schema-init.js';
 import { seedDefaultContexts } from './seed.js';
 import { resolveSyncEndpoint } from './sync-endpoint.js';
 
@@ -55,6 +56,13 @@ export async function main(): Promise<void> {
   }
 
   const pool = createPool(databaseUrl);
+
+  // Auto-initialize application database schema (tables, indexes, publication)
+  try {
+    await initDatabaseSchema(pool);
+  } catch (error) {
+    logger.error('failed to initialize database schema', error);
+  }
 
   // Initialize system_settings table and resolve claim state
   try {

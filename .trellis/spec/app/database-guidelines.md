@@ -448,6 +448,26 @@ PowerSync Rules).
 - Every query function: happy path + empty result + (for mutations) invariant-violation
   case.
 
+## Zero-Cost Cloud Sync & Cloudflare Workers Edge Deployment
+
+> Standardized in task 10-09-zero-cost-cloud-sync: provides a zero-terminal, zero-source-code deployment path on the free tier of major cloud platforms (Cloudflare Workers + Neon PostgreSQL + PowerSync Cloud).
+
+- **Cloudflare Workers Edge Runtime (`server/app/src/worker.ts`)**:
+  - Exports a standard ES module fetch handler for Cloudflare Workers / workerd edge environment.
+  - Automatically resolves connection string via `env.HYPERDRIVE?.connectionString` or `env.DATABASE_URL`.
+  - Lazy, idempotent schema initialization (`server/app/src/schema-init.ts`) executes DDL on first request (`/`, `/health`, `/credentials`, `/upload`), creating all 14 core business tables, indexes, and replication publication `powersync` automatically. Users never run manual SQL scripts.
+- **Dynamic Auto-Claim (`/claim/status` & `/claim/claim`)**:
+  - When the server is deployed without a pre-set `NEXTDO_OWNER_TOKEN`, it starts in an unclaimed state.
+  - The first client connecting with an empty token automatically triggers `/claim/claim`. The server generates a cryptographically secure 32-byte hex token, persists it into the `system_settings` table, and returns it to the client.
+  - Subsequent connection attempts without the correct token are rejected with 401.
+- **Client Adaptive Address Detection (`apps/mobile/app/(tabs)/settings.tsx`)**:
+  - `isPlainHttpUrl(token)` inspects the primary input in the default "连接串配对" tab.
+  - If a user pastes a bare `http://` or `https://` Workers URL directly, the client adaptively treats it as a server address with an empty token, immediately enabling the connect button and executing the auto-claim handshake without forcing manual mode switching.
+- **Single-File Bundle Distribution (`server/deploy/worker.js`)**:
+  - Single-file bundled worker script (~310 KB) compiled via wrangler/esbuild is checked into the repo (`server/deploy/worker.js`) and published as a standalone GitHub Release asset in `.github/workflows/release.yml`.
+  - End users downloading `.dmg` or `.apk` installers can deploy the backend entirely in the Cloudflare web browser dashboard by copying the single file without cloning the repository or running local node/pnpm commands.
+
+
 ### Gotcha: jest drops function-valued config options — path-based plugins only
 
 Jest JSON-serializes the project config to its worker processes, which

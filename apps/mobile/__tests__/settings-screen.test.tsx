@@ -502,23 +502,26 @@ describe('settings cloud-sync block', () => {
     renderRouter('app', { initialUrl: '/(tabs)/settings' });
     await flush();
 
+    // The tutorial link is visible on disconnected view
+    expect(screen.getByText(/查看 3 分钟零成本多端云同步教程/)).toBeTruthy();
+
     const guideBtn = screen.getByRole('button', { name: '什么是 Token 指引' });
     expect(guideBtn).toBeTruthy();
-    expect(screen.queryByText(/1. 首台绑定（自己部署的服务端）/)).toBeNull();
+    expect(screen.queryByText(/1. 首台绑定/)).toBeNull();
 
     // Expand guide
     fireEvent.press(guideBtn);
     await flush();
 
-    expect(screen.getByText(/1. 首台绑定（自己部署的服务端）/)).toBeTruthy();
+    expect(screen.getByText(/1. 首台绑定/)).toBeTruthy();
     expect(screen.getByText(/2. 后续设备（多端同步配对）/)).toBeTruthy();
-    expect(screen.getByText(/3. 静态环境变量部署/)).toBeTruthy();
+    expect(screen.getByText(/3. 零成本·纯网页搭建/)).toBeTruthy();
 
     // Collapse guide
     fireEvent.press(guideBtn);
     await flush();
 
-    expect(screen.queryByText(/1. 首台绑定（自己部署的服务端）/)).toBeNull();
+    expect(screen.queryByText(/1. 首台绑定/)).toBeNull();
   });
 
   it('first device in 「自建服务器」 mode inputs address and connects with empty token → auto-claims seamlessly', async () => {
@@ -540,6 +543,29 @@ describe('settings cloud-sync block', () => {
     await pressConnect();
 
     expect(mockAuth.storedToken).toBe('server-generated-claim-token-123');
+    expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
+    expect(screen.getByText(/已连接/)).toBeTruthy();
+  });
+
+  it('user directly pastes plain Workers URL into primary token input → adaptively detects server address and connects via auto-claim', async () => {
+    mockAuth.claimStatus = false;
+    mockAuth.claimToken = 'server-generated-claim-token-adaptive';
+
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    // Default mode: pair. User directly inputs/pastes plain server URL into the token input
+    expect(connectButtonDisabled()).toBe(true);
+    fireEvent.changeText(screen.getByPlaceholderText(TOKEN_PLACEHOLDER), SERVER_ADDRESS);
+    await flush();
+
+    // Adaptive detection enables the connect button immediately
+    expect(connectButtonDisabled()).toBe(false);
+
+    await pressConnect();
+
+    // Connects via auto-claim and stores the token and config
+    expect(mockAuth.storedToken).toBe('server-generated-claim-token-adaptive');
     expect(mockAuth.storedConfig).toEqual(VALID_CONFIG);
     expect(screen.getByText(/已连接/)).toBeTruthy();
   });
