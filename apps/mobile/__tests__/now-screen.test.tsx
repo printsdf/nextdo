@@ -296,6 +296,32 @@ describe('Now screen', () => {
     expect(screen.getByText('任意')).toBeTruthy();
   });
 
+  it('allows collapsing and expanding the eligible items list to reduce visual distraction', async () => {
+    setPool([
+      nextAction({ id: 'a', title: '主行动', value: 5, estMinutes: 20 }),
+      nextAction({ id: 'b', title: '次要行动', value: 3, estMinutes: 20 }),
+    ]);
+    renderRouter('app', { initialUrl: '/(tabs)/now' });
+
+    await waitFor(() => expect(screen.getAllByText('主行动')).toHaveLength(2));
+    expect(screen.getByText('次要行动')).toBeTruthy();
+    expect(screen.getByText('收起清单')).toBeTruthy();
+
+    // Click to collapse
+    fireEvent.press(screen.getByText('收起清单'));
+    await waitFor(() => expect(screen.getByText('展开清单')).toBeTruthy());
+    expect(screen.getByText(/已折叠 2 项备选事项/)).toBeTruthy();
+    // In collapsed mode, the list row for 次要行动 is hidden; hero stays intact.
+    expect(screen.queryByText('次要行动')).toBeNull();
+    expect(screen.getAllByText('主行动')).toHaveLength(1);
+
+    // Click to expand again
+    fireEvent.press(screen.getByText('展开清单'));
+    await waitFor(() => expect(screen.getByText('收起清单')).toBeTruthy());
+    expect(screen.getByText('次要行动')).toBeTruthy();
+    expect(screen.getAllByText('主行动')).toHaveLength(2);
+  });
+
   it('the stats row counts eligible vs filtered and bands the cognitive load', async () => {
     // 300 min > the default 60-minute slot → 'too-long' (filtered).
     setPool([

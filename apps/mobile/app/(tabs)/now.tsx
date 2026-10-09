@@ -579,6 +579,7 @@ export default function NowScreen() {
   // The LIST-AREA context filter (design §5): independent from the engine
   // context above — it only trims the list, never the hero recommendation.
   const [selectedContextIds, setSelectedContextIds] = useState<string[]>([]);
+  const [isListExpanded, setIsListExpanded] = useState(true);
   const insets = useAppInsets();
   const topPadding = Math.max(insets.top, 16);
   const mutationError = skipError ?? snoozeError ?? trashError ?? completeError ?? habitError;
@@ -725,12 +726,14 @@ export default function NowScreen() {
               </Card>
             ) : null}
 
-            {/* Stats row (design §5) */}
-            <Card className="flex-row items-stretch px-1">
+            {/* Stats row: Light quiet capsule row rather than stacked card */}
+            <View className="flex-row items-center rounded-2xl border border-border/50 bg-surface/60 py-1.5 px-2 backdrop-blur-sm dark:border-border-dark/50 dark:bg-surface-dark/60">
               <StatsCell label="可执行" value={`${eligible.length}/${totalCount} 项`} />
+              <View className="h-6 w-px bg-border/40 dark:bg-border-dark/40" />
               <StatsCell label="预计耗时" value={`${totalEst} 分钟`} />
+              <View className="h-6 w-px bg-border/40 dark:bg-border-dark/40" />
               <StatsCell label="认知负荷" value={cognitiveLoadLabel(totalEst)} />
-            </Card>
+            </View>
 
             {displayed === null ? (
               <EmptyState title="没有任何适合当前场景与时间的行动" hint="试试切换上面的场景或时间。">
@@ -753,7 +756,7 @@ export default function NowScreen() {
             ) : (
               <>
                 {/* Recommendation Hero Card */}
-                <Card className="p-4">
+                <Card className="p-4 shadow-sm">
                   <View className="mb-2.5 flex-row items-center gap-2">
                     <Tag label={KIND_LABELS[displayed.action.kind]} tone="accent" />
                     {displayed.action.estMinutes > 0 ? (
@@ -770,18 +773,33 @@ export default function NowScreen() {
                   ) : null}
 
                   {displayed.reasons.length > 0 ? (
-                    <View className="mt-3.5 rounded-xl bg-canvas p-3 dark:bg-canvas-dark">
-                      <Text className="mb-1 font-sans text-xs font-semibold text-muted dark:text-muted-dark">
+                    <View className="mt-3.5 rounded-xl border border-border/40 bg-canvas/70 p-3 dark:border-border-dark/40 dark:bg-canvas-dark/70">
+                      <Text className="mb-1.5 font-sans text-xs font-semibold text-muted dark:text-muted-dark">
                         为什么是它？
                       </Text>
-                      <View className="gap-1">
-                        {displayed.reasons.slice(0, 3).map((reason) => (
-                          <Text
+                      <View className="flex-row flex-wrap gap-1.5">
+                        {displayed.reasons.slice(0, 3).map((reason, idx) => (
+                          <View
                             key={`${reason.type}-${reason.code}`}
-                            className="font-sans text-xs text-ink/80 dark:text-ink-dark/80"
+                            className={cn(
+                              'flex-row items-center rounded-lg px-2.5 py-1',
+                              idx === 0
+                                ? 'bg-accent/10 border border-accent/25 dark:bg-accent-dark/20 dark:border-accent-dark/30'
+                                : 'bg-surface/80 border border-border/60 dark:bg-surface-dark/80 dark:border-border-dark/60',
+                            )}
                           >
-                            • {REASON_LABELS[reason.code]}
-                          </Text>
+                            <Text
+                              className={cn(
+                                'font-sans text-xs',
+                                idx === 0
+                                  ? 'font-medium text-accent dark:text-accent-dark'
+                                  : 'text-ink/80 dark:text-ink-dark/80',
+                              )}
+                            >
+                              {idx === 0 ? '★ ' : ''}
+                              {REASON_LABELS[reason.code]}
+                            </Text>
+                          </View>
                         ))}
                       </View>
                     </View>
@@ -838,7 +856,7 @@ export default function NowScreen() {
                   ))}
                 </View>
 
-                {/* Eligible list (always expanded, design §5) */}
+                {/* Eligible list header & collapsible body */}
                 {visible.length === 0 ? (
                   <EmptyState
                     title="没有匹配当前情境的可执行事项"
@@ -846,21 +864,45 @@ export default function NowScreen() {
                   />
                 ) : (
                   <View className="gap-2.5">
-                    {visible.map((entry) => (
-                      <ActionRow
-                        key={entry.action.id}
-                        entry={entry}
-                        now={now}
-                        projectName={
-                          entry.action.projectId !== undefined
-                            ? projectTitles[entry.action.projectId]
-                            : undefined
-                        }
-                        contextName={contextName}
-                        onSnooze={handleSnooze}
-                        onTrash={handleTrash}
+                    <View className="flex-row items-center justify-between px-1">
+                      <Text className="font-sans text-xs font-semibold text-muted dark:text-muted-dark">
+                        可执行备选事项 ({visible.length})
+                      </Text>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        label={isListExpanded ? '收起清单' : '展开清单'}
+                        onPress={() => setIsListExpanded((prev) => !prev)}
                       />
-                    ))}
+                    </View>
+                    {isListExpanded ? (
+                      visible.map((entry) => (
+                        <ActionRow
+                          key={entry.action.id}
+                          entry={entry}
+                          now={now}
+                          projectName={
+                            entry.action.projectId !== undefined
+                              ? projectTitles[entry.action.projectId]
+                              : undefined
+                          }
+                          contextName={contextName}
+                          onSnooze={handleSnooze}
+                          onTrash={handleTrash}
+                        />
+                      ))
+                    ) : (
+                      <Pressable
+                        onPress={() => setIsListExpanded(true)}
+                        accessibilityRole="button"
+                        accessibilityLabel="展开备选事项清单"
+                        className="rounded-xl border border-border/50 bg-surface/40 p-3.5 dark:border-border-dark/50 dark:bg-surface-dark/40"
+                      >
+                        <Text className="text-center font-sans text-xs text-muted dark:text-muted-dark">
+                          已折叠 {visible.length} 项备选事项 · 点击展开查看完整列表
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
                 )}
               </>
