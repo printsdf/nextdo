@@ -18,7 +18,7 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useAppInsets } from '@/lib/use-app-insets';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Button, Card, ContextChip, EmptyState, Tag, ValueChips, cn, type TagTone } from '@nextdo/ui';
 import { DateTimePicker } from '@/components/datetime-picker';
 import { localDateKey, type NextAction, type Project, type ProjectStatus, type Value } from '@nextdo/core';
@@ -32,6 +32,8 @@ import { useUpdateNextAction } from '@/hooks/use-update-next-action';
 import { useCompleteAction } from '@/hooks/use-complete-action';
 import { useSnoozeAction } from '@/hooks/use-snooze-action';
 import { useTrashAction } from '@/hooks/use-trash-action';
+import { useTrashProject } from '@/hooks/use-trash-project';
+import { useTrashHabit } from '@/hooks/use-trash-habit';
 import { useAppClock } from '@/hooks/use-app-clock';
 import { useContexts } from '@/hooks/use-contexts';
 import { errorMessage } from '@/lib/error-messages';
@@ -446,12 +448,15 @@ function AddProjectHabitForm({
 function ProjectHabitRow({
   entry,
   onComplete,
+  onTrash,
 }: {
   entry: ProjectHabitEntry;
   onComplete: (dayId: string) => void;
+  onTrash?: (habitId: string) => void;
 }) {
   const { habit, cycleDay, doneCount, todayDay, grid } = entry;
   const cycleDays = habit.cycleDays ?? 21;
+  const [armedTrash, setArmedTrash] = useState(false);
 
   return (
     <Card className="gap-2.5">
@@ -528,16 +533,38 @@ function ProjectHabitRow({
         })}
       </View>
 
-      {todayDay !== null ? (
-        <View className="mt-1 flex-row justify-end">
+      <View className="mt-1 flex-row items-center justify-between">
+        {onTrash !== undefined ? (
+          armedTrash ? (
+            <Button
+              size="sm"
+              label="确认删除习惯？"
+              variant="secondary"
+              onPress={() => {
+                setArmedTrash(false);
+                onTrash(habit.id);
+              }}
+            />
+          ) : (
+            <Button
+              size="sm"
+              label="删除习惯"
+              variant="ghost"
+              onPress={() => setArmedTrash(true)}
+            />
+          )
+        ) : (
+          <View />
+        )}
+        {todayDay !== null ? (
           <Button
             size="sm"
             label="今日打卡"
             variant="secondary"
             onPress={() => onComplete(todayDay.id)}
           />
-        </View>
-      ) : null}
+        ) : null}
+      </View>
     </Card>
   );
 }
@@ -555,10 +582,13 @@ export default function ProjectDetailScreen() {
   const { complete, error: completeError } = useCompleteAction();
   const { snooze, error: snoozeError } = useSnoozeAction();
   const { trash, error: trashError } = useTrashAction();
+  const { trash: trashProject, error: trashProjectError } = useTrashProject();
+  const { trash: trashHabit, error: trashHabitError } = useTrashHabit();
 
   const [showForm, setShowForm] = useState(false);
   const [showHabitForm, setShowHabitForm] = useState(false);
   const [showEditProject, setShowEditProject] = useState(false);
+  const [armedProjectTrash, setArmedProjectTrash] = useState(false);
   const [snoozeTarget, setSnoozeTarget] = useState<string | null>(null);
   // One open action edit at a time (R4).
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
@@ -584,7 +614,14 @@ export default function ProjectDetailScreen() {
   const project = projects.find((entry) => entry.id === projectId);
   // 归档 / 恢复 (screen-level useUpdateProject) failures surface with the
   // other mutation errors — the edit forms show their own hook's error.
-  const mutationError = addError ?? completeError ?? snoozeError ?? trashError ?? updateProjectError;
+  const mutationError =
+    addError ??
+    completeError ??
+    snoozeError ??
+    trashError ??
+    updateProjectError ??
+    trashProjectError ??
+    trashHabitError;
   // Action-row context ids → display names (unknown ids fall back to the id).
   const contextName = (id: string) =>
     contexts?.find((entry) => entry.id === id)?.name ?? id;
@@ -626,7 +663,7 @@ export default function ProjectDetailScreen() {
                 reversible); done/dropped (terminal) show no status/edit
                 buttons here — the weekly review decides them. */}
             {project.status === 'active' || project.status === 'on-hold' ? (
-              <View className="flex-row gap-2">
+              <View className="flex-row flex-wrap gap-2">
                 <Button
                   label="编辑"
                   variant="secondary"
@@ -646,6 +683,24 @@ export default function ProjectDetailScreen() {
                     label="恢复"
                     variant="ghost"
                     onPress={() => void updateProject({ project, patch: { status: 'active' } }).then(reload)}
+                  />
+                )}
+                {armedProjectTrash ? (
+                  <Button
+                    label="确认删除项目？"
+                    variant="secondary"
+                    onPress={() => {
+                      setArmedProjectTrash(false);
+                      void trashProject(project.id).then((ok) => {
+                        if (ok) router.replace('/(tabs)/projects');
+                      });
+                    }}
+                  />
+                ) : (
+                  <Button
+                    label="删除项目"
+                    variant="ghost"
+                    onPress={() => setArmedProjectTrash(true)}
                   />
                 )}
               </View>
@@ -773,6 +828,11 @@ export default function ProjectDetailScreen() {
                 <ProjectHabitRow
                   key={entry.habit.id}
                   entry={entry}
+                  onTrash={(habitId) => {
+                    void trashHabit(habitId).then((ok) => {
+                      if (ok) reloadHabits();
+                    });
+                  }}
                   onComplete={(dayId) => {
                     void complete({ actionKind: 'habit', actionId: dayId }).then((ok) => {
                       // 理由同 Now 屏的习惯块：`useProjectHabits` 是查询式 hook

@@ -91,9 +91,13 @@ export function createApp(config: ServerConfig): Hono {
       ? config.claimState.isClaimed()
       : config.ownerToken != null && config.ownerToken.trim() !== '';
 
+    const currentToken = config.claimState
+      ? config.claimState.getOwnerToken()
+      : (config.ownerToken ?? null);
+
     const accept = c.req.header('accept') || '';
     if (accept.includes('text/html')) {
-      const origin = new URL(c.req.url).origin;
+      const tokenJson = JSON.stringify(currentToken);
       return c.html(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -179,21 +183,35 @@ export function createApp(config: ServerConfig): Hono {
       padding: 10px 12px;
       color: var(--accent);
       font-family: monospace;
-      font-size: 14px;
+      font-size: 13px;
       outline: none;
     }
-    button {
+    .btn-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    button, .link-btn {
       background: var(--accent);
       color: #0f172a;
       border: none;
       border-radius: 8px;
-      padding: 10px 16px;
-      font-size: 14px;
+      padding: 9px 14px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       transition: opacity 0.15s;
     }
-    button:hover { opacity: 0.9; }
+    button.secondary, .link-btn.secondary {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    button:hover, .link-btn:hover { opacity: 0.9; }
     .steps {
       display: flex;
       flex-direction: column;
@@ -224,15 +242,22 @@ export function createApp(config: ServerConfig): Hono {
 </head>
 <body>
   <div class="container">
-    <div class="badge"><span class="badge-dot"></span> 服务正常运行 · 数据库已自动就绪</div>
+    <div class="badge">
+      <span class="badge-dot"></span>
+      <span id="badgeText">${currentToken ? '服务正常运行 · 已生成专属连接串' : '服务正常运行 · 数据库已自动就绪'}</span>
+    </div>
     <h1>Nextdo 云同步服务</h1>
     <p>你的 Cloudflare Workers 后端已就绪。所有 14 张核心数据表已自动初始化完成，无需手动建表。</p>
     
     <div class="box">
-      <div class="box-title">你的同步服务器网址</div>
+      <div class="box-title" id="boxTitle">${currentToken ? '你的同步连接串（包含服务器网址与密钥）' : '你的同步服务器网址'}</div>
       <div class="url-row">
-        <input class="url-input" id="srvUrl" value="${origin}" readonly />
-        <button onclick="navigator.clipboard.writeText(document.getElementById('srvUrl').value); this.innerText='已复制'; setTimeout(()=>this.innerText='复制', 2000)">复制</button>
+        <input class="url-input" id="srvUrl" readonly />
+        <button id="copyBtn" onclick="handleCopy()">复制</button>
+      </div>
+      <div class="btn-group" id="btnGroup">
+        <a id="deepLinkBtn" class="link-btn secondary" style="display:none;" href="#">🚀 在 Nextdo App 中打开</a>
+        <button id="claimBtn" class="secondary" style="display:none;" onclick="handleGenerateToken()">⚡ 生成专属连接串</button>
       </div>
     </div>
 
@@ -245,15 +270,89 @@ export function createApp(config: ServerConfig): Hono {
         </div>
         <div class="step-item">
           <div class="step-num">2</div>
-          <div>找到 <strong>云同步</strong> 卡片，直接填入上方复制的服务器网址。</div>
+          <div id="step2Text">
+            ${currentToken
+              ? '找到 <strong>云同步</strong> 卡片，直接在 <strong>「连接串配对」</strong> 中粘贴上方复制的整行连接串。'
+              : '找到 <strong>云同步</strong> 卡片，在 <strong>「自建服务器」</strong> 中填入上方网址，或点击上方按钮生成连接串。'}
+          </div>
         </div>
         <div class="step-item">
           <div class="step-num">3</div>
-          <div>点击 <strong>连接</strong>，首台设备将自动免密绑定并开启实时双向同步！</div>
+          <div>点击 <strong>连接</strong>，秒级完成设备绑定并开启实时双向同步！</div>
         </div>
       </div>
     </div>
+
+    <div style="text-align:center;margin-top:1.25rem;">
+      <a href="https://my.feishu.cn/wiki/FDWJwoCHsiBgltk0sW4cKs47nKb?from=from_copylink" target="_blank" rel="noopener noreferrer" style="color:#64748b;font-size:0.875rem;text-decoration:none;">
+        📖 遇到配置疑问？查看《Nextdo 零成本私有云同步搭建指南》飞书图文教程 ↗
+      </a>
+    </div>
   </div>
+  <script>
+    var token = ${tokenJson};
+    var origin = window.location.origin;
+    var connStr = token ? (origin + '|' + token) : origin;
+    var deepLink = token ? ('nextdo://sync?s=' + encodeURIComponent(origin) + '&t=' + encodeURIComponent(token)) : '';
+
+    var srvUrlInput = document.getElementById('srvUrl');
+    var deepLinkBtn = document.getElementById('deepLinkBtn');
+    var claimBtn = document.getElementById('claimBtn');
+    var copyBtn = document.getElementById('copyBtn');
+
+    if (srvUrlInput) srvUrlInput.value = connStr;
+
+    if (token) {
+      if (deepLinkBtn) {
+        deepLinkBtn.href = deepLink;
+        deepLinkBtn.style.display = 'inline-flex';
+      }
+    } else {
+      if (claimBtn) {
+        claimBtn.style.display = 'inline-flex';
+      }
+    }
+
+    function handleCopy() {
+      var val = (srvUrlInput && srvUrlInput.value) || connStr;
+      navigator.clipboard.writeText(val);
+      if (copyBtn) {
+        copyBtn.innerText = '已复制';
+        setTimeout(function() { copyBtn.innerText = '复制'; }, 2000);
+      }
+    }
+
+    function handleGenerateToken() {
+      if (claimBtn) {
+        claimBtn.innerText = '正在生成…';
+        claimBtn.disabled = true;
+      }
+      fetch('/api/claim', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}'
+      })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data && data.ownerToken) {
+          window.location.reload();
+        } else {
+          alert('生成连接串失败: ' + (data && data.error ? data.error : '未知错误'));
+          if (claimBtn) {
+            claimBtn.innerText = '⚡ 生成专属连接串';
+            claimBtn.disabled = false;
+          }
+        }
+      })
+      .catch(function(err) {
+        alert('请求失败，请稍后重试');
+        if (claimBtn) {
+          claimBtn.innerText = '⚡ 生成专属连接串';
+          claimBtn.disabled = false;
+        }
+      });
+    }
+  </script>
 </body>
 </html>`);
     }

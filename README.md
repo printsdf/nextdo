@@ -162,7 +162,9 @@ Nextdo 专为个人设计了极简的多端同步方案，既可零成本免维�
 - **同步引擎**：[PowerSync Cloud](https://powersync.com/)（免费流引擎，实时同步增量）
 - **后端网关**：[Cloudflare Workers](https://dash.cloudflare.com/)（全球边缘计算，在线粘贴代码一键发布）
 
-> 📖 **完整图文教程**：查看 [零成本免费云同步完整部署指南](./server/deploy/FREE_CLOUD_DEPLOY.md)，约 3~5 分钟即可在网页中完成配置。
+> 📖 **完整图文教程**：
+> - 📄 **[飞书云文档：Nextdo 零成本私有云同步搭建指南（推荐 · 纯网页全流程）](https://my.feishu.cn/wiki/FDWJwoCHsiBgltk0sW4cKs47nKb?from=from_copylink)**
+> - 📝 [仓库 Markdown 文档：零成本免费云同步完整部署指南](./server/deploy/FREE_CLOUD_DEPLOY.md)
 
 ### 方案 B：私有 VPS 单机一键 Docker 部署
 如果你拥有一台 Linux VPS，可使用单机版 Docker Compose 一键拉起完整后端服务：

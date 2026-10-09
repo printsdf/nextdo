@@ -1,6 +1,6 @@
 # Nextdo Production Deployment (`server/deploy`)
 
-> **不想自己维护服务器？** 也可以使用全托管的免费云服务部署（Cloudflare Workers + Supabase/Neon + PowerSync Cloud），详见 [零成本免费云同步部署指南](./FREE_CLOUD_DEPLOY.md)。
+> **不想自己维护服务器？** 也可以使用全托管的免费云服务部署（Cloudflare Workers + Supabase/Neon + PowerSync Cloud），详见 [飞书部署图文指南](https://my.feishu.cn/wiki/FDWJwoCHsiBgltk0sW4cKs47nKb?from=from_copylink) 或 [零成本免费云同步部署指南](./FREE_CLOUD_DEPLOY.md)。
 
 A single-host Docker Compose stack that runs the whole backend:
 

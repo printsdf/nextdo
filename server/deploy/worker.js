@@ -8840,9 +8840,10 @@ function createApp(config) {
   const api = new Hono2();
   api.get("/", async (c) => {
     const isClaimed = config.claimState ? config.claimState.isClaimed() : config.ownerToken != null && config.ownerToken.trim() !== "";
+    const currentToken = config.claimState ? config.claimState.getOwnerToken() : config.ownerToken ?? null;
     const accept = c.req.header("accept") || "";
     if (accept.includes("text/html")) {
-      const origin = new URL(c.req.url).origin;
+      const tokenJson = JSON.stringify(currentToken);
       return c.html(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -8928,21 +8929,35 @@ function createApp(config) {
       padding: 10px 12px;
       color: var(--accent);
       font-family: monospace;
-      font-size: 14px;
+      font-size: 13px;
       outline: none;
     }
-    button {
+    .btn-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    button, .link-btn {
       background: var(--accent);
       color: #0f172a;
       border: none;
       border-radius: 8px;
-      padding: 10px 16px;
-      font-size: 14px;
+      padding: 9px 14px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       transition: opacity 0.15s;
     }
-    button:hover { opacity: 0.9; }
+    button.secondary, .link-btn.secondary {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    button:hover, .link-btn:hover { opacity: 0.9; }
     .steps {
       display: flex;
       flex-direction: column;
@@ -8973,15 +8988,22 @@ function createApp(config) {
 </head>
 <body>
   <div class="container">
-    <div class="badge"><span class="badge-dot"></span> \u670D\u52A1\u6B63\u5E38\u8FD0\u884C \xB7 \u6570\u636E\u5E93\u5DF2\u81EA\u52A8\u5C31\u7EEA</div>
+    <div class="badge">
+      <span class="badge-dot"></span>
+      <span id="badgeText">${currentToken ? "\u670D\u52A1\u6B63\u5E38\u8FD0\u884C \xB7 \u5DF2\u751F\u6210\u4E13\u5C5E\u8FDE\u63A5\u4E32" : "\u670D\u52A1\u6B63\u5E38\u8FD0\u884C \xB7 \u6570\u636E\u5E93\u5DF2\u81EA\u52A8\u5C31\u7EEA"}</span>
+    </div>
     <h1>Nextdo \u4E91\u540C\u6B65\u670D\u52A1</h1>
     <p>\u4F60\u7684 Cloudflare Workers \u540E\u7AEF\u5DF2\u5C31\u7EEA\u3002\u6240\u6709 14 \u5F20\u6838\u5FC3\u6570\u636E\u8868\u5DF2\u81EA\u52A8\u521D\u59CB\u5316\u5B8C\u6210\uFF0C\u65E0\u9700\u624B\u52A8\u5EFA\u8868\u3002</p>
     
     <div class="box">
-      <div class="box-title">\u4F60\u7684\u540C\u6B65\u670D\u52A1\u5668\u7F51\u5740</div>
+      <div class="box-title" id="boxTitle">${currentToken ? "\u4F60\u7684\u540C\u6B65\u8FDE\u63A5\u4E32\uFF08\u5305\u542B\u670D\u52A1\u5668\u7F51\u5740\u4E0E\u5BC6\u94A5\uFF09" : "\u4F60\u7684\u540C\u6B65\u670D\u52A1\u5668\u7F51\u5740"}</div>
       <div class="url-row">
-        <input class="url-input" id="srvUrl" value="\${origin}" readonly />
-        <button onclick="navigator.clipboard.writeText(document.getElementById('srvUrl').value); this.innerText='\u5DF2\u590D\u5236'; setTimeout(()=>this.innerText='\u590D\u5236', 2000)">\u590D\u5236</button>
+        <input class="url-input" id="srvUrl" readonly />
+        <button id="copyBtn" onclick="handleCopy()">\u590D\u5236</button>
+      </div>
+      <div class="btn-group" id="btnGroup">
+        <a id="deepLinkBtn" class="link-btn secondary" style="display:none;" href="#">\u{1F680} \u5728 Nextdo App \u4E2D\u6253\u5F00</a>
+        <button id="claimBtn" class="secondary" style="display:none;" onclick="handleGenerateToken()">\u26A1 \u751F\u6210\u4E13\u5C5E\u8FDE\u63A5\u4E32</button>
       </div>
     </div>
 
@@ -8994,15 +9016,87 @@ function createApp(config) {
         </div>
         <div class="step-item">
           <div class="step-num">2</div>
-          <div>\u627E\u5230 <strong>\u4E91\u540C\u6B65</strong> \u5361\u7247\uFF0C\u76F4\u63A5\u586B\u5165\u4E0A\u65B9\u590D\u5236\u7684\u670D\u52A1\u5668\u7F51\u5740\u3002</div>
+          <div id="step2Text">
+            ${currentToken ? "\u627E\u5230 <strong>\u4E91\u540C\u6B65</strong> \u5361\u7247\uFF0C\u76F4\u63A5\u5728 <strong>\u300C\u8FDE\u63A5\u4E32\u914D\u5BF9\u300D</strong> \u4E2D\u7C98\u8D34\u4E0A\u65B9\u590D\u5236\u7684\u6574\u884C\u8FDE\u63A5\u4E32\u3002" : "\u627E\u5230 <strong>\u4E91\u540C\u6B65</strong> \u5361\u7247\uFF0C\u5728 <strong>\u300C\u81EA\u5EFA\u670D\u52A1\u5668\u300D</strong> \u4E2D\u586B\u5165\u4E0A\u65B9\u7F51\u5740\uFF0C\u6216\u70B9\u51FB\u4E0A\u65B9\u6309\u94AE\u751F\u6210\u8FDE\u63A5\u4E32\u3002"}
+          </div>
         </div>
         <div class="step-item">
           <div class="step-num">3</div>
-          <div>\u70B9\u51FB <strong>\u8FDE\u63A5</strong>\uFF0C\u9996\u53F0\u8BBE\u5907\u5C06\u81EA\u52A8\u514D\u5BC6\u7ED1\u5B9A\u5E76\u5F00\u542F\u5B9E\u65F6\u53CC\u5411\u540C\u6B65\uFF01</div>
+          <div>\u70B9\u51FB <strong>\u8FDE\u63A5</strong>\uFF0C\u79D2\u7EA7\u5B8C\u6210\u8BBE\u5907\u7ED1\u5B9A\u5E76\u5F00\u542F\u5B9E\u65F6\u53CC\u5411\u540C\u6B65\uFF01</div>
         </div>
       </div>
     </div>
+
+    <div style="text-align:center;margin-top:1.25rem;">
+      <a href="https://my.feishu.cn/wiki/FDWJwoCHsiBgltk0sW4cKs47nKb?from=from_copylink" target="_blank" rel="noopener noreferrer" style="color:#64748b;font-size:0.875rem;text-decoration:none;">
+        \u{1F4D6} \u9047\u5230\u914D\u7F6E\u7591\u95EE\uFF1F\u67E5\u770B\u300ANextdo \u96F6\u6210\u672C\u79C1\u6709\u4E91\u540C\u6B65\u642D\u5EFA\u6307\u5357\u300B\u98DE\u4E66\u56FE\u6587\u6559\u7A0B \u2197
+      </a>
+    </div>
   </div>
+  <script>
+    var token = ${tokenJson};
+    var origin = window.location.origin;
+    var connStr = token ? (origin + '|' + token) : origin;
+    var deepLink = token ? ('nextdo://sync?s=' + encodeURIComponent(origin) + '&t=' + encodeURIComponent(token)) : '';
+
+    var srvUrlInput = document.getElementById('srvUrl');
+    var deepLinkBtn = document.getElementById('deepLinkBtn');
+    var claimBtn = document.getElementById('claimBtn');
+    var copyBtn = document.getElementById('copyBtn');
+
+    if (srvUrlInput) srvUrlInput.value = connStr;
+
+    if (token) {
+      if (deepLinkBtn) {
+        deepLinkBtn.href = deepLink;
+        deepLinkBtn.style.display = 'inline-flex';
+      }
+    } else {
+      if (claimBtn) {
+        claimBtn.style.display = 'inline-flex';
+      }
+    }
+
+    function handleCopy() {
+      var val = (srvUrlInput && srvUrlInput.value) || connStr;
+      navigator.clipboard.writeText(val);
+      if (copyBtn) {
+        copyBtn.innerText = '\u5DF2\u590D\u5236';
+        setTimeout(function() { copyBtn.innerText = '\u590D\u5236'; }, 2000);
+      }
+    }
+
+    function handleGenerateToken() {
+      if (claimBtn) {
+        claimBtn.innerText = '\u6B63\u5728\u751F\u6210\u2026';
+        claimBtn.disabled = true;
+      }
+      fetch('/api/claim', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}'
+      })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data && data.ownerToken) {
+          window.location.reload();
+        } else {
+          alert('\u751F\u6210\u8FDE\u63A5\u4E32\u5931\u8D25: ' + (data && data.error ? data.error : '\u672A\u77E5\u9519\u8BEF'));
+          if (claimBtn) {
+            claimBtn.innerText = '\u26A1 \u751F\u6210\u4E13\u5C5E\u8FDE\u63A5\u4E32';
+            claimBtn.disabled = false;
+          }
+        }
+      })
+      .catch(function(err) {
+        alert('\u8BF7\u6C42\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5');
+        if (claimBtn) {
+          claimBtn.innerText = '\u26A1 \u751F\u6210\u4E13\u5C5E\u8FDE\u63A5\u4E32';
+          claimBtn.disabled = false;
+        }
+      });
+    }
+  <\/script>
 </body>
 </html>`);
     }
@@ -9020,7 +9114,10 @@ function createApp(config) {
   });
   api.get("/claim/status", async (c) => {
     const claimed = config.claimState ? config.claimState.isClaimed() : config.ownerToken != null && config.ownerToken.trim() !== "";
-    return c.json({ claimed });
+    const requiresSecret = Boolean(
+      !claimed && config.claimSecret && config.claimSecret.trim().length > 0
+    );
+    return c.json({ claimed, requiresSecret });
   });
   api.post("/claim", async (c) => {
     if (!config.claimState) {
@@ -9033,6 +9130,22 @@ function createApp(config) {
     try {
       body = await c.req.json();
     } catch {
+    }
+    if (config.claimSecret && config.claimSecret.trim().length > 0) {
+      const headerSecret = c.req.header("x-claim-secret")?.trim();
+      const authHeader = c.req.header("authorization")?.trim();
+      const bearerSecret = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : void 0;
+      const providedSecret = headerSecret || bearerSecret || body.claimSecret?.trim();
+      if (!providedSecret || providedSecret !== config.claimSecret.trim()) {
+        return c.json(
+          {
+            error: "forbidden",
+            code: "claim.invalid_secret",
+            message: "A valid claim secret is required to claim this server."
+          },
+          403
+        );
+      }
     }
     const result = await config.claimState.claim(body.ownerToken);
     if (!result.ok) {
@@ -9456,9 +9569,14 @@ async function initApp(env) {
   } catch (error) {
     logger.error("context seeding failed", error);
   }
+  const claimSecret = env.NEXTDO_CLAIM_SECRET?.trim() || null;
+  if (claimSecret !== null) {
+    logger.info("claim secret: configured");
+  }
   const app = createApp({
     pool,
     claimState,
+    claimSecret,
     jwtSecret: env.JWT_SECRET,
     syncEndpoint: env.NEXTDO_SYNC_ENDPOINT
   });

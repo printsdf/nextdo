@@ -479,13 +479,13 @@ export default function SettingsScreen() {
               accessibilityLabel="打开云同步搭建教程"
               onPress={() => {
                 void Linking.openURL(
-                  'https://github.com/printsdf/Nextdo#多端云同步零成本纯网页搭建无需下载源码',
+                  'https://my.feishu.cn/wiki/FDWJwoCHsiBgltk0sW4cKs47nKb?from=from_copylink',
                 );
               }}
               className="flex-row items-center gap-1.5 self-start py-0.5"
             >
               <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
-                📖 查看 3 分钟零成本多端云同步教程 (纯网页·无需下载源码) →
+                📖 查看 3 分钟零成本多端云同步教程 (飞书文档·纯网页) →
               </Text>
             </Pressable>
 

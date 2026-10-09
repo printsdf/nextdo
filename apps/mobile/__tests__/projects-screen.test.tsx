@@ -136,6 +136,16 @@ jest.mock('@nextdo/db', () => {
     completeAction: jest.fn(async () => undefined),
     snoozeAction: jest.fn(async () => undefined),
     trashAction: jest.fn(async () => undefined),
+    trashProject: jest.fn(async (_db: unknown, args: { id: string }) => {
+      const index = dataRef.cards.findIndex((card) => card.id === args.id);
+      if (index >= 0) dataRef.cards.splice(index, 1);
+      return undefined;
+    }),
+    trashHabit: jest.fn(async (_db: unknown, args: { id: string }) => {
+      const index = dataRef.habits.findIndex((habit) => habit.id === args.id);
+      if (index >= 0) dataRef.habits.splice(index, 1);
+      return undefined;
+    }),
     // Task 09-28 (R1–R4): the edit/archive mutations APPLY to the watched
     // fixtures, so the header / action rows re-render with the new values
     // after save (simulating the live PowerSync watch refresh).
@@ -190,6 +200,8 @@ import {
   completeAction,
   startHabit,
   trashAction,
+  trashHabit,
+  trashProject,
   updateNextAction,
   updateProject,
 } from '@nextdo/db';
@@ -200,6 +212,8 @@ const mockedAddNextAction = addNextAction as jest.Mock;
 const mockedCompleteAction = completeAction as jest.Mock;
 const mockedStartHabit = startHabit as jest.Mock;
 const mockedTrashAction = trashAction as jest.Mock;
+const mockedTrashProject = trashProject as jest.Mock;
+const mockedTrashHabit = trashHabit as jest.Mock;
 const mockedUpdateProject = updateProject as jest.Mock;
 const mockedUpdateNextAction = updateNextAction as jest.Mock;
 
@@ -732,6 +746,42 @@ describe('Project detail', () => {
     );
     // The row re-renders from the (mocked) live data — new estimate tag.
     expect(screen.getByText('30 分钟')).toBeTruthy();
+  });
+
+  it('deleting a project: armed confirm and calls trashProject', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('论文实验')).toBeTruthy());
+
+    expect(screen.getByText('删除项目')).toBeTruthy();
+    fireEvent.press(screen.getByText('删除项目'));
+
+    expect(screen.getByText('确认删除项目？')).toBeTruthy();
+    fireEvent.press(screen.getByText('确认删除项目？'));
+
+    await waitFor(() =>
+      expect(mockedTrashProject).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: 'p-1' }),
+      ),
+    );
+  });
+
+  it('deleting a project habit: armed confirm and calls trashHabit', async () => {
+    renderRouter('app', { initialUrl: '/projects/p-1' });
+    await waitFor(() => expect(screen.getByText('读文献习惯')).toBeTruthy());
+
+    expect(screen.getByText('删除习惯')).toBeTruthy();
+    fireEvent.press(screen.getByText('删除习惯'));
+
+    expect(screen.getByText('确认删除习惯？')).toBeTruthy();
+    fireEvent.press(screen.getByText('确认删除习惯？'));
+
+    await waitFor(() =>
+      expect(mockedTrashHabit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: 'h-1' }),
+      ),
+    );
   });
 
   it('a done project (terminal) shows no edit / status buttons', async () => {
