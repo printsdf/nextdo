@@ -23,6 +23,7 @@ export * from './schema';
 export * from './powersync';
 export * from './owner-token';
 export * from './claim';
+export * from './upload-rejections';
 
 // queries — the app-facing query surface (one screen's data + the engine
 // pool). Feature tasks extend this list as their screens land.

@@ -111,6 +111,9 @@ jest.mock('@nextdo/db', () => {
     // 「管理场景」 entry) — the mock must provide every export the tree
     // touches or the screen renders nothing (testing-guidelines).
     trashContext: async () => undefined,
+    getRecentUploadRejections: async () => [],
+    subscribeToUploadRejections: () => () => undefined,
+    clearUploadRejections: async () => undefined,
   };
 });
 

@@ -47,6 +47,12 @@ import {
   parseConnectionString,
 } from '@/lib/sync-connection';
 import { QRCode } from '@/components/qr-code';
+import {
+  clearUploadRejections,
+  getRecentUploadRejections,
+  subscribeToUploadRejections,
+  type UploadRejectedOp,
+} from '@nextdo/db';
 
 /**
  * Recover the BASE server address from a stored `backendUrl` so the single
@@ -126,7 +132,13 @@ export default function SettingsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showQrCode, setShowQrCode] = useState(false);
+  const [rejections, setRejections] = useState<UploadRejectedOp[]>([]);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    void getRecentUploadRejections().then(setRejections);
+    return subscribeToUploadRejections(setRejections);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -393,6 +405,30 @@ export default function SettingsScreen() {
                 </Text>
                 <Text className="font-sans text-xs text-muted dark:text-muted-dark">
                   同步流地址：{storedConfig.endpoint}
+                </Text>
+              </View>
+            ) : null}
+            {rejections.length > 0 && rejections[rejections.length - 1] ? (
+              <View className="gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 p-3">
+                <View className="flex-row items-center justify-between">
+                  <Text className="font-sans text-xs font-semibold text-red-500 dark:text-red-400">
+                    ⚠️ 发现 {rejections.length} 条操作被服务端拒绝同步
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="清除同步异常警告"
+                    onPress={() => {
+                      void clearUploadRejections();
+                    }}
+                  >
+                    <Text className="font-sans text-xs text-muted underline dark:text-muted-dark">
+                      清除警告
+                    </Text>
+                  </Pressable>
+                </View>
+                <Text className="font-sans text-xs leading-relaxed text-muted dark:text-muted-dark">
+                  最近异常：[{rejections[rejections.length - 1]?.code}]{' '}
+                  {rejections[rejections.length - 1]?.message}
                 </Text>
               </View>
             ) : null}

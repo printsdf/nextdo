@@ -291,6 +291,11 @@ export function __setStorageBackendForTests(store: KeyValueStore | null): void {
   backend = store;
 }
 
+/** Get the currently selected (or injected) key-value storage backend. */
+export function getStorageBackend(): KeyValueStore {
+  return getBackend();
+}
+
 /** Test hook: the currently selected (or injected) backend — lets tests
  *  drive the KeyValueStore contract directly (e.g. the multi-key
  *  rejection path, which the owner-token API never exercises). */

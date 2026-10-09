@@ -61,6 +61,9 @@ jest.mock('@nextdo/db', () => {
     addContext: async () => undefined,
     listHabits: async () => [],
     listHabitDays: async () => [],
+    getRecentUploadRejections: async () => [],
+    subscribeToUploadRejections: () => () => undefined,
+    clearUploadRejections: async () => undefined,
   };
 });
 

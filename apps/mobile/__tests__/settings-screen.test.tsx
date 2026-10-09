@@ -160,6 +160,9 @@ jest.mock('@nextdo/db', () => {
         mockTokenListeners.delete(listener);
       };
     },
+    getRecentUploadRejections: async () => [],
+    subscribeToUploadRejections: () => () => {},
+    clearUploadRejections: async () => undefined,
     // --- the standard shell mocks (tabs.smoke shape) ---
     createPowerSyncConnector: (config: unknown) => {
       mockConnectorConfigs.push(config);

@@ -52,6 +52,7 @@ import type {
 import { logger, SyncNextdoError, ValidationNextdoError } from '@nextdo/core';
 import { AppSchema } from './schema';
 import { getOwnerToken } from './owner-token';
+import { recordUploadRejections, type UploadRejectedOp } from './upload-rejections';
 
 /** Config injected by the app (design.md §4: `apps/mobile/lib/env.ts`). */
 export interface NextdoPowerSyncConfig {
@@ -374,6 +375,45 @@ export function createPowerSyncConnector(config: NextdoPowerSyncConfig): PowerSy
           `POST /upload failed with status ${res.status}`,
         );
       }
+
+      // Check response body for server-side validation rejections (2xx-on-rejection)
+      try {
+        const body = (await res.json()) as { rejected?: unknown[] } | null;
+        if (body && Array.isArray(body.rejected) && body.rejected.length > 0) {
+          const nowIso = new Date().toISOString();
+          const parsedRejections: UploadRejectedOp[] = body.rejected.map((item, idx) => {
+            const r =
+              typeof item === 'object' && item !== null
+                ? (item as Record<string, unknown>)
+                : {};
+            const opIndex = typeof r.index === 'number' ? r.index : idx;
+            const originalOp = ops[opIndex];
+            return {
+              index: opIndex,
+              code: typeof r.code === 'string' ? r.code : 'upload.unknown-rejection',
+              message:
+                typeof r.message === 'string'
+                  ? r.message
+                  : 'Unknown validation rejection',
+              table: typeof r.table === 'string' ? r.table : originalOp?.table,
+              id: typeof r.id === 'string' ? r.id : originalOp?.id,
+              timestamp: nowIso,
+              opData: originalOp?.opData as Record<string, unknown> | null,
+            };
+          });
+
+          for (const item of parsedRejections) {
+            logger.error(
+              `powersync: op rejected by server [${item.code}]: table=${item.table} id=${item.id} - ${item.message}`,
+            );
+          }
+
+          await recordUploadRejections(parsedRejections);
+        }
+      } catch {
+        // Non-JSON 2xx response does not block transaction completion
+      }
+
       // 2xx — INCLUDING validation-level rejections (the backend answers
       // 2xx and reports the error detail via sync tables) — the queue
       // advances. Skipping complete() here would leave the queue stuck.

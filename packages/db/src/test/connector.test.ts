@@ -7,7 +7,7 @@
  * `require` in powersync.ts is never reached here) and the storage backend
  * is the in-memory fallback (plain Node, no localStorage).
  */
-import { SyncNextdoError } from '@nextdo/core';
+import { logger, SyncNextdoError } from '@nextdo/core';
 import {
   SYNC_STREAM_NAME,
   createPowerSyncConnector,
@@ -21,6 +21,10 @@ import {
   setOwnerToken,
   subscribeToOwnerTokenChange,
 } from '../owner-token';
+import {
+  clearUploadRejections,
+  getRecentUploadRejections,
+} from '../upload-rejections';
 import type {
   CommonPowerSyncDatabase,
   CrudEntry,
@@ -77,6 +81,7 @@ async function expectSyncNextdoError(
 beforeEach(async () => {
   __setStorageBackendForTests(null); // fresh lazy default (in-memory)
   await clearOwnerToken();
+  await clearUploadRejections();
   jest.restoreAllMocks();
 });
 
@@ -326,6 +331,51 @@ describe('connector.uploadData', () => {
     await connector.uploadData(db);
 
     expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('records rejected ops to dead-letter store and logs error when server returns rejected[]', async () => {
+    await setOwnerToken('owner-token-1');
+    const loggerErrorSpy = jest.spyOn(logger, 'error').mockImplementation(() => {});
+
+    mockFetch(200, {
+      applied: 0,
+      rejected: [
+        {
+          index: 0,
+          code: 'upload.unknown-table',
+          message: 'table unknown_entity is not allowed',
+          table: 'unknown_entity',
+          id: 'bad-1',
+        },
+      ],
+    });
+
+    const { db, complete } = fakeCrudDb([
+      putEntry('bad-1', 'unknown_entity', { foo: 'bar' }),
+    ]);
+    const connector = createPowerSyncConnector(CONFIG);
+
+    await connector.uploadData(db);
+
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(loggerErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('upload.unknown-table'),
+    );
+
+    const rejections = await getRecentUploadRejections();
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0]).toMatchObject({
+      index: 0,
+      code: 'upload.unknown-table',
+      message: 'table unknown_entity is not allowed',
+      table: 'unknown_entity',
+      id: 'bad-1',
+    });
+    expect(rejections[0]?.opData).toEqual({ foo: 'bar' });
+
+    // Test clear
+    await clearUploadRejections();
+    expect(await getRecentUploadRejections()).toHaveLength(0);
   });
 
   it('throws on non-2xx WITHOUT completing (queue blocks for retry)', async () => {
