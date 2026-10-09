@@ -122,14 +122,32 @@ Nextdo 严格映射大卫·艾伦（David Allen）提出的 GTD 五步法：
 
 ## 📦 下载与安装
 
-无需自行配置代码环境，直接前往 **[GitHub Releases](https://github.com/printsdf/Nextdo/releases)** 下载对应平台的最新安装包：
+无需自行配置编译环境，直接前往 **[GitHub Releases](https://github.com/printsdf/Nextdo/releases)** 即可下载对应系统的预编译安装包：
 
-| 平台 | 安装包 / 形式 | 说明 |
-| :--- | :--- | :--- |
-| **macOS** | `Nextdo-x.x.x.dmg` | 原生轻量窗口，支持 Apple Silicon (M系列) 与 Intel 架构 |
-| **Android** | `Nextdo-x.x.x.apk` | 适配 Android 8.0 及以上版本手机与平板 |
-| **Windows / Linux** | 见 Releases 列表 | 即开即用桌面客户端 |
-| **iOS / Web** | 网页即开即用 / PWA | 支持移动端与桌面浏览器，添加至主屏幕体验如原生 App |
+| 平台 | 架构 / 格式 | 安装包文件名示例 | 说明 |
+| :--- | :--- | :--- | :--- |
+| **macOS** | Apple Silicon (M系列)<br>Intel (x86_64) | `Nextdo_x.x.x_aarch64.dmg`<br>`Nextdo_x.x.x_x64.dmg` | 原生轻量级桌面应用（基于 Tauri v2）<br>macOS 11.0 及以上 |
+| **Windows** | x86_64 (64位) | `Nextdo_x.x.x_x64-setup.exe`<br>`Nextdo_x.x.x_x64_en-US.msi` | 包含 NSIS 安装引导器与 MSI 企业安装包<br>Windows 10 / 11 |
+| **Linux** | x86_64 | `Nextdo_x.x.x_amd64.AppImage`<br>`Nextdo_x.x.x_amd64.deb` | AppImage 即开即用，deb 适配 Debian/Ubuntu<br>支持主流发行版桌面 |
+| **Android** | arm64-v8a (主流手机)<br>armeabi-v7a / x86_64 | `Nextdo-arm64-v8a.apk`<br>`Nextdo-armeabi-v7a.apk` | 推荐现代 64 位手机下载 `arm64-v8a`<br>Android 8.0 及以上 |
+| **iOS / Web** | PWA / 网页版 | 网页即开即用 | 现代浏览器离线可用；iOS 用户推荐使用 Safari 打开并点击「添加到主屏幕」 |
+
+<details>
+<summary><b>💡 首次安装与安全提示（macOS / Windows）</b></summary>
+
+- **macOS 提示「无法打开，因为无法验证开发者」**：
+  Nextdo 是开源免费项目，未购买商业开发者证书。若遇到系统拦截，可在访达中**按住 Control 键右键点击 Nextdo.app**，选择「打开」；或在终端执行命令解除隔离属性：
+  ```bash
+  xattr -cr /Applications/Nextdo.app
+  ```
+- **Windows 提示「Windows 已保护你的电脑」**：
+  若触发 SmartScreen 提示，点击窗口中的**「更多信息」**，然后点击**「仍要运行」**即可正常安装。
+- **Linux AppImage 无法直接启动**：
+  下载后请赋予执行权限：
+  ```bash
+  chmod +x Nextdo_*.AppImage && ./Nextdo_*.AppImage
+  ```
+</details>
 
 ---
 
