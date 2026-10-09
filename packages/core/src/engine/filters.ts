@@ -46,8 +46,9 @@ function exclusionRule(action: CandidateAction, input: EngineInput): FilterRuleI
     return 'snoozed';
   }
 
-  // An action with empty contextIds matches anywhere.
+  // An action with empty contextIds matches anywhere. An empty user context matches all actions.
   if (
+    input.context.contextIds.length > 0 &&
     action.contextIds.length > 0 &&
     !action.contextIds.some((id) => input.context.contextIds.includes(id))
   ) {

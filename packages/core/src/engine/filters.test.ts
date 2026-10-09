@@ -34,7 +34,7 @@ describe('hard filter — rule: snoozed', () => {
 });
 
 describe('hard filter — rule: context-mismatch', () => {
-  it('excludes an action whose contexts do not intersect', () => {
+  it('excludes an action whose contexts do not intersect when user has context filters', () => {
     const { filtered } = hardFilter(input([makeNext({ contextIds: ['office'] })]));
     expect(filtered).toEqual([{ actionId: 'action-1', rule: 'context-mismatch' }]);
   });
@@ -47,6 +47,16 @@ describe('hard filter — rule: context-mismatch', () => {
   it('a single overlapping context passes', () => {
     const { ranked } = hardFilter(input([makeNext({ contextIds: ['office', 'home'] })]));
     expect(ranked).toHaveLength(1);
+  });
+
+  it('regression: default/empty user context ("any") matches actions with specific contexts', () => {
+    const anyContextInput = input([makeNext({ contextIds: ['computer'] })], {
+      context: { contextIds: [], availableMinutes: 60 },
+    });
+    const { ranked, filtered } = hardFilter(anyContextInput);
+    expect(filtered).toHaveLength(0);
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]?.id).toBe('action-1');
   });
 });
 

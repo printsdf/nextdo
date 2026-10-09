@@ -125,7 +125,7 @@ counter.
 | Rule id | Excludes when |
 |---------|---------------|
 | `snoozed` | `snoozedUntil > now` |
-| `context-mismatch` | `action.contextIds ∩ context.contextIds = ∅` (an action with empty `contextIds` matches anywhere) |
+| `context-mismatch` | `context.contextIds.length > 0` and `action.contextIds.length > 0` and `action.contextIds ∩ context.contextIds = ∅` (empty user context matches any action; empty action context matches anywhere) |
 | `too-long` | `estMinutes > context.availableMinutes` |
 | `window-mismatch` | `windowStart/windowEnd` and/or `windowDays` set, and `now` (device-local) outside the window (weekday mask first, then HH:mm range) |
 | `dependency` | `dependencyDone === false` |
