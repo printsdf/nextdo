@@ -124,13 +124,14 @@ Nextdo 严格映射大卫·艾伦（David Allen）提出的 GTD 五步法：
 
 无需自行配置编译环境，直接前往 **[GitHub Releases](https://github.com/printsdf/Nextdo/releases)** 即可下载对应系统的预编译安装包：
 
-| 平台 | 架构 / 格式 | 安装包文件名示例 | 说明 |
+| 平台 | 适用架构 | 安装包 / 推荐格式 | 说明 |
 | :--- | :--- | :--- | :--- |
-| **macOS** | Apple Silicon (M系列)<br>Intel (x86_64) | `Nextdo_x.x.x_aarch64.dmg`<br>`Nextdo_x.x.x_x64.dmg` | 原生轻量级桌面应用（基于 Tauri v2）<br>macOS 11.0 及以上 |
-| **Windows** | x86_64 (64位) | `Nextdo_x.x.x_x64-setup.exe`<br>`Nextdo_x.x.x_x64_en-US.msi` | 包含 NSIS 安装引导器与 MSI 企业安装包<br>Windows 10 / 11 |
-| **Linux** | x86_64 | `Nextdo_x.x.x_amd64.AppImage`<br>`Nextdo_x.x.x_amd64.deb` | AppImage 即开即用，deb 适配 Debian/Ubuntu<br>支持主流发行版桌面 |
-| **Android** | arm64-v8a (主流手机)<br>armeabi-v7a / x86_64 | `Nextdo-arm64-v8a.apk`<br>`Nextdo-armeabi-v7a.apk` | 推荐现代 64 位手机下载 `arm64-v8a`<br>Android 8.0 及以上 |
-| **iOS / Web** | PWA / 网页版 | 网页即开即用 | 现代浏览器离线可用；iOS 用户推荐使用 Safari 打开并点击「添加到主屏幕」 |
+| **macOS** | Apple Silicon (M系列)<br>Intel (x86_64) | `Nextdo_x.x.x_aarch64.dmg`<br>`Nextdo_x.x.x_x64.dmg` | 原生轻量级桌面端（基于 Tauri v2）<br>支持 macOS 11.0 及以上 |
+| **Windows** | 64 位 (x86_64) | `Nextdo_x.x.x_x64-setup.exe`<br>`Nextdo_x.x.x_x64_en-US.msi` | 提供 NSIS 快捷安装包与企业级 MSI 包<br>适配 Windows 10 / 11 |
+| **Linux** | 64 位 (x86_64) | `Nextdo_x.x.x_amd64.AppImage`<br>`Nextdo_x.x.x_amd64.deb` | AppImage 即开即用，deb 适配 Debian/Ubuntu<br>兼容主流桌面发行版 |
+| **Android** | arm64-v8a (主流机型)<br>armeabi-v7a / x86_64 | `Nextdo_x.x.x_android_arm64-v8a.apk`<br>`Nextdo_x.x.x_android_armeabi-v7a.apk` | 推荐绝大多数现代 64 位手机下载 `arm64-v8a`<br>适配 Android 8.0 及以上 |
+| **Web / PWA** | 现代主流浏览器 | 网页直接访问 / PWA 应用 | 支持 Chrome / Safari / Edge 等现代浏览器<br>可直接「添加至主屏幕」享受无缝沉浸体验 |
+| **iOS** | - | PWA 模式可用 / 原生端筹备中 | 支持通过 Safari「添加到主屏幕」即开即用<br>App Store 原生客户端正在筹备中 |
 
 <details>
 <summary><b>💡 首次安装与安全提示（macOS / Windows）</b></summary>
