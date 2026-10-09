@@ -835,3 +835,42 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 26: 零成本多端云同步与免源码极简接入
+<!-- trellis-session: v=2 fp=afecc25e1810ee -->
+
+**Date**: 2026-10-09
+**Task**: 零成本多端云同步与免源码极简接入
+**Branch**: `main`
+
+### Summary
+
+围绕终端用户只安装 DMG/APK 且不下载源码、不使用本地开发环境的场景，落地 Cloudflare Workers + Neon + PowerSync 零成本自建云同步闭环与客户端无缝配对
+
+### Main Changes
+
+- 实现 `server/app/src/worker.ts` 与 `schema-init.ts`：Cloudflare Workers 边缘无服务器运行时，首次请求自动执行 14 张核心表与逻辑复制 Publication 创建，用户无需手动操作 SQL
+- 实现免密自动认领机制：通过 `/claim/claim` 与 `system_settings` 持久化首台设备随机高强度令牌
+- 客户端自适应连接与直达教程：在 `settings.tsx` 中智能识别 Workers 网址并免密认领，添加「📖 查看云同步教程」按钮直达文档
+- 单文件打包与 CI 分发：在 `.github/workflows/release.yml` 增加 `build-worker` 阶段，随 Releases 附件发布单文件 `worker.js`，并在 `server/deploy/worker.js` 提供一键复制代码直链
+- 重构主 `README.md` 与 `FREE_CLOUD_DEPLOY.md`，提供纯网页 3 分钟零代码傻瓜式指南
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `afecc25` | feat(sync): 支持零成本纯网页云同步架构与全平台免源码极简接入 |
+| `8a10f43` | chore(task): archive 10-09-zero-cost-cloud-sync |
+
+### Testing
+
+- [OK] apps/mobile 单元与屏幕测试全绿（411/411）
+- [OK] server/app 单元测试全绿（92/92）
+- [OK] packages/core 单元测试全绿（157/157）
+- [OK] packages/db 单元测试全绿（275/275）
+- [OK] 全仓库静态类型检查全绿（`pnpm -r typecheck`）
+
+### Status
+
+[OK] **Completed**
