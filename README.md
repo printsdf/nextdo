@@ -150,6 +150,20 @@ Nextdo 严格映射大卫·艾伦（David Allen）提出的 GTD 五步法：
   ```
 </details>
 
+### 📱 极简 PWA 与 iOS 主屏幕安装（免 App Store）
+
+Nextdo 已全面支持渐进式 Web 应用（Progressive Web App, PWA）。**iPhone / iPad 用户无需通过 App Store**，使用 Safari 浏览器即可一键安装为独立全屏 App：
+
+1. **在线访问**：使用 iPhone Safari 打开 **[https://nextdo-cew.pages.dev](https://nextdo-cew.pages.dev)**。
+2. **添加到主屏幕**：
+   - 点击 Safari 底部工具栏的 **「分享」** 按钮（带有向上箭头的图标 ⎋）；
+   - 在菜单中向下滑动，选择 **「添加到主屏幕」**（带有 ⊞ 标志）；
+   - 点击右上角「添加」，主屏幕即生成 Nextdo 原生应用图标。
+3. **原生级完整体验**：
+   - 📲 **独立全屏沉浸窗口**：自动隐藏浏览器地址栏与底栏，交互手感与原生应用无异，已完美适配 iPhone 灵动岛、刘海屏与底部手势安全区；
+   - ⚡ **离线秒开与本地 SQLite 数据库**：数据首要存储于浏览器本地 OPFS / IndexedDB 数据库中，断网也可极速读写，重连后自动双向增量同步；
+   - 🔔 **准时任务提醒**：在主屏幕独立窗口模式下完整适配 iOS 16.4+ Web Push，支持稍后与日历行动定时通知。
+
 ---
 
 ## ☁️ 多端同步与自托管

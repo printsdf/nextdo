@@ -768,26 +768,6 @@ export default function SettingsScreen() {
           </View>
         )}
       </Card>
-
-      {/* Web & PWA info card (only visible on Web) */}
-      {Platform.OS === 'web' ? (
-        <Card className="mt-4 gap-2.5 p-3.5">
-          <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
-            📱 极简 PWA 与主屏幕安装
-          </Text>
-          <Text className="font-sans text-xs text-muted dark:text-muted-dark leading-relaxed">
-            Nextdo 已全面支持渐进式 Web 应用 (PWA)。无需通过 App Store，iPhone 用户使用 Safari 访问并点击「分享」→「添加到主屏幕」即可安装为原生全屏 App，享有独立窗口、离线秒开及提醒支持。
-          </Text>
-          <View className="rounded-lg bg-canvas/60 p-2 dark:bg-canvas-dark/60 gap-1">
-            <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
-              💡 离线与缓存说明
-            </Text>
-            <Text className="font-sans text-[11px] text-muted dark:text-muted-dark leading-relaxed">
-              数据默认保存在本地浏览器 SQLite 数据库中，断网也可流畅操作；重新联网后自动实时双向同步。
-            </Text>
-          </View>
-        </Card>
-      ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );
