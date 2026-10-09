@@ -45,7 +45,9 @@
 2. No hooks that take a component or a ref to a component.
 3. No `useEffect` whose only job is to sync a derived value — compute it in render.
 4. All time-sensitive logic receives `now` (from a single app-level clock hook,
-   `useAppClock()`, which ticks on a minute interval) — hooks do not call `Date.now()`.
+   `useAppClock()`, which ticks on a minute interval AND immediately re-calibrates
+   whenever the app returns to foreground via native AppState 'active' or
+   web/desktop focus / visibilitychange) — hooks do not call `Date.now()`.
    When a derived value depends on `now` but its data comes from a PowerSync
    watch (which fires only on row changes, never on clock ticks), keep the
    derivation as a **pure helper that takes an injected `now`** and re-derive
@@ -56,6 +58,11 @@
    clock (1/min) cannot express may read `new Date()` inside a dedicated
    background hook — the module doc must state the exception (precedent:
    `use-reminder-delivery.ts`, desktop 30s tick).
+   **Cross-platform Web/DOM access**: Under React Native / Expo tsconfig, bare
+   `window` and `document` identifiers are not included in `lib` types. Access
+   web globals through `globalThis as { window?: ...; document?: ... }` or
+   `Platform.OS === 'web'` guarded helpers rather than free globals to prevent
+   typecheck failures.
 5. A hook must be safe to call unconditionally (rules of hooks); conditional logic goes
    inside the hook.
 6. PowerSync watch results: `@powersync/react` types `useQuery`'s `error` as
