@@ -22,6 +22,30 @@ pnpm typecheck     # tsc --noEmit in every workspace
 pnpm test          # jest across workspaces
 ```
 
+## Web 验证门禁（交付前必过）
+
+`pnpm lint && pnpm typecheck && pnpm test` 全绿**只是必要条件**。
+面向用户的改动还必须用真实浏览器确认界面行为，否则不算验证过。
+
+```bash
+pnpm verify:web    # lint → typecheck → test → expo export --platform web → 起静态服务器
+```
+
+脚本跑完会打印 `http://localhost:4180` 并保持运行。Expo 的 web 输出是
+`output: "single"`（产物只有一个 `index.html`），所以脚本内置了
+index.html 回落 —— 直接访问 `/settings` 这类深层路由不会 404，不要因此
+以为「路由坏了」。
+
+浏览器环节要做的事：
+
+- 打开上面那个地址，走一遍**本次改动涉及的用户流程**；
+- 截图留证（放 `.verify/`，已 gitignore）；
+- 改动涉及失败路径时，确认界面确实呈现了预期的失败态，而不只是抛了异常；
+- 交付说明里写清实测了哪些页面/行为，不要拿「单测通过」代替。
+
+在 CI 上没有浏览器时，把这一条降级为「至少跑 `pnpm verify:web
+--no-serve`」（门禁 + 构建通过），并在交付说明里注明界面未实测。
+
 ## Testing Requirements
 
 - **`packages/core` (engine + domain): the strictest bar.** Pure functions are tested with
@@ -38,6 +62,16 @@ pnpm test          # jest across workspaces
   owner token.
 - A bug fix ships with a regression test that fails without the fix.
 - No tests that assert on timestamps rendered from real time — pass `now` in.
+
+## Known pitfalls
+
+- **Do not call the GitHub API from a shipped client.** `api.github.com`
+  allows 60 unauthenticated requests per IP per hour, and any CDN /
+  acceleration proxy in front of it has a *shared* IP — so a rate-limited
+  response is the normal case, not an edge case. The app's update check
+  therefore resolves the latest release through the `…/releases/latest`
+  redirect (CDN-served, un-metered) and reads the tag from the final URL
+  instead. See `apps/mobile/lib/app-update.ts`.
 
 ## Review Standards (what a checker looks for)
 

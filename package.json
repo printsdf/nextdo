@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "verify:web": "node scripts/verify-web.mjs",
     "build:web": "pnpm --filter @nextdo/mobile build:web"
   },
   "devDependencies": {
