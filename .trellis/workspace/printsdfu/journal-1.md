@@ -946,3 +946,26 @@ Released v0.1.2 with all 4 Android ABIs after fixing three consecutive blockers 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 30: Android 架构精简至 arm64-v8a、更新 README 与重新发布 v0.1.4
+<!-- trellis-session: v=2 fp=33ebb77b14780cdb -->
+
+**Date**: 2026-10-11
+**Task**: Android 架构精简至 arm64-v8a、更新 README 与重新发布 v0.1.4
+**Branch**: `main`
+
+### Summary
+
+更新 README 下载表格仅保留 64 位 arm64-v8a 架构说明，清理 v0.1.4 历史多架构 APK 资产，强移 v0.1.4 tag 触发全平台发布重新构建
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f79afa9` | docs(readme): update android download table to arm64-v8a only |
+| `336b62e` | build(android): ship arm64-v8a only to cut APK size |
+
+### Status
+
+[OK] **Completed**

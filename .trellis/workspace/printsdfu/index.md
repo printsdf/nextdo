@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 29
-- **Last Active**: 2026-10-09
+- **Total Sessions**: 30
+- **Last Active**: 2026-10-11
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~948 | Active |
+| `journal-1.md` | ~971 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 30 | 2026-10-11 | Android 架构精简至 arm64-v8a、更新 README 与重新发布 v0.1.4 | `f79afa9`, `336b62e` | `main` |
 | 29 | 2026-10-09 | 优化推荐理由权重贡献、可信度过滤与 Now 页面视觉层级 | `13b348f`, `001e6fb`, `c71c038`, `ee47a4e` | `main` |
 | 28 | 2026-10-09 | 优化 P1 可靠性缺陷并重写 README 与 TopBook 鸣谢 | `084b366`, `c07a4ae` | `main` |
 | 27 | 2026-10-09 | Fix P0 core issues: context filter, claim security, sync rejection handling | `3ff142e`, `345147d`, `ccf766f` | `main` |
