@@ -73,4 +73,41 @@ if (fs.existsSync(deepRoot)) {
   console.log(`[nextdo-desktop] flattened ${rewrites.length} node_modules assets into assets/deps/`);
 }
 
+// --- prune unused wa-sqlite WASM variants ---------------------------------
+// @powersync/web ships FOUR SQLite wasm builds and picks one at runtime:
+//   mc-wa-sqlite-async / mc-wa-sqlite  — the `mc` (multi-connection) builds,
+//     loaded ONLY when an encryptionKey is set.
+//   wa-sqlite-async                    — loaded by IDBBatchAtomicVFS.
+//   wa-sqlite                          — loaded by the OPFS-based VFSes.
+// This app constructs WASQLiteOpenFactory with `{ dbFilename, worker }` only
+// (packages/db/src/powersync.ts), so resolveAndValidateOptions() keeps its
+// defaults: encryptionKey=undefined and vfs=IDBBatchAtomicVFS. That path loads
+// `wa-sqlite-async` and NOTHING else — on every platform, since neither the
+// vfs nor the encryption key is browser-dependent. The other three (~4.7 MB,
+// plus their loader chunks) are dead weight in the desktop bundle, so drop
+// them. Keep rule ordering: `mc-` first (its async build also contains the
+// `wa-sqlite-async` substring), then keep async, then drop the sync fallback.
+const isWaSqlite = (base) => /^(mc-)?wa-sqlite/.test(base) && /\.(wasm|js|mjs)$/.test(base);
+const shouldKeep = (base) => !base.startsWith('mc-wa-sqlite') && base.includes('wa-sqlite-async');
+const walkAll = (dir) =>
+  fs.existsSync(dir)
+    ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walkAll(path.join(dir, e.name)) : [path.join(dir, e.name)],
+      )
+    : [];
+let prunedBytes = 0;
+let prunedCount = 0;
+for (const file of walkAll(dest)) {
+  const base = path.basename(file);
+  if (!isWaSqlite(base) || shouldKeep(base)) continue;
+  prunedBytes += fs.statSync(file).size;
+  fs.rmSync(file);
+  prunedCount += 1;
+}
+if (prunedCount > 0) {
+  console.log(
+    `[nextdo-desktop] pruned ${prunedCount} unused wa-sqlite files (${(prunedBytes / 1048576).toFixed(1)} MB); kept wa-sqlite-async`,
+  );
+}
+
 console.log(`[nextdo-desktop] frontend-dist: ${src} -> ${dest}`);

@@ -89,4 +89,41 @@ if (fs.existsSync(indexPath)) {
   console.warn('[post-export-web] dist/index.html not found, skipped patching.');
 }
 
+// 3. Prune unused wa-sqlite WASM variants.
+// `public/@powersync/` vendors the full @powersync/web worker bundle, which
+// ships FOUR SQLite wasm builds and picks one at runtime. This app opens
+// WASQLiteOpenFactory with `{ dbFilename, worker }` only
+// (packages/db/src/powersync.ts), so the SDK keeps its defaults:
+// encryptionKey=undefined and vfs=IDBBatchAtomicVFS. That path loads
+// `wa-sqlite-async` and nothing else — on every browser, since neither the
+// vfs nor the encryption key is feature-dependent. Drop the `mc-` (encryption)
+// builds and the sync `wa-sqlite` (OPFS-vfs) build plus their loader chunks:
+// ~4.7 MB of dead weight. Order matters — `mc-wa-sqlite-async` also contains
+// the `wa-sqlite-async` substring, so exclude `mc-` first.
+function pruneUnusedWasm(dir) {
+  if (!fs.existsSync(dir)) return;
+  const walk = (d) =>
+    fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)],
+    );
+  const isWaSqlite = (base) => /^(mc-)?wa-sqlite/.test(base) && /\.(wasm|js|mjs)$/.test(base);
+  const shouldKeep = (base) => !base.startsWith('mc-wa-sqlite') && base.includes('wa-sqlite-async');
+  let bytes = 0;
+  let count = 0;
+  for (const file of walk(dir)) {
+    const base = path.basename(file);
+    if (!isWaSqlite(base) || shouldKeep(base)) continue;
+    bytes += fs.statSync(file).size;
+    fs.rmSync(file);
+    count += 1;
+  }
+  if (count > 0) {
+    console.log(
+      `[post-export-web] Pruned ${count} unused wa-sqlite files (${(bytes / 1048576).toFixed(1)} MB); kept wa-sqlite-async.`
+    );
+  }
+}
+pruneUnusedWasm(path.join(distDir, '@powersync'));
+pruneUnusedWasm(path.join(distDir, '_expo'));
+
 console.log('[post-export-web] Finished PWA post-processing.');
