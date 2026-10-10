@@ -28,9 +28,19 @@
  * 'light' | 'dark' to NativeWind, and is the single writer of the web `dark`
  * class. NativeWind's own class write then agrees with ours instead of
  * fighting it.
+ *
+ * NOTE: We deliberately do NOT call React Native's `Appearance.setColorScheme()`
+ * on Android/iOS because that calls AppCompatDelegate.setDefaultNightMode()
+ * on Android, mutating the host Activity Configuration and permanently polluting
+ * system theme detection. That pollution previously caused switching back to
+ * 「跟随系统」 from dark mode to stay stuck in dark mode.
  */
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { useColorScheme as useSystemColorScheme, type ColorSchemeName } from 'react-native';
+import {
+  Appearance,
+  useColorScheme as useSystemColorScheme,
+  type ColorSchemeName,
+} from 'react-native';
 import { useColorScheme as useNativeWindColorScheme } from 'nativewind';
 import { isReactNativeRuntime } from '@nextdo/db';
 
@@ -109,6 +119,39 @@ let cachedPreference: ThemePreference | null = null;
 let loadStarted = false;
 const listeners = new Set<() => void>();
 
+/**
+ * Authentic system scheme tracking.
+ * On native Android, Appearance.setColorScheme('dark') delegates to
+ * AppCompatDelegate.setDefaultNightMode(MODE_NIGHT_YES), which mutates
+ * the Activity configuration uiMode to NIGHT. When subsequently switching back
+ * to 'system', React Native's Appearance.setColorScheme('unspecified') sets
+ * MODE_NIGHT_FOLLOW_SYSTEM, but does NOT reset the already-mutated
+ * Activity configuration or dispatch onConfigurationChanged on Android!
+ * As a result, useColorScheme() / Appearance.getColorScheme() remains stuck returning 'dark'.
+ *
+ * To prevent this, we capture the authentic OS scheme at module load
+ * (before any override has run) and update it whenever the OS appearance
+ * listener fires while in 'system' mode. When resolving 'system', we use
+ * this authentic OS scheme and actively force native Appearance back to
+ * that concrete scheme (MODE_NIGHT_NO or MODE_NIGHT_YES) so the host Activity
+ * immediately switches back.
+ */
+let authenticSystemScheme: ResolvedColorScheme =
+  Appearance.getColorScheme() === 'dark' ? 'dark' : 'light';
+
+try {
+  Appearance.addChangeListener((preferences) => {
+    if (cachedPreference === 'system' || cachedPreference === null) {
+      if (preferences.colorScheme === 'dark' || preferences.colorScheme === 'light') {
+        authenticSystemScheme = preferences.colorScheme;
+        emitPreferenceChange();
+      }
+    }
+  });
+} catch {
+  // Ignored in test/unsupported environments
+}
+
 function emitPreferenceChange(): void {
   for (const listener of Array.from(listeners)) listener();
 }
@@ -120,10 +163,6 @@ function subscribePreference(listener: () => void): () => void {
     void storage.getItem(THEME_PREFERENCE_KEY).then((stored) => {
       // A fresh install has no stored value, and a corrupted one may hold
       // junk: both resolve to 'system' (the default the UI shows first).
-      // The OLD code only called setColorScheme inside the matching branch,
-      // so a missing value left NativeWind's observable parked on its
-      // module-init `initialColor` (always 'light' — the class is absent at
-      // import time) and its `systemColorScheme` fallback was never reached.
       const next: ThemePreference =
         stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
       if (next === cachedPreference) return;
@@ -186,25 +225,82 @@ export function useAppTheme() {
   );
   const systemScheme = useSystemColorScheme();
 
+  if (
+    (preference === 'system' || preference === null) &&
+    (systemScheme === 'dark' || systemScheme === 'light')
+  ) {
+    authenticSystemScheme = systemScheme;
+  }
+
+  // When preference is 'system', use authenticSystemScheme so Android's
+  // Activity uiMode override doesn't permanently trap the resolution in dark.
+  const resolvedSystemScheme =
+    preference === 'system' || preference === null
+      ? (systemScheme ?? authenticSystemScheme)
+      : authenticSystemScheme;
+
   // Derived in render (hook-guidelines rule 3), not synced by an effect.
-  const colorScheme = resolveColorScheme(preference, systemScheme);
+  const colorScheme = resolveColorScheme(preference, resolvedSystemScheme);
   const isDark = colorScheme === 'dark';
 
   useEffect(() => {
-    try {
-      // Only ever a concrete scheme — see the module doc for why 'system'
-      // must never reach NativeWind.
-      setColorScheme(colorScheme);
-    } catch {
-      // NativeWind throws when darkMode isn't 'class' or when there is no
-      // window (jest). The class below is the web source of truth anyway.
+    if (isReactNativeRuntime()) {
+      try {
+        if (preference === 'system') {
+          // Force concrete scheme first so AppCompatDelegate switches the Activity out of dark
+          Appearance.setColorScheme(colorScheme);
+          setColorScheme(colorScheme);
+          setTimeout(() => {
+            try {
+              Appearance.setColorScheme('unspecified');
+            } catch {
+              // Ignore failure in unsupported environments
+            }
+          }, 50);
+        } else {
+          const target = preference ?? colorScheme;
+          Appearance.setColorScheme(target);
+          setColorScheme(target);
+        }
+      } catch {
+        // Appearance.setColorScheme may throw in test or unsupported environments
+      }
+    } else {
+      // On web/desktop: never hand NativeWind 'system' because it strips the
+      // .dark HTML class even on a dark OS. Hand concrete resolved scheme instead.
+      try {
+        setColorScheme(colorScheme);
+      } catch {
+        // NativeWind throws when darkMode isn't 'class' or when there is no
+        // window (jest). The class below is the web source of truth anyway.
+      }
+      applyWebDarkClass(isDark);
     }
-    applyWebDarkClass(isDark);
-  }, [colorScheme, isDark, setColorScheme]);
+  }, [colorScheme, isDark, preference, setColorScheme]);
 
   const updatePreference = useCallback(async (next: ThemePreference) => {
     cachedPreference = next;
     emitPreferenceChange();
+    if (isReactNativeRuntime()) {
+      try {
+        if (next === 'system') {
+          // Immediately set the concrete authentic scheme so Android's
+          // AppCompatDelegate switches out of the forced mode immediately!
+          Appearance.setColorScheme(authenticSystemScheme);
+          setTimeout(() => {
+            try {
+              Appearance.setColorScheme('unspecified');
+            } catch {
+              // Ignore failure in unsupported environments
+            }
+          }, 50);
+        } else {
+          Appearance.setColorScheme(next);
+        }
+      } catch {
+        // Appearance.setColorScheme may throw in test or unsupported environments
+      }
+    }
     await storage.setItem(THEME_PREFERENCE_KEY, next);
   }, []);
 

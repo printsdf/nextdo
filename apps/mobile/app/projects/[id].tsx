@@ -137,7 +137,8 @@ function AddActionForm({ projectId, now, onDone, onAdded }: { projectId: string;
           <Chip key={chip} label={String(chip)} active={estMinutes === chip} onPress={() => setEstMinutes(chip)} />
         ))}
         <TextInput
-          className={`${INPUT_CLASS} h-8 w-20 p-1`}
+          className={`${INPUT_CLASS} h-8 min-w-[84px] px-2 py-0`}
+          style={{ minWidth: 84, paddingVertical: 0, paddingHorizontal: 8, textAlignVertical: 'center', fontSize: 12 }}
           placeholder="自定义"
           keyboardType="number-pad"
           value={customEst}
@@ -300,7 +301,8 @@ function EditActionForm({ action, now, onDone, onSaved }: { action: NextAction; 
           <Chip key={chip} label={String(chip)} active={estMinutes === chip} onPress={() => setEstMinutes(chip)} />
         ))}
         <TextInput
-          className={`${INPUT_CLASS} h-8 w-20 p-1`}
+          className={`${INPUT_CLASS} h-8 min-w-[84px] px-2 py-0`}
+          style={{ minWidth: 84, paddingVertical: 0, paddingHorizontal: 8, textAlignVertical: 'center', fontSize: 12 }}
           placeholder="自定义"
           keyboardType="number-pad"
           value={customEst}
@@ -426,7 +428,8 @@ function AddProjectHabitForm({
           <Chip key={chip} label={String(chip)} active={estMinutes === chip} onPress={() => setEstMinutes(chip)} />
         ))}
         <TextInput
-          className={`${INPUT_CLASS} h-8 w-20 p-1`}
+          className={`${INPUT_CLASS} h-8 min-w-[84px] px-2 py-0`}
+          style={{ minWidth: 84, paddingVertical: 0, paddingHorizontal: 8, textAlignVertical: 'center', fontSize: 12 }}
           placeholder="自定义"
           keyboardType="number-pad"
           value={customEst}

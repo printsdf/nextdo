@@ -16,7 +16,7 @@
  * sets: the filter never touches the recommendation (state-management).
  */
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useAppInsets } from '@/lib/use-app-insets';
 import { router, useFocusEffect } from 'expo-router';
 import { Button, Card, ContextChip, EmptyState, Tag, cn } from '@nextdo/ui';
@@ -209,13 +209,23 @@ function CustomMinutesInput({
   return (
     <TextInput
       className={cn(
-        'h-8 w-20 rounded-lg px-2 text-center font-sans text-xs text-ink placeholder:text-muted dark:text-ink-dark dark:placeholder:text-muted-dark',
+        'min-w-20 rounded-lg px-2 text-center font-sans text-xs text-ink placeholder:text-muted dark:text-ink-dark dark:placeholder:text-muted-dark',
         isCustomActive
           ? 'border border-accent bg-accent/10 font-semibold text-accent dark:border-accent-dark dark:bg-accent-dark/20 dark:text-accent-dark'
           : 'border border-border/80 bg-surface dark:border-border-dark dark:bg-surface-dark',
       )}
+      style={{
+        minWidth: 80,
+        height: Platform.OS === 'android' ? 34 : 32,
+        paddingTop: 0,
+        paddingBottom: 0,
+        paddingVertical: 0,
+        paddingHorizontal: 6,
+        textAlignVertical: 'center',
+        fontSize: 12,
+      }}
       hitSlop={FIELD_HIT_SLOP}
-      placeholder="自定义"
+      placeholder={isCustomActive && !custom ? `${value}m` : '自定义'}
       accessibilityLabel="自定义可用时间（分钟）"
       keyboardType="number-pad"
       value={custom}

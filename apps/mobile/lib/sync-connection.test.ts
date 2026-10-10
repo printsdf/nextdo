@@ -55,6 +55,13 @@ describe('plaintext `<base>|<token>`', () => {
       token: 'tok',
     });
   });
+
+  it('accepts full-width pipe ｜ and ideographic spaces from mobile copy-paste', () => {
+    expect(parseConnectionString('　https://nextdo.example.com　｜　tok123　')).toEqual({
+      serverAddress: 'https://nextdo.example.com',
+      token: 'tok123',
+    });
+  });
 });
 
 describe('deep link nextdo://sync?s=…&t=…', () => {

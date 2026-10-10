@@ -206,4 +206,31 @@ describe('useAppTheme', () => {
     // A brand-new subscriber (a screen mounting later) reads the same value.
     expect(theme.preference).toBe('light');
   });
+
+  it('restores light appearance when switching from dark back to system on a light OS', async () => {
+    mockSystemScheme = 'light';
+    let theme!: ReturnType<typeof useAppTheme>;
+    const view = render(<Probe onRender={(v) => (theme = v)} />);
+    mockRerender = () => view.rerender(<Probe onRender={(v) => (theme = v)} />);
+    await act(async () => {});
+
+    // Initial state on light OS is light
+    expect(theme.colorScheme).toBe('light');
+    expect(htmlClass()).not.toContain('dark');
+
+    // Switch to dark mode
+    await act(async () => {
+      await theme.updatePreference('dark');
+    });
+    expect(theme.colorScheme).toBe('dark');
+    expect(htmlClass()).toContain('dark');
+
+    // Switch back to system -> must resolve to light immediately
+    await act(async () => {
+      await theme.updatePreference('system');
+    });
+    expect(theme.preference).toBe('system');
+    expect(theme.colorScheme).toBe('light');
+    expect(htmlClass()).not.toContain('dark');
+  });
 });

@@ -24,6 +24,7 @@ import { useEffect, useRef, useState } from 'react';
 import { View, Text } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCloudSync } from '@/hooks/use-cloud-sync';
+import { parseConnectionString } from '@/lib/sync-connection';
 
 /** The transient status shown while the single connect attempt runs. */
 type Phase = 'connecting' | 'done';
@@ -49,8 +50,29 @@ export default function SyncLinkScreen() {
 
   // The query params can arrive as string | string[] (expo-router types);
   // only a single scalar value is a usable link.
-  const serverAddress = typeof params.s === 'string' ? params.s : '';
-  const token = typeof params.t === 'string' ? params.t : '';
+  const rawServerAddress = typeof params.s === 'string' ? params.s : '';
+  const rawToken = typeof params.t === 'string' ? params.t : '';
+
+  const safeDecode = (val: string): string => {
+    try {
+      return decodeURIComponent(val);
+    } catch {
+      return val;
+    }
+  };
+
+  let serverAddress = safeDecode(rawServerAddress).trim();
+  let token = safeDecode(rawToken).trim();
+
+  // If a full connection string `<base>|<token>` was passed into `s`, parse it
+  if ((serverAddress.includes('|') || serverAddress.includes('｜')) && token === '') {
+    const parsed = parseConnectionString(serverAddress);
+    if (parsed) {
+      serverAddress = parsed.serverAddress;
+      token = parsed.token;
+    }
+  }
+
   // The identity of the link this render is about. Always a string —
   // including for an INCOMPLETE link — so a half-filled link is handled
   // (and reported) exactly once instead of silently spinning forever.
