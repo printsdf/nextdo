@@ -242,6 +242,17 @@ fn stronghold_snapshot_path(app: tauri::AppHandle) -> Result<String, String> {
     Ok(dir.join("nextdo-stronghold").to_string_lossy().into_owned())
 }
 
+/// CPU 架构 of the build host (`aarch64` / `x86_64`).
+///
+/// The web front-end needs this to pick the right `.dmg`: macOS builds are
+/// per-architecture and the wrong one will not install. WKWebView's user agent
+/// does not carry the CPU architecture, and Safari has no `userAgentData`, so
+/// inside the desktop shell this IPC round-trip is the only reliable source.
+#[tauri::command]
+fn current_arch() -> String {
+    std::env::consts::ARCH.to_string()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -339,7 +350,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             save_owner_token,
             load_owner_token,
-            stronghold_snapshot_path
+            stronghold_snapshot_path,
+            current_arch
         ])
         .run(tauri::generate_context!())
         .expect("error while running Nextdo desktop");

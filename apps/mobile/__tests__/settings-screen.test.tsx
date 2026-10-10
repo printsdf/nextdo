@@ -48,8 +48,8 @@ const VALID_CONFIG = {
 };
 
 /** Placeholders / labels — must match settings.tsx. */
-const SERVER_PLACEHOLDER = 'https://nextdo.example.com';
-const TOKEN_PLACEHOLDER = 'owner token 或连接串';
+const SERVER_PLACEHOLDER = '自建服务器地址（例如：https://my-sync.workers.dev）';
+const TOKEN_PLACEHOLDER = '云同步连接串（例如 https://...|token）';
 const BACKEND_PLACEHOLDER = 'https://nextdo.example.com/api';
 const ENDPOINT_PLACEHOLDER = 'https://nextdo.example.com/sync';
 
@@ -83,6 +83,14 @@ let mockFetchCalls = 0;
  *  @powersync/react context mock the screens consume. */
 let mockConnectorConfigs: unknown[] = [];
 let mockClipboardString = '';
+
+// The update check reads the app version through expo-constants
+// (`Constants.expoConfig.version`); pin it so the 「发现新版本」 branch
+// is reachable deterministically regardless of the real app.json.
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: { expoConfig: { version: '0.1.3' } },
+}));
 
 jest.mock('expo-clipboard', () => ({
   setStringAsync: jest.fn(async (text: string) => {
@@ -239,6 +247,8 @@ import { mockExpoNotifications } from './mocks/expo-notifications';
 import { render } from '@testing-library/react-native';
 import { act, fireEvent, renderRouter, screen } from 'expo-router/testing-library';
 import { useCloudSync } from '@/hooks/use-cloud-sync';
+import { Linking, Platform } from 'react-native';
+import { UPDATE_PROXY_PREFIX } from '@/lib/app-update';
 
 /** A tiny harness that drives the REAL `useCloudSync` hook directly. The
  *  button's canSubmit (two addresses non-empty) blocks empty-address
@@ -313,6 +323,13 @@ beforeEach(() => {
   hook = null;
   // Idle OS permission state (the notifications block tests override it
   // per case — task 09-30 R5).
+  mockUpdateFetch = jest.fn();
+  (globalThis as { fetch: unknown }).fetch = mockUpdateFetch;
+  openedUrls = [];
+  jest.spyOn(Linking, 'openURL').mockImplementation(async (url: string) => {
+    openedUrls.push(url);
+    return true;
+  });
   mockExpoNotifications.getPermissionsAsync.mockResolvedValue({
     status: 'undetermined',
     granted: false,
@@ -320,6 +337,57 @@ beforeEach(() => {
     expires: 'never',
   });
 });
+
+afterEach(() => {
+  Object.defineProperty(Platform, 'OS', { value: 'ios', configurable: true });
+  delete (globalThis as { window?: unknown }).window;
+});
+
+/* ------------------------------------------------------------------ *
+ * 更新检查（检查更新 block）—— 版本查询与安装包链接都必须先加加速
+ * 代理前缀，这是这个 block 的核心契约，所以这里断言的是「实际请求
+ * 的 URL」和「实际打开的 URL」，而不是文案。
+ * ------------------------------------------------------------------ */
+
+const PROXY = UPDATE_PROXY_PREFIX;
+const GITHUB_RELEASES = 'https://github.com/printsdf/nextdo/releases';
+const GITHUB_DOWNLOAD = 'https://github.com/printsdf/nextdo/releases/download';
+
+/**
+ * What the real fetch resolves with: the version query hits
+ * `…/releases/latest`, which 302s to `…/releases/tag/<tag>`, so the tag
+ * lives in the RESPONSE URL — there is no JSON body to parse.
+ */
+function redirectedTo(tag: string): { ok: true; url: string } {
+  return { ok: true, url: `${PROXY}${GITHUB_RELEASES}/tag/${tag}` };
+}
+
+/** The fetch stub the update check drives (mutable per case). */
+let mockUpdateFetch: jest.Mock;
+/** Every URL handed to Linking.openURL by the update block. */
+let openedUrls: string[] = [];
+
+/**
+ * Pretend the app runs in the Tauri desktop shell on macOS: Platform 'web'
+ * plus a macOS user agent. Needed because jest runs the suite as iOS, and
+ * iOS ships no installer — without this the download button is unreachable
+ * from a test. The Tauri bridge answers `current_arch` the same way the real
+ * shell does, so the macOS installer is picked from the detected architecture
+ * rather than from a guess.
+ */
+function pretendDesktopMac(arch: 'aarch64' | 'x86_64' = 'aarch64'): void {
+  Object.defineProperty(Platform, 'OS', { value: 'web', configurable: true });
+  (globalThis as { window?: unknown }).window = {
+    navigator: { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15' },
+    __TAURI_INTERNALS__: { invoke: jest.fn().mockResolvedValue(arch) },
+  };
+}
+
+/** Press 检查更新 and flush the request → compare → setState chain. */
+async function pressCheckForUpdate(): Promise<void> {
+  fireEvent.press(screen.getByRole('button', { name: '检查更新' }));
+  await flush();
+}
 
 /* ------------------------------------------------------------------ *
  * Root — no first-launch gate (R6)
@@ -351,6 +419,160 @@ describe('root (no gate)', () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * 设置 — 检查更新 block: version query + installer links both go
+ * through the accelerator proxy prefix.
+ * ------------------------------------------------------------------ */
+describe('settings update-check block', () => {
+  it('shows the current version and a 检查更新 button, and does NOT fetch until pressed', async () => {
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    expect(screen.getByText('应用更新')).toBeTruthy();
+    expect(screen.getByText(/当前版本 0\.1\.3/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '检查更新' })).toBeTruthy();
+    // No silent polling — the check is the user's action.
+    expect(mockUpdateFetch).not.toHaveBeenCalled();
+  });
+
+  it('queries the version through the accelerator prefix, never straight from GitHub', async () => {
+    mockUpdateFetch.mockResolvedValue(redirectedTo('v0.1.3'));
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await pressCheckForUpdate();
+
+    expect(mockUpdateFetch).toHaveBeenCalledTimes(1);
+    const requested = mockUpdateFetch.mock.calls[0][0] as string;
+    expect(requested).toBe(`${PROXY}${GITHUB_RELEASES}/latest`);
+    // The GitHub API is rate-limited per IP and the accelerator's IP is
+    // shared — going through it would 403 for most users.
+    expect(requested).not.toContain('api.github.com');
+  });
+
+  it('same version → 已是最新版本 and no download buttons', async () => {
+    mockUpdateFetch.mockResolvedValue(redirectedTo('v0.1.3'));
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await pressCheckForUpdate();
+
+    expect(screen.getByText(/已是最新版本/)).toBeTruthy();
+    expect(screen.queryByText(/发现新版本/)).toBeNull();
+  });
+
+  it('newer version on a platform without an installer (iOS) → explains it and offers the proxied release page', async () => {
+    mockUpdateFetch.mockResolvedValue(redirectedTo('v0.1.4'));
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await pressCheckForUpdate();
+
+    expect(screen.getByText('发现新版本 v0.1.4')).toBeTruthy();
+    expect(screen.getByText(/没能识别你的设备型号|暂无安装包/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^下载 / })).toBeNull();
+
+    fireEvent.press(screen.getByRole('link', { name: '查看全部安装包' }));
+    await flush();
+
+    expect(openedUrls).toEqual([`${PROXY}https://github.com/printsdf/nextdo/releases/latest`]);
+  });
+
+  it('newer version on macOS → ONLY the installer matching the detected chip, and pressing it opens the PROXIED download URL', async () => {
+    pretendDesktopMac('aarch64');
+    mockUpdateFetch.mockResolvedValue(redirectedTo('v0.1.4'));
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await pressCheckForUpdate();
+
+    // Exactly one button — never both architectures, the user must not choose.
+    expect(screen.getAllByRole('button', { name: /^下载 / })).toHaveLength(1);
+    const installer = screen.getByRole('button', { name: '下载 macOS 安装包（Apple 芯片）' });
+    expect(screen.queryByRole('button', { name: /Intel/ })).toBeNull();
+
+    fireEvent.press(installer);
+    await flush();
+
+    expect(openedUrls).toEqual([
+      `${PROXY}${GITHUB_DOWNLOAD}/v0.1.4/Nextdo_0.1.4_aarch64.dmg`,
+    ]);
+    // …and never the bare GitHub URL.
+    expect(openedUrls[0]?.startsWith('https://github.com/')).toBe(false);
+  });
+
+  it('an Intel mac gets the OTHER installer — the choice follows the host, not a fixed default', async () => {
+    pretendDesktopMac('x86_64');
+    mockUpdateFetch.mockResolvedValue(redirectedTo('v0.1.4'));
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await pressCheckForUpdate();
+
+    const installer = screen.getByRole('button', { name: '下载 macOS 安装包（Intel）' });
+    expect(screen.queryByRole('button', { name: /Apple 芯片/ })).toBeNull();
+
+    fireEvent.press(installer);
+    await flush();
+
+    expect(openedUrls).toEqual([`${PROXY}${GITHUB_DOWNLOAD}/v0.1.4/Nextdo_0.1.4_x64.dmg`]);
+  });
+
+  it('macOS whose architecture cannot be detected → NO installer button, just the release page', async () => {
+    // Safari: macOS user agent, but no Tauri bridge and no userAgentData.
+    Object.defineProperty(Platform, 'OS', { value: 'web', configurable: true });
+    (globalThis as { window?: unknown }).window = {
+      navigator: { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15' },
+    };
+    mockUpdateFetch.mockResolvedValue(redirectedTo('v0.1.4'));
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await pressCheckForUpdate();
+
+    expect(screen.getByText('发现新版本 v0.1.4')).toBeTruthy();
+    // Guessing an architecture would hand the user a .dmg that cannot install.
+    expect(screen.queryByRole('button', { name: /^下载 / })).toBeNull();
+    expect(screen.getByText(/没能识别你的设备型号/)).toBeTruthy();
+
+    fireEvent.press(screen.getByRole('link', { name: '查看全部安装包' }));
+    await flush();
+
+    expect(openedUrls).toEqual([`${PROXY}https://github.com/printsdf/nextdo/releases/latest`]);
+  });
+
+  it.each([
+    ['a network failure', async () => { throw new Error('offline'); }, /连不上更新服务器/],
+    ['a non-2xx proxy response', async () => ({ ok: false, status: 502 }), /更新服务器暂时不可用/],
+    ['a final URL with no tag', async () => ({ ok: true, url: `${PROXY}${GITHUB_RELEASES}/latest` }), /没能读到版本信息/],
+  ])('%s → an inline message, and the button stays usable for a retry', async (_label, respond, expected) => {
+    mockUpdateFetch.mockImplementation(respond);
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await pressCheckForUpdate();
+
+    expect(screen.getByText(expected)).toBeTruthy();
+    expect(screen.queryByText(/发现新版本/)).toBeNull();
+
+    // A retry re-issues the (proxied) request rather than dead-ending.
+    mockUpdateFetch.mockResolvedValue(redirectedTo('v0.1.3'));
+    await pressCheckForUpdate();
+    expect(mockUpdateFetch).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/已是最新版本/)).toBeTruthy();
+  });
+
+  it('a 0.1.10 release outranks 0.1.9 — version compare is numeric, not lexical', async () => {
+    mockUpdateFetch.mockResolvedValue(redirectedTo('v0.1.10'));
+    renderRouter('app', { initialUrl: '/(tabs)/settings' });
+    await flush();
+
+    await pressCheckForUpdate();
+
+    expect(screen.getByText('发现新版本 v0.1.10')).toBeTruthy();
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Settings — the cloud-sync block
  * ------------------------------------------------------------------ */
 describe('settings cloud-sync block', () => {
@@ -363,7 +585,7 @@ describe('settings cloud-sync block', () => {
     expect(screen.getByText('设备与云同步。')).toBeTruthy();
     expect(screen.getByText('云同步')).toBeTruthy();
     expect(screen.getByText(/未连接/)).toBeTruthy();
-    expect(screen.getByText(/填写你的同步服务器地址/)).toBeTruthy();
+    expect(screen.getByText(/填写自建服务器地址/)).toBeTruthy();
     // The simple form: primary connection-string input.
     expect(screen.getByPlaceholderText(TOKEN_PLACEHOLDER)).toBeTruthy();
     // Server address and custom URLs are in the accordion, COLLAPSED by default.
@@ -490,7 +712,7 @@ describe('settings cloud-sync block', () => {
     expect(screen.getByPlaceholderText(SERVER_PLACEHOLDER)).toBeTruthy();
     expect(screen.queryByPlaceholderText(TOKEN_PLACEHOLDER)).toBeNull();
     expect(
-      screen.getByText(/首台免密绑定：只需输入服务器地址，连接后自动生成密钥完成绑定/),
+      screen.getByText(/首台免密绑定：只需输入自建服务器地址，连接后自动生成密钥完成绑定/),
     ).toBeTruthy();
 
     // Can switch back to pair mode

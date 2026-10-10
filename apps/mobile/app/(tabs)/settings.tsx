@@ -28,6 +28,16 @@
  *   断开连接 (clears the token — the addresses are KEPT; the provider's
  *   subscription then disconnects sync; local data is untouched, so no
  *   confirmation is needed in v1).
+ * - update check (last card): the app version from app.json plus a manual
+ *   「检查更新」 button. BOTH the version query and every installer link go
+ *   through the download-proxy prefix built in `lib/app-update.ts` —
+ *   nothing here touches GitHub directly. A newer version renders one
+ *   button per platform-matched installer; macOS offers both
+ *   architectures, because a webview's user agent reports "Intel Mac"
+ *   even on Apple Silicon and guessing wrong is worse than asking.
+ *   Downloads are handed to the system browser, and iOS / web — which
+ *   the release pipeline ships no installer for — only get the release
+ *   page link.
  *
  * All auth work goes through the `useCloudSync` UI hook (the packages/db
  * boundary); this screen owns only the form's transient state.
@@ -41,10 +51,13 @@ import { useAppTheme, type ThemePreference } from '@/lib/theme';
 import { Button, Card, cn } from '@nextdo/ui';
 import { useCloudSync } from '@/hooks/use-cloud-sync';
 import { useReminderPermission } from '@/hooks/use-reminder-permission';
+import { useAppUpdate } from '@/hooks/use-app-update';
+import type { UpdateFailureReason } from '@/lib/app-update';
 import {
   formatConnectionString,
   formatDeepLink,
   parseConnectionString,
+  sanitizeConnectionText,
 } from '@/lib/sync-connection';
 import { QRCode } from '@/components/qr-code';
 import {
@@ -72,7 +85,7 @@ function stripDerivedSuffix(backendUrl: string): string {
  * (not a connection string like `<base>|<token>` or a `nextdo://` deep link).
  */
 function isPlainHttpUrl(value: string): boolean {
-  const trimmed = value.trim();
+  const trimmed = sanitizeConnectionText(value);
   if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
     return false;
   }
@@ -97,16 +110,23 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
   { value: 'dark', label: '深色模式' },
 ];
 
+/** 检查失败的三种原因 → 提示文案（文案归屏幕，逻辑层只给 reason）。 */
+const UPDATE_FAILURE_COPY: Record<UpdateFailureReason, string> = {
+  network: '连不上更新服务器，请检查网络后重试。',
+  http: '更新服务器暂时不可用，请稍后重试。',
+  payload: '没能读到版本信息，请稍后重试。',
+};
+
 const INPUT_CLASS =
   'rounded-md border border-border/80 bg-surface p-3 text-base text-ink placeholder:text-muted shadow-sm focus:border-accent dark:border-border-dark dark:bg-surface-dark dark:text-ink-dark dark:placeholder:text-muted-dark';
 
 /** Placeholders / accessibility labels — the single definitions the tests
  *  match on (a duplicated literal in the JSX is how copy drifts). */
-const SERVER_ADDRESS_PLACEHOLDER = 'https://nextdo.example.com';
-const TOKEN_PLACEHOLDER = 'owner token 或连接串';
+const SERVER_ADDRESS_PLACEHOLDER = '自建服务器地址（例如：https://my-sync.workers.dev）';
+const TOKEN_PLACEHOLDER = '云同步连接串（例如 https://...|token）';
 const ADVANCED_BACKEND_PLACEHOLDER = 'https://nextdo.example.com/api';
 const ADVANCED_ENDPOINT_PLACEHOLDER = 'https://nextdo.example.com/sync';
-const TOKEN_ACCESSIBILITY_LABEL = '连接串或 owner token';
+const TOKEN_ACCESSIBILITY_LABEL = '云同步连接串';
 
 type SyncMode = 'pair' | 'self_host';
 
@@ -115,6 +135,7 @@ export default function SettingsScreen() {
   const { state, storedConfig, ownerToken, connect, disconnect } = useCloudSync();
   const { state: notificationPermission, openSystemSettings, requestPermission } =
     useReminderPermission();
+  const update = useAppUpdate();
   // The deep-link route (`app/sync.tsx`) hands a failed connect back here
   // as `?syncError=…` so the user SEES the reason instead of a silent
   // no-op. Read once per arrival (the value is a fresh string each time).
@@ -232,10 +253,11 @@ export default function SettingsScreen() {
   // field, we also treat the address as present so one-tap connecting works
   // seamlessly without forcing them to manually switch tabs.
   const hasAdvanced = advancedBackendUrl.trim() !== '' && advancedEndpoint.trim() !== '';
-  const connectionString = parseConnectionString(token);
+  const connectionString = parseConnectionString(token) ?? parseConnectionString(serverAddress);
   const tokenIsPlainUrl = isPlainHttpUrl(token);
+  const addressIsPlainUrl = isPlainHttpUrl(serverAddress);
   const addressPresent =
-    hasAdvanced || connectionString !== null || tokenIsPlainUrl || serverAddress.trim() !== '';
+    hasAdvanced || connectionString !== null || tokenIsPlainUrl || addressIsPlainUrl || serverAddress.trim() !== '';
   // The button only checks PRESENCE, not validity: address VALIDITY and
   // the token REQUIREMENT are both left to connect's inline error, not the
   // button (the pre-existing contract).
@@ -246,33 +268,34 @@ export default function SettingsScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      // A pasted connection string carries BOTH halves (`<base>|<token>` or
-      // `nextdo://sync?s=&t=`). When present it wins over whatever is in
-      // the address field — the user pasted a complete, authoritative
-      // instruction. A BARE token (parse → null) keeps the pre-existing
-      // behavior of "this field is just the token".
-      // If the user entered a plain server URL in the token field with no
-      // explicit serverAddress, we treat it adaptively as a serverAddress
-      // with an empty token (triggers automatic server claim if unclaimed).
+      const cleanedToken = sanitizeConnectionText(token);
+      const cleanedServerAddress = sanitizeConnectionText(serverAddress);
+      // Smart extraction: check both inputs for connection strings (e.g. <url>|<token> or nextdo://...)
+      const connStr =
+        parseConnectionString(cleanedToken) ?? parseConnectionString(cleanedServerAddress);
+      const tokenIsUrl = isPlainHttpUrl(cleanedToken);
       let result;
-      if (connectionString) {
+      if (connStr) {
         result = await connect({
-          serverAddress: connectionString.serverAddress,
-          token: connectionString.token,
+          serverAddress: connStr.serverAddress,
+          token: connStr.token,
         });
       } else if (hasAdvanced) {
         result = await connect({
-          backendUrl: advancedBackendUrl,
-          endpoint: advancedEndpoint,
-          token,
+          backendUrl: sanitizeConnectionText(advancedBackendUrl),
+          endpoint: sanitizeConnectionText(advancedEndpoint),
+          token: cleanedToken,
         });
-      } else if (tokenIsPlainUrl && serverAddress.trim() === '') {
+      } else if (tokenIsUrl && cleanedServerAddress === '') {
         result = await connect({
-          serverAddress: token.trim(),
+          serverAddress: cleanedToken,
           token: '',
         });
       } else {
-        result = await connect({ serverAddress, token });
+        result = await connect({
+          serverAddress: cleanedServerAddress,
+          token: cleanedToken,
+        });
       }
       // ok → the hook's owner-token subscription flips the block to the
       // connected view (the inputs unmount with it).
@@ -502,7 +525,7 @@ export default function SettingsScreen() {
         ) : (
           <View className="gap-3">
             <Text className="font-sans text-sm text-muted dark:text-muted-dark">
-              未连接 — 数据仅保存在这台设备上。粘贴来自其他设备或服务器的连接串，或填写你的同步服务器地址即可开启同步。
+              未连接 — 数据仅保存在这台设备上。粘贴来自其他设备或服务器的云同步连接串，或填写自建服务器地址开启同步。
             </Text>
 
             <Pressable
@@ -580,7 +603,7 @@ export default function SettingsScreen() {
             {syncMode === 'pair' ? (
               <View className="gap-2">
                 <Text className="font-sans text-xs text-muted dark:text-muted-dark">
-                  粘贴来自其他设备的连接串，或直接填入自建 Workers 网址：
+                  粘贴来自其他设备的云同步连接串，或直接填入自建 Workers 网址：
                 </Text>
                 <TextInput
                   className={INPUT_CLASS}
@@ -603,7 +626,7 @@ export default function SettingsScreen() {
             ) : (
               <View className="gap-2">
                 <Text className="font-sans text-xs font-medium text-accent dark:text-accent-dark">
-                  💡 首台免密绑定：只需输入服务器地址，连接后自动生成密钥完成绑定，无需寻找 Token。
+                  💡 首台免密绑定：只需输入自建服务器地址，连接后自动生成密钥完成绑定，无需寻找 Token。
                 </Text>
                 <TextInput
                   className={INPUT_CLASS}
@@ -622,7 +645,7 @@ export default function SettingsScreen() {
               </View>
             )}
 
-            {/* 常见疑问引导卡片：什么是 Token？去哪里找？ */}
+            {/* 常见疑问引导卡片：什么是连接串？去哪里找？ */}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="什么是 Token 指引"
@@ -632,7 +655,7 @@ export default function SettingsScreen() {
               className="flex-row items-center justify-between rounded-lg border border-border/60 bg-surface/50 p-2.5 dark:border-border-dark/60 dark:bg-surface-dark/50"
             >
               <Text className="font-sans text-xs font-medium text-ink dark:text-ink-dark">
-                💡 什么是 Token？去哪里找？
+                💡 什么是连接串？去哪里找？
               </Text>
               <Text className="font-sans text-xs text-muted dark:text-muted-dark">
                 {showTokenGuide ? '收起 ▴' : '查看说明 ▾'}
@@ -645,7 +668,7 @@ export default function SettingsScreen() {
                     1. 首台绑定（自己部署的 Workers 服务端）
                   </Text>
                   <Text className="font-sans text-xs text-muted dark:text-muted-dark leading-relaxed">
-                    无需寻找 Token。在网页按照教程搭建完 Workers 后，将分配的 Workers 网址（如 https://xxx.workers.dev）直接填入上方输入框点击连接，系统会自动免密认领绑定。
+                    按照教程部署完 Workers 后，打开 Workers 看板复制「云同步连接串」（或直接点击网页上的「在 Nextdo App 中打开」），也可仅输入自建服务器地址一键免密认领绑定。
                   </Text>
                 </View>
                 <View className="gap-0.5">
@@ -653,7 +676,7 @@ export default function SettingsScreen() {
                     2. 后续设备（多端同步配对）
                   </Text>
                   <Text className="font-sans text-xs text-muted dark:text-muted-dark leading-relaxed">
-                    无需手动输入任何信息。在已连接的第一台设备（如电脑）设置中点击「扫码配对」或「复制连接串」，手机扫码或粘贴即可秒级加入。
+                    无需手动输入密钥。在已连接的设备设置中点击「扫码配对」或「复制连接串」，手机扫码或粘贴该连接串（包含服务器地址与密钥）即可秒级加入。
                   </Text>
                 </View>
                 <View className="gap-0.5">
@@ -768,6 +791,72 @@ export default function SettingsScreen() {
           </View>
         )}
       </Card>
+
+        {/* 检查更新：版本查询与安装包下载都走加速代理前缀，不直连 GitHub
+            （地址拼接见 lib/app-update.ts）。发现新版本后按当前平台给出
+            安装包，点击交给系统浏览器下载。 */}
+        <Card className="mt-4 gap-3 p-3.5">
+          <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
+            应用更新
+          </Text>
+          {/* 版本号独占一行 —— 这一行不需要「版本查询 / 下载走代理」之类的
+              实现说明，用户不关心，也不该在界面上占位置。 */}
+          <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+            当前版本 {update.currentVersion === '' ? '未知' : update.currentVersion}
+          </Text>
+          <Button
+            label={update.checking ? '检查中…' : '检查更新'}
+            disabled={update.checking}
+            onPress={update.check}
+          />
+          {update.outcome?.kind === 'up-to-date' ? (
+            <Text className="font-sans text-sm text-muted dark:text-muted-dark">
+              已是最新版本（{update.outcome.latestVersion}）。
+            </Text>
+          ) : null}
+          {update.outcome?.kind === 'failed' ? (
+            <Text className="font-sans text-sm text-danger dark:text-danger-dark">
+              {UPDATE_FAILURE_COPY[update.outcome.reason]}
+            </Text>
+          ) : null}
+          {update.outcome?.kind === 'available' ? (
+            <View className="gap-2">
+              <Text className="font-sans text-sm font-semibold text-ink dark:text-ink-dark">
+                发现新版本 v{update.outcome.latestVersion}
+              </Text>
+              {update.outcome.downloads.length === 0 ? (
+                <Text className="font-sans text-xs text-muted dark:text-muted-dark">
+                  没能识别你的设备型号，请在下方 release 页面选择安装包。
+                </Text>
+              ) : (
+                <View className="gap-2">
+                  {update.outcome.downloads.map((download) => (
+                    <Button
+                      key={download.url}
+                      label={`下载 ${download.label}`}
+                      variant="secondary"
+                      onPress={() => {
+                        void Linking.openURL(download.url);
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
+              <Pressable
+                accessibilityRole="link"
+                accessibilityLabel="查看全部安装包"
+                onPress={() => {
+                  void Linking.openURL(update.pageUrl);
+                }}
+                className="self-start py-0.5"
+              >
+                <Text className="font-sans text-xs font-semibold text-accent dark:text-accent-dark">
+                  查看全部安装包 →
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </Card>
       </ScrollView>
     </KeyboardAvoidingView>
   );
