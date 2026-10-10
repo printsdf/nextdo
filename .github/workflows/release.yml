@@ -6,7 +6,8 @@
 # beforeBuildCommand) and publishes one GitHub Release containing the
 # installers for all three platforms.
 #
-# Android is built via EAS (build-android, one release .apk per CPU ABI).
+# Android is built via EAS (build-android, a single arm64-v8a release .apk —
+# the only ABI shipped; see apps/mobile/eas.json).
 # iOS is NOT part of this pipeline — it needs Apple signing credentials and
 # is produced separately.
 
@@ -35,7 +36,7 @@ on:
         required: false
         default: "aarch64,x86_64"
       android_abis:
-        description: "Comma list of Android ABIs to build (arm64-v8a,armeabi-v7a,x86,x86_64). Empty = all four."
+        description: "Android ABI to build. Only arm64-v8a is shipped; leave empty to build it, or set to a value that excludes arm64-v8a to skip Android entirely."
         required: false
         default: ""
 
@@ -193,27 +194,24 @@ jobs:
   build-android:
     name: Build Android (Local, ${{ matrix.abi }})
     # Tag push builds every platform; a manual dispatch builds Android only
-    # when build_targets asks for it. Within Android, requested ABIs are
-    # filtered at the STEP level (ABI_SELECTED below). A leg whose ABI was
-    # not requested skips all steps and reports success without an artifact;
-    # the release job only uploads what exists.
+    # when build_targets asks for it. Only arm64-v8a is shipped, so the matrix
+    # has a single leg; the android_abis input can still deselect it (the leg
+    # then skips all steps and reports success without an artifact, and the
+    # release job only uploads what exists).
     if: >-
       github.event_name == 'push' ||
       contains(format(',{0},', inputs.build_targets), ',android,')
     runs-on: ubuntu-latest
     # Build locally on the runner with `eas build --local` to avoid EAS Cloud quota.
-    # Each leg emits a single-ABI .apk.
+    # The single leg emits one arm64-v8a .apk.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { abi: arm64-v8a,   profile: android-arm64-v8a }
-          - { abi: armeabi-v7a, profile: android-armeabi-v7a }
-          - { abi: x86,         profile: android-x86 }
-          - { abi: x86_64,      profile: android-x86-64 }
+          - { abi: arm64-v8a, profile: android-arm64-v8a }
     env:
       # Empty android_abis (or a push event, where inputs are absent) means
-      # build every ABI.
+      # build the arm64-v8a leg.
       ABI_SELECTED: ${{ inputs.android_abis == '' || contains(format(',{0},', inputs.android_abis), format(',{0},', matrix.abi)) }}
     steps:
       - if: ${{ env.ABI_SELECTED == 'true' }}
