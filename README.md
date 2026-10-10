@@ -104,7 +104,7 @@ Nextdo 严格映射大卫·艾伦（David Allen）提出的 GTD 五步法：
 | **macOS** | Apple Silicon (M系列)<br>Intel (x86_64) | `Nextdo_x.x.x_aarch64.dmg`<br>`Nextdo_x.x.x_x64.dmg` | 原生轻量级桌面端（基于 Tauri v2）<br>支持 macOS 11.0 及以上 |
 | **Windows** | 64 位 (x86_64) | `Nextdo_x.x.x_x64-setup.exe`<br>`Nextdo_x.x.x_x64_en-US.msi` | 提供 NSIS 快捷安装包与企业级 MSI 包<br>适配 Windows 10 / 11 |
 | **Linux** | 64 位 (x86_64) | `Nextdo_x.x.x_amd64.AppImage`<br>`Nextdo_x.x.x_amd64.deb` | AppImage 即开即用，deb 适配 Debian/Ubuntu<br>兼容主流桌面发行版 |
-| **Android** | arm64-v8a (主流机型)<br>armeabi-v7a / x86_64 | `Nextdo_x.x.x_android_arm64-v8a.apk`<br>`Nextdo_x.x.x_android_armeabi-v7a.apk` | 推荐绝大多数现代 64 位手机下载 `arm64-v8a`<br>适配 Android 8.0 及以上 |
+| **Android** | arm64-v8a (主流 64 位设备) | `Nextdo_x.x.x_android_arm64-v8a.apk` | 仅保留主流 64 位 arm64-v8a 架构以大幅缩减安装包体积<br>适配 Android 8.0 及以上 |
 | **Web / PWA** | 现代主流浏览器 | [🌐 在线网页版 (PWA)](https://nextdo-cew.pages.dev) | 支持 Chrome / Safari / Edge 等现代浏览器<br>可直接「添加至主屏幕」享受独立窗口与离线秒开 |
 | **iOS** | iPhone / iPad | [📲 Safari 添加至主屏幕](https://nextdo-cew.pages.dev) | 无需 App Store，使用 Safari 打开网页版并点击「分享」→「添加到主屏幕」即可像原生 App 一样全屏使用、离线存取与支持提醒 |
 
